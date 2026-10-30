@@ -15,6 +15,7 @@ diff --git a/docs/OPENAI-STANDARD-BILLING.md b/docs/OPENAI-STANDARD-BILLING.md
  No missing usage is replaced with a local token estimate or a zero charge.
  
 diff --git a/dto/openai_cache_options_test.go b/dto/openai_cache_options_test.go
+new file mode 100644
 --- /dev/null
 +++ b/dto/openai_cache_options_test.go
 @@ -0,0 +1,23 @@
@@ -120,6 +121,7 @@ diff --git a/service/openai_standard_billing.go b/service/openai_standard_billin
  	// inspect documented Chat cache-control paths, whose 12h schema is ambiguous.
  	if info.RelayFormat == types.RelayFormatOpenAI {
 diff --git a/service/openai_standard_cache_ttl.go b/service/openai_standard_cache_ttl.go
+new file mode 100644
 --- /dev/null
 +++ b/service/openai_standard_cache_ttl.go
 @@ -0,0 +1,52 @@
@@ -176,6 +178,7 @@ diff --git a/service/openai_standard_cache_ttl.go b/service/openai_standard_cach
 +	return ttl
 +}
 diff --git a/service/openai_standard_cache_ttl_test.go b/service/openai_standard_cache_ttl_test.go
+new file mode 100644
 --- /dev/null
 +++ b/service/openai_standard_cache_ttl_test.go
 @@ -0,0 +1,63 @@

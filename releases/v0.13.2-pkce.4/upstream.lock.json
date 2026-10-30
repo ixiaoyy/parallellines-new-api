@@ -1,0 +1,28 @@
+{
+  "repository": "https://github.com/QuantumNous/new-api",
+  "upstream_version": "v0.13.2",
+  "commit": "bee339d279ccecbf8c8a89e14ddbbd902f78bd5d",
+  "archive_url": "https://codeload.github.com/QuantumNous/new-api/zip/bee339d279ccecbf8c8a89e14ddbbd902f78bd5d",
+  "archive_sha256": "160ec2f227590195d1a91e14beb1b6eed02d446745ccf1afcb159c587e89069d",
+  "application_version": "v0.13.2-pkce.4",
+  "patches": [
+    {
+      "file": "patches/new-api-v0.13.2-pkce-oauth-relay-billing.patch",
+      "sha256": "b3df02767ff251f2fb23220e8798c721188b1780e9d346f3cea6fbfd1771bf6f"
+    },
+    {
+      "file": "patches/new-api-v0.13.2-profile-sync-from-pkce3.patch",
+      "sha256": "77921fcb4bb432fe2acc32fdeb27ac3bfc5834e06ce132620118075fff0d8054"
+    }
+  ],
+  "runtime_base": "calciumion/new-api:v0.13.2@sha256:81da2c875f1de1460e6dd30324c5cb36b23ef55eaae00f317621fcb8a701ad43",
+  "go_version": "1.26.1",
+  "bun_version": "1.4.4",
+  "platform": "linux/amd64",
+  "cgo_enabled": "0",
+  "go_experiment": "greenteagc",
+  "frontend_reused_from": "v0.13.2-pkce.3",
+  "frontend_index_sha256": "1a9f40eb5c6c5c0a29c3d5792ff1ea07167c00885d762964930ec0492cf44ad4",
+  "frontend_tree_sha256": "96d8f1059fe531e6ae885800c583e9df0b0b8faad3efa5f69d94d086dd5aa931",
+  "scope": "pkce.3 plus verified Main profile synchronization only; no new session-revocation patch"
+}

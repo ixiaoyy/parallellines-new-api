@@ -1,0 +1,11 @@
+{
+  "version": "v0.13.2-pkce.4",
+  "binary": {
+    "sha256": "fa663b7e3d98265411589e0a36ea77a0f150b90becabd2f88249e89431afac3c",
+    "bytes": 70639778
+  },
+  "gzip": {
+    "sha256": "c1fe420a486db248051b88ea033150b738ee0de316b94e47759239ff85cd4f49",
+    "bytes": 22873197
+  }
+}

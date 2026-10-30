@@ -1,0 +1,9 @@
+{
+  "file": "dist/pkce4/new-api-v0.13.2-pkce.4-corresponding-source.tar.gz",
+  "bytes": 2954632,
+  "sha256": "07b08adc4c6a3e9bcfa47831f58edd811781274337a592292c41368a8b6cc6de",
+  "source_files": 1074,
+  "archive_files": 1097,
+  "reconstructed_source_matches_binary_snapshot": true,
+  "all_archive_entries_verified": true
+}

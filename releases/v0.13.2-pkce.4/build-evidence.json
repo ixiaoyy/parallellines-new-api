@@ -1,0 +1,42 @@
+{
+  "version": "v0.13.2-pkce.4",
+  "scope": "profile-only increment over pkce.3; no session-revocation increment",
+  "source": {
+    "official_commit": "bee339d279ccecbf8c8a89e14ddbbd902f78bd5d",
+    "pkce3_patch_sha256": "b3df02767ff251f2fb23220e8798c721188b1780e9d346f3cea6fbfd1771bf6f",
+    "profile_patch_sha256": "77921fcb4bb432fe2acc32fdeb27ac3bfc5834e06ce132620118075fff0d8054",
+    "pkce3_root_lock_unchanged_sha256": "a7f235ecbe78939963a1decaefdc387fd2e49b1775eb61f6bb3f5eeb71f38871",
+    "profile_files_verified": 6,
+    "full_reconstructed_source_files_matching_build_snapshot": 1074
+  },
+  "frontend": {
+    "reused_from": "v0.13.2-pkce.3",
+    "source_files_unchanged": 423,
+    "assets_individually_verified": 127,
+    "tree_sha256": "96d8f1059fe531e6ae885800c583e9df0b0b8faad3efa5f69d94d086dd5aa931",
+    "entry": "/assets/index-CAbcEbNk.js"
+  },
+  "toolchain": {
+    "go": "go1.26.1",
+    "target": "linux/amd64",
+    "cgo": "0",
+    "goexperiment": "greenteagc",
+    "frontend_original_builder": "Bun 1.4.4 / Vite 5.4.11"
+  },
+  "tests": [
+    {"command": "go test -buildvcs=false ./oauth ./controller ./pkg/oauthpkce ./service ./relay/helper -run 'Profile|PKCE|OpenAIStandard' -count=1", "result": "passed", "note": "oauth, controller, service and relay/helper passed; pkg/oauthpkce had no matching selector tests"},
+    {"command": "go test -buildvcs=false ./pkg/oauthpkce -count=1", "result": "passed", "duration_seconds": 0.023},
+    {"command": "python3 -m unittest discover -s deploy -p test_deploy_profile_sync.py -v", "result": "passed", "tests": 13, "duration_seconds": 0.171},
+    {"check": "independent profile deploy helper review", "result": "passed; no blocking findings"},
+    {"check": "reconstructed corresponding source and every tar entry match", "result": "passed", "entries": 1097}
+  ],
+  "deployment_helpers": {
+    "deploy/deploy-profile-sync.py": "8e6a05bfcdcb6ae6e017da513e6395738365614762869b9c340c00a9a6c21f3e",
+    "deploy/deploy-personal-relay.py": "d134f1d1d05926b6d8d93f53814a0475129733babde785ad8efc67aa2946b4eb"
+  },
+  "transport_evaluation": {"decision": "full gzip selected", "gzip_bytes": 22873197, "experimental_4096_byte_copy_delta_bytes": 15836116, "delta_deployed": false},
+  "server_operations_by_release_builder": false,
+  "paid_model_requests": false,
+  "balances_changed": false,
+  "live_user_profile_flow_verified_by_release_builder": false
+}

@@ -6,10 +6,12 @@ The upstream application and this modification are provided under GNU AGPL v3;
 the complete license is in [LICENSE](LICENSE). Original UI and notices are retained.
 
 Modification dated 2026-10-30: an opt-in, provider-specific OAuth PKCE flow with
-short-lived, single-use, server-side transactions and associated tests. The patch
-does not grant administrator roles or implement per-user model billing.
+short-lived, single-use, server-side transactions and associated tests; plus an
+opt-in, fixed-issuer Chat OAuth adapter using existing native user bindings and
+independent server-only credentials through the original billing pipeline. The
+patch grants no administrator roles, accounts, quota or subscription.
 
-The fixed upstream archive plus `patches/new-api-v0.13.2-pkce.patch` describe the
+The fixed upstream archive plus the combined patch named in `upstream.lock.json` describe the
 modified source. `scripts/package-source.sh` assembles the full corresponding
 source, dependency lockfiles, build scripts, patch, and license into a release
 archive. Publish that archive alongside every deployed modified version and make

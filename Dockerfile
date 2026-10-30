@@ -6,6 +6,7 @@ RUN test "$(bun --version)" = '1.4.4'
 COPY web/package.json web/bun.lock ./
 RUN bun install --frozen-lockfile
 COPY web/ ./
+# Backend-only pkce.2 retains the already validated frontend build stamp.
 RUN DISABLE_ESLINT_PLUGIN=true VITE_REACT_APP_VERSION=v0.13.2-pkce.1 bun run build
 
 FROM golang:1.26.1-alpine@sha256:2389ebfa5b7f43eeafbd6be0c3700cc46690ef842ad962f6c5bd6be49ed82039 AS server
@@ -15,7 +16,7 @@ COPY go.mod go.sum ./
 RUN go mod download
 COPY . .
 COPY --from=web /build/dist ./web/dist
-RUN go build -buildvcs=false -ldflags '-s -w -X github.com/QuantumNous/new-api/common.Version=v0.13.2-pkce.1' -o /new-api .
+RUN go build -buildvcs=false -ldflags '-s -w -X github.com/QuantumNous/new-api/common.Version=v0.13.2-pkce.2' -o /new-api .
 
 FROM calciumion/new-api:v0.13.2@sha256:81da2c875f1de1460e6dd30324c5cb36b23ef55eaae00f317621fcb8a701ad43
 COPY --from=server --chmod=0755 /new-api /new-api

@@ -10,13 +10,14 @@ mkdir -p dist
 (
   cd "$source_dir/web"
   bun install --frozen-lockfile
+  # Backend-only pkce.2 retains the already validated frontend build stamp.
   DISABLE_ESLINT_PLUGIN=true VITE_REACT_APP_VERSION=v0.13.2-pkce.1 bun run build
 )
 (
   cd "$source_dir"
   CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOEXPERIMENT=greenteagc \
     go build -buildvcs=false \
-    -ldflags '-s -w -X github.com/QuantumNous/new-api/common.Version=v0.13.2-pkce.1' \
+    -ldflags '-s -w -X github.com/QuantumNous/new-api/common.Version=v0.13.2-pkce.2' \
     -o "$repo_root/dist/new-api-linux-amd64" .
 )
 sha256sum dist/new-api-linux-amd64 > dist/SHA256SUMS

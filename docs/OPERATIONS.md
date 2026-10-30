@@ -69,10 +69,11 @@ paid requests. Set native `monitor_setting.auto_test_channel_enabled=false`,
 approved. The channel `settings` field itself is a JSON string.
 
 Quota accounting is New API-specific. Do not copy LibreChat credit conversions.
-SSO establishes identity, not per-user relay authorization: the requested
-Chat-to-New-API subject/usage mapping must be separately implemented and verified.
-Do not pass an SSO access token as a relay key to stock New API or give every user
-a shared administrator relay key.
+SSO establishes identity. Version pkce.2 adds a separate opt-in adapter that maps
+verified Chat-client UserInfo to an exact existing native OAuth binding and uses
+an independent internal credential per user. See [OAUTH-RELAY.md](OAUTH-RELAY.md)
+for its fixed claims, migration, routes, zero-quota model discovery and limits.
+Do not pass an SSO access token to stock relay routes or give users a shared key.
 
 ## Upgrade and rollback
 
@@ -88,12 +89,15 @@ a shared administrator relay key.
 4. Publish and link the exact full corresponding source archive for the deployed
    AGPL version. Preserve old source releases while deployed versions remain.
 
-To roll back, use the prior image and matching service definition. If an upgrade
-migrated the database, check upstream compatibility before starting the old image;
-use its pre-upgrade DB snapshot only with an explicit recovery decision because
-post-backup writes would be lost. Keep root recovery until real admin login is
-verified. Never remove volumes, prune images globally, or touch other services as
-part of this routine.
+After any internal Chat credential is issued, stock v0.13.2 and pkce.1 are unsafe
+rollback targets: they lack the internal-key visibility and direct-use guards.
+Keep pkce.2 and disable `CHAT_OAUTH_RELAY_ENABLED`, or roll forward. For a proposed
+old-binary rollback, first stop/drain issuance and run
+`python3 scripts/guard-legacy-rollback.py /data/new-api.db` against the actual DB;
+any non-NULL internal-purpose row (even disabled/soft-deleted) blocks rollback.
+This read-only guard never deletes credentials or restores data. Never blindly
+restore a pre-upgrade database because post-backup writes would be lost. Preserve
+root recovery and all volumes; do not prune images or affect other services.
 
 ## Nginx
 

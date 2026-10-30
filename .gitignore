@@ -14,6 +14,8 @@ logs/
 .build/
 dist/
 node_modules/
+__pycache__/
+*.pyc
 web/dist/
 new-api-linux-*
 *.zip

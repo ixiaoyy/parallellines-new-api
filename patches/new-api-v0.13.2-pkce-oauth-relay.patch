@@ -1,0 +1,3087 @@
+diff --git a/controller/misc.go b/controller/misc.go
+index 519caed..698da0d 100644
+--- a/controller/misc.go
++++ b/controller/misc.go
+@@ -141,6 +141,7 @@ func GetStatus(c *gin.Context) {
+ 			ClientId              string `json:"client_id"`
+ 			AuthorizationEndpoint string `json:"authorization_endpoint"`
+ 			Scopes                string `json:"scopes"`
++			PKCEEnabled           bool   `json:"pkce_enabled"`
+ 		}
+ 		providersInfo := make([]CustomOAuthInfo, 0, len(customProviders))
+ 		for _, p := range customProviders {
+@@ -153,6 +154,7 @@ func GetStatus(c *gin.Context) {
+ 				ClientId:              config.ClientId,
+ 				AuthorizationEndpoint: config.AuthorizationEndpoint,
+ 				Scopes:                config.Scopes,
++				PKCEEnabled:           oauth.CustomPKCEEnabled(config.Slug),
+ 			})
+ 		}
+ 		data["custom_oauth_providers"] = providersInfo
+diff --git a/controller/oauth.go b/controller/oauth.go
+index 9951f22..bb6b3b2 100644
+--- a/controller/oauth.go
++++ b/controller/oauth.go
+@@ -56,7 +56,15 @@ func HandleOAuth(c *gin.Context) {
+ 
+ 	// 1. Validate state (CSRF protection)
+ 	state := c.Query("state")
+-	if state == "" || session.Get("oauth_state") == nil || state != session.Get("oauth_state").(string) {
++	validState := false
++	if custom, ok := provider.(*oauth.GenericOAuthProvider); ok && oauth.CustomPKCEEnabled(providerName) {
++		custom = custom.Snapshot()
++		provider = custom
++		validState = consumeCustomOAuthPKCE(c, session, custom) == nil
++	} else {
++		validState = state != "" && session.Get("oauth_state") != nil && state == session.Get("oauth_state").(string)
++	}
++	if !validState {
+ 		c.JSON(http.StatusForbidden, gin.H{
+ 			"success": false,
+ 			"message": i18n.T(c, i18n.MsgOAuthStateInvalid),
+diff --git a/controller/oauth_pkce.go b/controller/oauth_pkce.go
+new file mode 100644
+index 0000000..d0704b1
+--- /dev/null
++++ b/controller/oauth_pkce.go
+@@ -0,0 +1,113 @@
++package controller
++
++import (
++	"errors"
++	"net/http"
++	"net/url"
++	"time"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/i18n"
++	"github.com/QuantumNous/new-api/oauth"
++	"github.com/QuantumNous/new-api/pkg/oauthpkce"
++	"github.com/gin-contrib/sessions"
++	"github.com/gin-gonic/gin"
++)
++
++const pkceSessionKey = "custom_oauth_pkce_session"
++
++// This candidate is intentionally single-process. Restart cancels pending logins.
++// Do not deploy multiple replicas without a shared atomic transaction store.
++var customPKCETransactions = oauthpkce.NewStore(5*time.Minute, 10000)
++
++func pkceBinding(session sessions.Session, provider *oauth.GenericOAuthProvider) (oauthpkce.Binding, string, error) {
++	binding, ok := session.Get(pkceSessionKey).(string)
++	if !ok || binding == "" {
++		return oauthpkce.Binding{}, "", oauthpkce.ErrInvalidState
++	}
++	userID := 0
++	if session.Get("username") != nil {
++		var valid bool
++		userID, valid = session.Get("id").(int)
++		if !valid || userID <= 0 {
++			return oauthpkce.Binding{}, "", oauthpkce.ErrInvalidState
++		}
++	} else if session.Get("id") != nil {
++		return oauthpkce.Binding{}, "", oauthpkce.ErrInvalidState
++	}
++	redirect, fingerprint, err := provider.PKCEConfiguration()
++	return oauthpkce.Binding{Session: binding, UserID: userID, ProviderID: provider.GetProviderId(), Fingerprint: fingerprint}, redirect, err
++}
++
++func StartCustomOAuthPKCE(c *gin.Context) {
++	c.Header("Cache-Control", "no-store")
++	provider, ok := oauth.GetProvider(c.Param("provider")).(*oauth.GenericOAuthProvider)
++	if !ok || !provider.IsEnabled() || !oauth.CustomPKCEEnabled(c.Param("provider")) {
++		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": i18n.T(c, i18n.MsgOAuthNotEnabled)})
++		return
++	}
++	provider = provider.Snapshot()
++	session := sessions.Default(c)
++	if value, ok := session.Get(pkceSessionKey).(string); !ok || value == "" {
++		binding, err := oauthpkce.RandomValue()
++		if err != nil {
++			common.ApiError(c, err)
++			return
++		}
++		session.Set(pkceSessionKey, binding)
++	}
++	if aff := c.Query("aff"); aff != "" {
++		session.Set("aff", aff)
++	}
++	// Save before issuing a transaction; failed persistence must never redirect.
++	if err := session.Save(); err != nil {
++		common.ApiError(c, err)
++		return
++	}
++	binding, redirect, err := pkceBinding(session, provider)
++	if err != nil {
++		common.ApiError(c, err)
++		return
++	}
++	state, challenge, err := customPKCETransactions.Issue(binding)
++	if err != nil {
++		status := http.StatusInternalServerError
++		if errors.Is(err, oauthpkce.ErrCapacity) {
++			status = http.StatusTooManyRequests
++		}
++		c.JSON(status, gin.H{"success": false, "message": err.Error()})
++		return
++	}
++	config := provider.GetConfig()
++	authURL, _ := url.Parse(config.AuthorizationEndpoint) // validated above
++	q := authURL.Query()
++	q.Set("client_id", config.ClientId)
++	q.Set("redirect_uri", redirect)
++	q.Set("response_type", "code")
++	q.Set("scope", config.Scopes)
++	q.Set("state", state)
++	q.Set("code_challenge", challenge)
++	q.Set("code_challenge_method", "S256")
++	// Verifiers and client secrets belong only at the token endpoint.
++	q.Del("code_verifier")
++	q.Del("client_secret")
++	authURL.RawQuery = q.Encode()
++	common.ApiSuccess(c, gin.H{"authorization_url": authURL.String()})
++}
++
++func consumeCustomOAuthPKCE(c *gin.Context, session sessions.Session, provider *oauth.GenericOAuthProvider) error {
++	if !provider.IsEnabled() {
++		return oauthpkce.ErrInvalidState
++	}
++	binding, redirect, err := pkceBinding(session, provider)
++	if err != nil {
++		return err
++	}
++	verifier, err := customPKCETransactions.Consume(c.Query("state"), binding)
++	if err != nil {
++		return err
++	}
++	c.Set(oauth.PKCEVerifierContextKey, verifier)
++	c.Set(oauth.PKCERedirectContextKey, redirect)
++	return nil
++}
+diff --git a/controller/oauth_pkce_test.go b/controller/oauth_pkce_test.go
+new file mode 100644
+index 0000000..c4d0bd4
+--- /dev/null
++++ b/controller/oauth_pkce_test.go
+@@ -0,0 +1,320 @@
++package controller
++
++import (
++	"context"
++	"net/http"
++	"net/http/httptest"
++	"net/url"
++	"strconv"
++	"strings"
++	"sync/atomic"
++	"testing"
++	"time"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/i18n"
++	"github.com/QuantumNous/new-api/model"
++	"github.com/QuantumNous/new-api/oauth"
++	"github.com/QuantumNous/new-api/pkg/oauthpkce"
++	"github.com/QuantumNous/new-api/setting/system_setting"
++	"github.com/gin-contrib/sessions"
++	"github.com/gin-contrib/sessions/cookie"
++	"github.com/gin-gonic/gin"
++)
++
++type pkceBrowser struct{ cookies []*http.Cookie }
++type pkceHarness struct {
++	router   *gin.Engine
++	config   *model.CustomOAuthProvider
++	codes    map[string]string
++	calls    atomic.Int32
++	accepted atomic.Int32
++}
++
++func newPKCEHarness(t *testing.T) *pkceHarness {
++	t.Helper()
++	gin.SetMode(gin.TestMode)
++	if err := i18n.Init(); err != nil {
++		t.Fatal(err)
++	}
++	t.Setenv("CUSTOM_OAUTH_PKCE_PROVIDERS", "pkce-test")
++	oldAddress, oldStore := system_setting.ServerAddress, customPKCETransactions
++	system_setting.ServerAddress = "https://candidate.example"
++	customPKCETransactions = oauthpkce.NewStore(5*time.Minute, 100)
++	h := &pkceHarness{codes: make(map[string]string)}
++	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		w.Header().Set("Content-Type", "application/json")
++		if r.URL.Path == "/userinfo" {
++			// Deliberately stop before account/database operations. This suite tests
++			// the authorization transaction and token exchange, not account creation.
++			w.WriteHeader(http.StatusUnauthorized)
++			return
++		}
++		if r.URL.Path != "/token" {
++			t.Errorf("unexpected upstream path %s", r.URL.Path)
++			w.WriteHeader(404)
++			return
++		}
++		h.calls.Add(1)
++		if err := r.ParseForm(); err != nil {
++			t.Error(err)
++		}
++		clientID, secret, basic := r.BasicAuth()
++		if !basic || clientID != "fixture-client" || secret != "fixture-secret" {
++			t.Error("client_secret_basic contract failed")
++		}
++		if r.PostForm.Get("client_secret") != "" {
++			t.Error("Basic credentials duplicated into form")
++		}
++		if r.PostForm.Get("grant_type") != "authorization_code" {
++			t.Error("wrong grant")
++		}
++		code, verifier := r.PostForm.Get("code"), r.PostForm.Get("code_verifier")
++		valid := false
++		if code == "legacy" {
++			valid = verifier == "" && r.PostForm.Get("redirect_uri") == "https://candidate.example/oauth/legacy-test"
++		} else {
++			expected, exists := h.codes[code]
++			valid = exists && len(verifier) == 43 && oauthpkce.Challenge(verifier) == expected &&
++				r.PostForm.Get("redirect_uri") == "https://candidate.example/oauth/pkce-test"
++		}
++		if !valid {
++			w.WriteHeader(400)
++			_, _ = w.Write([]byte(`{"error":"invalid_grant"}`))
++			return
++		}
++		h.accepted.Add(1)
++		_, _ = w.Write([]byte(`{"access_token":"synthetic-test-token","token_type":"Bearer"}`))
++	}))
++	oldTransport := http.DefaultTransport
++	http.DefaultTransport = upstream.Client().Transport
++	h.config = &model.CustomOAuthProvider{
++		Id: 77, Slug: "pkce-test", Name: "PKCE fixture", Enabled: true,
++		ClientId: "fixture-client", ClientSecret: "fixture-secret", AuthStyle: 2,
++		AuthorizationEndpoint: upstream.URL + "/authorize", TokenEndpoint: upstream.URL + "/token",
++		UserInfoEndpoint: upstream.URL + "/userinfo", Scopes: "openid profile",
++		UserIdField: "sub", UsernameField: "preferred_username", DisplayNameField: "name",
++	}
++	oauth.RegisterCustom("pkce-test", oauth.NewGenericOAuthProvider(h.config))
++	t.Cleanup(func() {
++		http.DefaultTransport = oldTransport
++		upstream.Close()
++		oauth.UnregisterCustomProvider("pkce-test")
++		oauth.UnregisterCustomProvider("legacy-test")
++		system_setting.ServerAddress, customPKCETransactions = oldAddress, oldStore
++	})
++	h.router = gin.New()
++	store := cookie.NewStore([]byte("synthetic-session-test-signing-key"))
++	store.Options(sessions.Options{Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode})
++	h.router.Use(sessions.Sessions("session", store))
++	h.router.POST("/api/oauth/:provider/start", StartCustomOAuthPKCE)
++	h.router.GET("/api/oauth/state", GenerateOAuthCode)
++	h.router.GET("/api/oauth/:provider", HandleOAuth)
++	h.router.POST("/test/session/:id", func(c *gin.Context) {
++		s := sessions.Default(c)
++		id, _ := strconv.Atoi(c.Param("id"))
++		if id == 0 {
++			s.Delete("id")
++			s.Delete("username")
++		} else {
++			s.Set("id", id)
++			s.Set("username", "fixture-user")
++		}
++		if err := s.Save(); err != nil {
++			t.Error(err)
++		}
++		c.Status(200)
++	})
++	return h
++}
++
++func (h *pkceHarness) request(b *pkceBrowser, method, path string) *httptest.ResponseRecorder {
++	req := httptest.NewRequest(method, path, nil)
++	for _, c := range b.cookies {
++		req.AddCookie(c)
++	}
++	w := httptest.NewRecorder()
++	h.router.ServeHTTP(w, req)
++	if cookies := w.Result().Cookies(); len(cookies) > 0 {
++		b.cookies = cookies
++	}
++	return w
++}
++
++func (h *pkceHarness) start(t *testing.T, b *pkceBrowser) (string, string) {
++	t.Helper()
++	w := h.request(b, "POST", "/api/oauth/pkce-test/start")
++	var response struct {
++		Success bool
++		Data    struct {
++			URL string `json:"authorization_url"`
++		}
++	}
++	if err := common.Unmarshal(w.Body.Bytes(), &response); err != nil {
++		t.Fatal(err)
++	}
++	if w.Code != 200 || !response.Success {
++		t.Fatalf("start failed: %d %s", w.Code, w.Body.String())
++	}
++	if w.Header().Get("Cache-Control") != "no-store" {
++		t.Error("authorization response must not be cached")
++	}
++	u, err := url.Parse(response.Data.URL)
++	if err != nil {
++		t.Fatal(err)
++	}
++	q := u.Query()
++	if q.Get("code_challenge_method") != "S256" || q.Get("redirect_uri") != "https://candidate.example/oauth/pkce-test" ||
++		q.Get("client_id") != "fixture-client" || q.Get("response_type") != "code" {
++		t.Fatal("bad authorization parameters")
++	}
++	if q.Has("code_verifier") || strings.Contains(w.Body.String(), "fixture-secret") {
++		t.Fatal("authorization response leaked a secret")
++	}
++	for _, c := range b.cookies {
++		if c.Name == "session" && !c.HttpOnly {
++			t.Error("session must be HttpOnly")
++		}
++	}
++	return q.Get("state"), q.Get("code_challenge")
++}
++
++func callbackPath(state, code string) string {
++	return "/api/oauth/pkce-test?" + url.Values{"state": {state}, "code": {code}}.Encode()
++}
++
++func TestCustomPKCERejectsCrossSessionAndReplay(t *testing.T) {
++	h := newPKCEHarness(t)
++	a, b := &pkceBrowser{}, &pkceBrowser{}
++	state, challenge := h.start(t, a)
++	h.codes["valid"] = challenge
++	h.start(t, b)
++	if w := h.request(b, "GET", callbackPath(state, "valid")); w.Code != 403 {
++		t.Fatalf("cross-session status %d", w.Code)
++	}
++	if h.calls.Load() != 0 {
++		t.Fatal("wrong session reached upstream")
++	}
++	stale := &pkceBrowser{cookies: a.cookies}
++	h.request(a, "GET", callbackPath(state, "valid"))
++	if h.accepted.Load() != 1 {
++		t.Fatal("correct session/verifier did not reach upstream")
++	}
++	if w := h.request(stale, "GET", callbackPath(state, "valid")); w.Code != 403 {
++		t.Fatal("stale signed cookie replay accepted")
++	}
++	if h.calls.Load() != 1 {
++		t.Fatal("replay reached token endpoint")
++	}
++}
++
++func TestCustomPKCECodeFailuresConsumeTransaction(t *testing.T) {
++	for _, code := range []string{"", "wrong-code", "wrong-challenge"} {
++		t.Run(code, func(t *testing.T) {
++			h := newPKCEHarness(t)
++			b := &pkceBrowser{}
++			state, challenge := h.start(t, b)
++			h.codes["valid"] = challenge
++			h.codes["wrong-challenge"] = oauthpkce.Challenge("different-verifier")
++			h.request(b, "GET", callbackPath(state, code))
++			if h.accepted.Load() != 0 {
++				t.Fatal("invalid code/PKCE accepted")
++			}
++			before := h.calls.Load()
++			if code == "" && before != 0 {
++				t.Fatal("empty code reached upstream")
++			}
++			if w := h.request(b, "GET", callbackPath(state, "valid")); w.Code != 403 {
++				t.Fatal("failed transaction was reusable")
++			}
++			if h.calls.Load() != before {
++				t.Fatal("replayed failed transaction reached upstream")
++			}
++		})
++	}
++}
++
++func TestCustomPKCEMultipleTabsAndLoginChanges(t *testing.T) {
++	h := newPKCEHarness(t)
++	b := &pkceBrowser{}
++	first, c1 := h.start(t, b)
++	second, c2 := h.start(t, b)
++	h.codes["first"], h.codes["second"] = c1, c2
++	h.request(b, "POST", "/test/session/5")
++	if w := h.request(b, "GET", callbackPath(first, "first")); w.Code != 403 {
++		t.Fatal("anonymous transaction became account binding")
++	}
++	h.request(b, "POST", "/test/session/0")
++	h.request(b, "GET", callbackPath(second, "second"))
++	h.request(b, "GET", callbackPath(first, "first"))
++	if h.accepted.Load() != 2 {
++		t.Fatal("same-session tabs did not complete independently")
++	}
++}
++
++func TestCustomPKCEFirstCookieRaceFailsClosed(t *testing.T) {
++	h := newPKCEHarness(t)
++	tab1, tab2 := &pkceBrowser{}, &pkceBrowser{}
++	first, c1 := h.start(t, tab1)
++	second, c2 := h.start(t, tab2)
++	h.codes["first"], h.codes["second"] = c1, c2
++	// Both starts lacked a cookie; the browser kept the second Set-Cookie.
++	if w := h.request(tab2, "GET", callbackPath(first, "first")); w.Code != 403 {
++		t.Fatal("first-cookie race crossed sessions")
++	}
++	h.request(tab2, "GET", callbackPath(second, "second"))
++	if h.accepted.Load() != 1 {
++		t.Fatal("surviving cookie transaction failed")
++	}
++}
++
++func TestCustomPKCEProviderConfigurationAndMissingState(t *testing.T) {
++	h := newPKCEHarness(t)
++	b := &pkceBrowser{}
++	state, challenge := h.start(t, b)
++	h.codes["valid"] = challenge
++	for _, wrong := range []string{"", "unknown"} {
++		if w := h.request(b, "GET", callbackPath(wrong, "valid")); w.Code != 403 {
++			t.Fatal("bad state accepted")
++		}
++	}
++	changed := *h.config
++	changed.AccessPolicy = `{"logic":"and","conditions":[{"field":"allowed","op":"eq","value":true}]}`
++	oauth.RegisterCustom(changed.Slug, oauth.NewGenericOAuthProvider(&changed))
++	if w := h.request(b, "GET", callbackPath(state, "valid")); w.Code != 403 {
++		t.Fatal("configuration changed during authorization")
++	}
++	if h.calls.Load() != 0 {
++		t.Fatal("invalid transaction reached upstream")
++	}
++	oauth.RegisterCustom(h.config.Slug, oauth.NewGenericOAuthProvider(h.config))
++	h.request(b, "GET", callbackPath(state, "valid"))
++	if h.accepted.Load() != 1 {
++		t.Fatal("invalid attempt consumed legitimate state")
++	}
++}
++
++func TestCustomPKCECannotBypassControllerAndLegacyIsUnchanged(t *testing.T) {
++	h := newPKCEHarness(t)
++	c, _ := gin.CreateTestContext(httptest.NewRecorder())
++	_, err := oauth.NewGenericOAuthProvider(h.config).ExchangeToken(context.Background(), "valid", c)
++	if err == nil || h.calls.Load() != 0 {
++		t.Fatal("PKCE-required exchange accepted no validated transaction")
++	}
++	legacy := *h.config
++	legacy.Id, legacy.Slug = 78, "legacy-test"
++	oauth.RegisterCustom(legacy.Slug, oauth.NewGenericOAuthProvider(&legacy))
++	b := &pkceBrowser{}
++	w := h.request(b, "GET", "/api/oauth/state")
++	var response struct{ Data string }
++	if err := common.Unmarshal(w.Body.Bytes(), &response); err != nil {
++		t.Fatal(err)
++	}
++	h.request(b, "GET", "/api/oauth/legacy-test?state="+response.Data+"&code=legacy")
++	if h.accepted.Load() != 1 {
++		t.Fatal("legacy provider behavior changed")
++	}
++	if w := h.request(b, "POST", "/api/oauth/legacy-test/start"); w.Code != 400 {
++		t.Fatal("non-opt-in provider started PKCE")
++	}
++}
+diff --git a/controller/oauth_relay.go b/controller/oauth_relay.go
+new file mode 100644
+index 0000000..710cd31
+--- /dev/null
++++ b/controller/oauth_relay.go
+@@ -0,0 +1,51 @@
++package controller
++
++import (
++	"errors"
++	"net/http"
++	"strconv"
++	"strings"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/constant"
++	"github.com/QuantumNous/new-api/dto"
++	"github.com/QuantumNous/new-api/model"
++	"github.com/gin-gonic/gin"
++	"gorm.io/gorm"
++)
++
++// Discovery is free and follows the authenticated user's actual channel group.
++// Missing prices still fail in the unchanged paid relay/billing pipeline.
++func ListChatOAuthRelayModels(c *gin.Context) {
++	group := common.GetContextKeyString(c, constant.ContextKeyUsingGroup)
++	enabled := make(map[string]bool)
++	for _, name := range model.GetGroupEnabledModels(group) {
++		enabled[name] = true
++	}
++	models := make([]dto.OpenAIModels, 0, 3)
++	for _, name := range strings.Split(model.OAuthRelayModelLimits, ",") {
++		if enabled[name] {
++			models = append(models, dto.OpenAIModels{Id: name, Object: "model", OwnedBy: "custom"})
++		}
++	}
++	c.JSON(http.StatusOK, gin.H{"object": "list", "data": models})
++}
++
++// The root-only route never returns the key and does not recreate a missing or
++// revoked credential. Existing user-disable/unbind controls also revoke access.
++func RevokeChatOAuthRelayCredential(c *gin.Context) {
++	id, err := strconv.Atoi(c.Param("id"))
++	if err != nil || id <= 0 {
++		c.AbortWithStatusJSON(400, gin.H{"success": false, "message": "invalid user id"})
++		return
++	}
++	if err := model.RevokeOAuthRelayToken(id); err != nil {
++		status := 500
++		if errors.Is(err, gorm.ErrRecordNotFound) {
++			status = 404
++		}
++		c.JSON(status, gin.H{"success": false, "message": "internal credential not found or revocation failed"})
++		return
++	}
++	c.JSON(200, gin.H{"success": true, "message": ""})
++}
+diff --git a/docs/PKCE-CANDIDATE.md b/docs/PKCE-CANDIDATE.md
+new file mode 100644
+index 0000000..debb491
+--- /dev/null
++++ b/docs/PKCE-CANDIDATE.md
+@@ -0,0 +1,120 @@
++# Custom OAuth PKCE candidate
++
++Base: official QuantumNous/new-api v0.13.2, commit
++`bee339d279ccecbf8c8a89e14ddbbd902f78bd5d`. Source was obtained from the
++fixed-commit official GitHub archive. This is a local candidate patch, not an
++upstream release. The original UI, branding, database schema, role assignment,
++quota behavior and existing providers are retained.
++
++## Scope and activation
++
++Set `CUSTOM_OAUTH_PKCE_PROVIDERS` to a comma-separated list of **custom provider
++slugs**, for example `pingxingxian`. The default is empty (upstream behavior).
++This is an explicit server-side requirement, not a browser preference. An
++allowlisted provider rejects legacy callbacks without a matching PKCE transaction.
++
++Configure the existing custom OAuth provider normally, including client ID,
++client secret, endpoints, scopes, field mappings and `auth_style=2` for Basic.
++`ServerAddress` must be the trusted public HTTPS origin. Its callback is
++`ServerAddress/oauth/<slug>`. All three provider endpoints must use HTTPS.
++The configuration is not applied by this patch.
++
++The unchanged login button obtains an authorization URL with
++`POST /api/oauth/<slug>/start`. This uses the existing rate limiter and a
++`Cache-Control: no-store` response. A 256-bit random verifier remains exclusively
++in a bounded in-process store. The signed HttpOnly session cookie carries only a
++random binding ID, never the verifier. State and the S256 challenge are returned
++in the authorization URL.
++
++Transactions bind the session, initiating local user ID (including anonymous),
++provider ID, trusted redirect and a fingerprint of the full provider configuration.
++The callback snapshots the provider, checks every binding and atomically consumes
++the transaction **before** a token request, including the existing-account bind
++path. The token request adds the verified `code_verifier` and frozen redirect.
++Missing/invalid state, expired state, wrong session/user/provider/configuration,
++and replay cannot fall back to the old flow. An invalid code burns its own valid
++transaction and requires a new login attempt.
++
++## Deliberate limits
++
++- This remains the upstream OAuth authorization-code + UserInfo identity flow.
++  The returned ID Token is not used for authentication. This patch does not add
++  nonce or ID Token validation and must not be described as doing so.
++- Single application process only. Transactions expire after five minutes, with
++  at most eight pending transactions per browser binding and 10,000 total.
++  Restart or routing a callback to a different process fails closed. Multiple
++  replicas require a separate review and a shared atomic transaction store.
++- Existing-cookie tabs have independent transactions while their session principal
++  stays unchanged. Once one tab actually logs in, other anonymous transactions
++  are rejected rather than being converted into account-binding attempts.
++  Simultaneous first starts without any cookie can race their Set-Cookie responses;
++  the losing tab fails closed and must restart authorization. It cannot inherit
++  the winning tab's transaction.
++- Network retries after a consumed callback cannot resend the token exchange.
++  A lost successful response may require a fresh authorization.
++- This does not add SSO role inheritance, admin claims, quota synchronization,
++  relay-token provisioning, Open WebUI token delivery, or main-site logout/
++  authorization-expiry propagation. New accounts retain upstream role 1.
++- No persistent secret, real account, provider configuration, server deployment,
++  or paid model call is created by the tests. Upstream DEBUG logging must remain
++  disabled for real OAuth credentials, as its existing token debug logs are
++  outside this patch's scope.
++
++## Validation
++
++Use the upstream Dockerfile's Go 1.26.1 builder (go.mod minimum is 1.25.1).
++Frontend dependencies are installed from the existing bun.lock with
++`bun install --frozen-lockfile`, then `bun run build`.
++
++Targeted tests:
++
++```sh
++go test ./pkg/oauthpkce
++go test ./controller -run '^TestCustomPKCE' -count=1
++go test ./router -run '^TestCustomPKCERouteRegistration$' -count=1
++```
++
++Store tests exercise RFC 7636 S256, unpredictable values, all binding failures,
++expiry, replay, multi-tab completion, capacity limits and concurrent single-use
++consumption. Controller tests use a local TLS mock token endpoint that validates
++Basic auth, redirect and S256, and deliberately stops at UserInfo before any
++account/database writes. They cover missing/wrong codes, wrong verifier challenge,
++cross-session use, stale-cookie replay, configuration changes, login-state changes,
++the first-cookie race, required-verifier enforcement and the legacy provider path.
++These are protocol tests; a real main-site SSO flow has not been executed.
++
++Recorded local results (2026-10-30):
++
++- Go 1.26.1: `go test ./controller ./router -run '^TestCustomPKCE' -count=1`
++  passed; `go test ./oauth ./pkg/oauthpkce -count=1` passed (oauth has no tests).
++- Bun 1.4.4: frozen dependency install and full Vite production build passed.
++- `bun test ./web/src/helpers/api.pkce.test.js`: 11 passed, zero failed.
++  These tests execute the actual helper bodies with HTTP/browser stubs and cover
++  logout failures, authorization errors, absence of fallback, and legacy behavior.
++- Independent review found no blocking issue. `git diff --check` passed.
++- Full-file Prettier check reports existing formatting issues in both the pristine
++  `api.js` and candidate. Unrelated upstream formatting was not rewritten.
++  React Doctor is not installed/pinned in this project and was not downloaded.
++- Go race detection was not run: the local Windows environment has no C compiler.
++  The store tests exercise concurrent issuance and single-use consumption.
++
++The Linux amd64 candidate was cross-compiled locally with the upstream build flags,
++plus an explicit candidate version and without the temporary archive Git baseline:
++
++```sh
++CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOEXPERIMENT=greenteagc \
++go build -buildvcs=false \
++  -ldflags '-s -w -X github.com/QuantumNous/new-api/common.Version=v0.13.2-pkce.1' \
++  -o new-api-linux-amd64
++```
++
++ELF64/x86-64 and embedded Go build metadata were checked. The official Dockerfile
++also uses CGO=0 and installs the executable as `/new-api`. Its SQLite driver is
++`github.com/glebarez/sqlite` with `modernc.org/sqlite`; no new native library was
++introduced. This is build/source evidence, not a Linux-container runtime check.
++The release owner must run the candidate container and real SSO smoke tests.
++
++The handoff contains the patch and a complete source archive assembled from the
++fixed upstream archive plus this patch (including the original Bun lockfile).
++Keep the corresponding source available with any network deployment of this
++modified AGPL application; retain the original notices and branding.
+diff --git a/middleware/auth.go b/middleware/auth.go
+index 23d933f..629857f 100644
+--- a/middleware/auth.go
++++ b/middleware/auth.go
+@@ -247,6 +247,10 @@ func TokenAuthReadOnly() func(c *gin.Context) {
+ 			return
+ 		}
+ 
++		if !internalOAuthRelayTokenAllowed(c, token) {
++			abortWithOpenAiMessage(c, http.StatusUnauthorized, "Internal Chat credentials require verified Chat OAuth")
++			return
++		}
+ 		userCache, err := model.GetUserCache(token.UserId)
+ 		if err != nil {
+ 			common.SysLog(fmt.Sprintf("TokenAuthReadOnly GetUserCache error for user %d: %v", token.UserId, err))
+@@ -348,6 +352,10 @@ func TokenAuth() func(c *gin.Context) {
+ 			return
+ 		}
+ 
++		if !internalOAuthRelayTokenAllowed(c, token) {
++			abortWithOpenAiMessage(c, http.StatusUnauthorized, "Internal Chat credentials require verified Chat OAuth")
++			return
++		}
+ 		allowIps := token.GetIpLimits()
+ 		if len(allowIps) > 0 {
+ 			clientIp := c.ClientIP()
+diff --git a/middleware/oauth_relay.go b/middleware/oauth_relay.go
+new file mode 100644
+index 0000000..5e1b1ad
+--- /dev/null
++++ b/middleware/oauth_relay.go
+@@ -0,0 +1,182 @@
++package middleware
++
++import (
++	"context"
++	"errors"
++	"io"
++	"mime"
++	"net/http"
++	"os"
++	"strings"
++	"time"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/model"
++	"github.com/gin-gonic/gin"
++)
++
++const chatOAuthIssuer = "https://pingxingxian.space/auth/oidc"
++const chatOAuthUserInfoURL = chatOAuthIssuer + "/me"
++const chatOAuthAudience = "parallellines-openwebui"
++const chatOAuthIdentityKey = "verified_chat_oauth_relay_identity"
++
++var errChatOAuthInvalid = errors.New("invalid Chat authorization")
++var errChatOAuthUnavailable = errors.New("Chat identity verification unavailable")
++
++// No discovery, caller-controlled URL, redirect, credential cache, or ID-token
++// interpretation. The trusted issuer verifies its opaque access token and current
++// main-site session on every request; the audience must be this Chat client.
++var chatOAuthHTTPClient = &http.Client{
++	Timeout:       5 * time.Second,
++	CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
++}
++
++type chatOAuthClaims struct {
++	Issuer     string `json:"iss"`
++	Audience   string `json:"aud"`
++	Subject    string `json:"sub"`
++	Binding    string `json:"pl_binding"`
++	AuthExpiry int64  `json:"pl_auth_exp"`
++}
++
++type chatOAuthIdentity struct{ userID, tokenID int }
++
++func verifyChatOAuthToken(ctx context.Context, accessToken string) (*chatOAuthClaims, error) {
++	req, err := http.NewRequestWithContext(ctx, http.MethodGet, chatOAuthUserInfoURL, nil)
++	if err != nil {
++		return nil, errChatOAuthUnavailable
++	}
++	req.Header.Set("Authorization", "Bearer "+accessToken)
++	req.Header.Set("Accept", "application/json")
++	resp, err := chatOAuthHTTPClient.Do(req)
++	if err != nil {
++		return nil, errChatOAuthUnavailable
++	}
++	defer resp.Body.Close()
++	if resp.StatusCode == 401 || resp.StatusCode == 403 {
++		return nil, errChatOAuthInvalid
++	}
++	if resp.StatusCode != 200 {
++		return nil, errChatOAuthUnavailable
++	}
++	body, err := io.ReadAll(io.LimitReader(resp.Body, 16385))
++	if err != nil || len(body) > 16384 {
++		return nil, errChatOAuthUnavailable
++	}
++	var claims chatOAuthClaims
++	if common.Unmarshal(body, &claims) != nil {
++		return nil, errChatOAuthInvalid
++	}
++	if claims.Issuer != chatOAuthIssuer || claims.Audience != chatOAuthAudience ||
++		claims.Subject == "" || len(claims.Subject) > 256 || strings.TrimSpace(claims.Subject) != claims.Subject ||
++		claims.Binding == "" || len(claims.Binding) > 512 || strings.TrimSpace(claims.Binding) != claims.Binding ||
++		claims.AuthExpiry <= time.Now().Unix() {
++		return nil, errChatOAuthInvalid
++	}
++	return &claims, nil
++}
++
++func chatOAuthAbort(c *gin.Context, status int, message string) {
++	c.AbortWithStatusJSON(status, gin.H{"error": gin.H{"message": message, "type": "chat_oauth_relay_error"}})
++}
++
++// ChatOAuthRelay is installed only on the three explicit adapter routes. Client
++// headers, query parameters and cookies never select an account or relay key.
++func ChatOAuthRelay(canonicalPath string) gin.HandlerFunc {
++	return func(c *gin.Context) {
++		c.Header("Cache-Control", "no-store")
++		if os.Getenv("CHAT_OAUTH_RELAY_ENABLED") != "true" {
++			chatOAuthAbort(c, 404, "Chat OAuth relay is disabled")
++			return
++		}
++		if c.Request.URL.RawQuery != "" || c.Request.URL.RawPath != "" {
++			chatOAuthAbort(c, 400, "Query credentials and encoded adapter paths are not accepted")
++			return
++		}
++		for _, header := range []string{"X-Api-Key", "X-Goog-Api-Key", "Sec-WebSocket-Protocol", "Mj-Api-Secret", "New-Api-User", "X-User-Id"} {
++			if c.GetHeader(header) != "" {
++				chatOAuthAbort(c, 400, "Alternate credentials and caller-selected identities are not accepted")
++				return
++			}
++		}
++		auth := c.Request.Header.Values("Authorization")
++		if len(auth) != 1 || len(auth[0]) > 8192 {
++			chatOAuthAbort(c, 401, "A Chat OAuth bearer token is required")
++			return
++		}
++		parts := strings.Fields(auth[0])
++		if len(parts) != 2 || !strings.EqualFold(parts[0], "Bearer") {
++			chatOAuthAbort(c, 401, "A Chat OAuth bearer token is required")
++			return
++		}
++		claims, err := verifyChatOAuthToken(c.Request.Context(), parts[1])
++		if err != nil {
++			status := 401
++			if errors.Is(err, errChatOAuthUnavailable) {
++				status = 503
++			}
++			chatOAuthAbort(c, status, err.Error())
++			return
++		}
++		user, err := model.ResolveOAuthRelayUser(1, "pingxingxian", claims.Subject)
++		if err != nil {
++			chatOAuthAbort(c, 403, "An enabled existing main-site account binding is required")
++			return
++		}
++		token, err := model.GetOrCreateOAuthRelayToken(user.Id)
++		if err != nil {
++			chatOAuthAbort(c, 403, "The internal Chat credential is unavailable or revoked")
++			return
++		}
++		c.Set(chatOAuthIdentityKey, chatOAuthIdentity{userID: user.Id, tokenID: token.Id})
++		// Replace, never append: the original OAuth bearer must not reach a model.
++		c.Request.Header.Set("Authorization", "Bearer "+token.Key)
++		c.Request.Header.Del("Cookie")
++		for header := range c.Request.Header {
++			if strings.HasPrefix(strings.ToLower(header), "x-openwebui-user-") {
++				c.Request.Header.Del(header)
++			}
++		}
++		c.Request.URL.Path = canonicalPath
++		c.Request.URL.RawPath = ""
++		c.Request.RequestURI = canonicalPath
++		c.Next()
++	}
++}
++
++// Internal credentials are unusable on ordinary relay/usage routes, even if a
++// secret is accidentally obtained. This context is set only after UserInfo and
++// the native binding have been checked on this request.
++func internalOAuthRelayTokenAllowed(c *gin.Context, token *model.Token) bool {
++	value, selected := c.Get(chatOAuthIdentityKey)
++	if token.InternalPurpose == nil {
++		return !selected
++	}
++	identity, ok := value.(chatOAuthIdentity)
++	return selected && ok && *token.InternalPurpose == model.OAuthRelayTokenPurpose &&
++		identity.userID == token.UserId && identity.tokenID == token.Id
++}
++
++func ChatOAuthRelayModelLimit() gin.HandlerFunc {
++	return func(c *gin.Context) {
++		contentType, _, err := mime.ParseMediaType(c.GetHeader("Content-Type"))
++		if err != nil || contentType != "application/json" {
++			chatOAuthAbort(c, 415, "A JSON model request is required")
++			return
++		}
++		var request struct {
++			Model string `json:"model"`
++		}
++		if common.UnmarshalBodyReusable(c, &request) != nil {
++			chatOAuthAbort(c, 400, "A JSON model request is required")
++			return
++		}
++		for _, allowed := range strings.Split(model.OAuthRelayModelLimits, ",") {
++			if request.Model == allowed {
++				c.Next()
++				return
++			}
++		}
++		chatOAuthAbort(c, 403, "This model is not available through Chat")
++	}
++}
+diff --git a/middleware/oauth_relay_test.go b/middleware/oauth_relay_test.go
+new file mode 100644
+index 0000000..41a45e4
+--- /dev/null
++++ b/middleware/oauth_relay_test.go
+@@ -0,0 +1,278 @@
++package middleware
++
++import (
++	"context"
++	"io"
++	"net/http"
++	"net/http/httptest"
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/dto"
++	"github.com/QuantumNous/new-api/i18n"
++	"github.com/QuantumNous/new-api/model"
++	relaycommon "github.com/QuantumNous/new-api/relay/common"
++	"github.com/QuantumNous/new-api/service"
++	"github.com/gin-gonic/gin"
++	"gorm.io/gorm/logger"
++)
++
++type chatOAuthRoundTrip func(*http.Request) (*http.Response, error)
++
++func (f chatOAuthRoundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
++
++func fixtureChatClaims(sub string) map[string]any {
++	return map[string]any{"iss": chatOAuthIssuer, "aud": chatOAuthAudience, "sub": sub,
++		"pl_binding": "synthetic-session-binding", "pl_auth_exp": time.Now().Unix() + 300}
++}
++
++func mockChatUserInfo(t *testing.T, responder func(*http.Request) (int, any)) {
++	t.Helper()
++	old := chatOAuthHTTPClient
++	client := *old
++	client.Transport = chatOAuthRoundTrip(func(r *http.Request) (*http.Response, error) {
++		if r.URL.String() != chatOAuthUserInfoURL || r.Method != "GET" || r.Header.Get("Cookie") != "" {
++			t.Error("identity request escaped the fixed UserInfo contract")
++		}
++		status, value := responder(r)
++		body, err := common.Marshal(value)
++		if err != nil {
++			t.Fatal(err)
++		}
++		return &http.Response{StatusCode: status, Header: http.Header{"Content-Type": {"application/json"}},
++			Body: io.NopCloser(strings.NewReader(string(body))), Request: r}, nil
++	})
++	chatOAuthHTTPClient = &client
++	t.Cleanup(func() { chatOAuthHTTPClient = old })
++}
++
++func TestChatOAuthRelayClaimsFailClosed(t *testing.T) {
++	for _, tc := range []struct {
++		name   string
++		change func(map[string]any)
++	}{
++		{"wrong issuer", func(c map[string]any) { c["iss"] = "https://other.example" }},
++		{"legacy audience", func(c map[string]any) { c["aud"] = "legacy-client" }},
++		{"NewAPI audience", func(c map[string]any) { c["aud"] = "parallellines-newapi" }},
++		{"audience array", func(c map[string]any) { c["aud"] = []string{chatOAuthAudience} }},
++		{"missing subject", func(c map[string]any) { delete(c, "sub") }},
++		{"normalized subject", func(c map[string]any) { c["sub"] = " fixture-a" }},
++		{"missing binding", func(c map[string]any) { delete(c, "pl_binding") }},
++		{"expired", func(c map[string]any) { c["pl_auth_exp"] = time.Now().Unix() - 1 }},
++		{"string expiry", func(c map[string]any) { c["pl_auth_exp"] = "9999999999" }},
++	} {
++		t.Run(tc.name, func(t *testing.T) {
++			claims := fixtureChatClaims("fixture-a")
++			tc.change(claims)
++			mockChatUserInfo(t, func(*http.Request) (int, any) { return 200, claims })
++			if _, err := verifyChatOAuthToken(context.Background(), "synthetic-oauth-token"); err == nil {
++				t.Fatal("invalid identity accepted")
++			}
++		})
++	}
++	t.Run("valid", func(t *testing.T) {
++		mockChatUserInfo(t, func(*http.Request) (int, any) { return 200, fixtureChatClaims("fixture-a") })
++		if _, err := verifyChatOAuthToken(context.Background(), "synthetic-oauth-token"); err != nil {
++			t.Fatal(err)
++		}
++	})
++	t.Run("oversized", func(t *testing.T) {
++		claims := fixtureChatClaims("fixture-a")
++		claims["extra"] = strings.Repeat("x", 16384)
++		mockChatUserInfo(t, func(*http.Request) (int, any) { return 200, claims })
++		if _, err := verifyChatOAuthToken(context.Background(), "synthetic-oauth-token"); err == nil {
++			t.Fatal("oversized response accepted")
++		}
++	})
++	t.Run("redirect refused", func(t *testing.T) {
++		old := chatOAuthHTTPClient
++		client := *old
++		calls := 0
++		client.Transport = chatOAuthRoundTrip(func(r *http.Request) (*http.Response, error) {
++			calls++
++			return &http.Response{StatusCode: 302, Header: http.Header{"Location": {"https://untrusted.example/me"}}, Body: http.NoBody, Request: r}, nil
++		})
++		chatOAuthHTTPClient = &client
++		t.Cleanup(func() { chatOAuthHTTPClient = old })
++		if _, err := verifyChatOAuthToken(context.Background(), "synthetic-oauth-token"); err == nil || calls != 1 {
++			t.Fatal("UserInfo redirect followed")
++		}
++	})
++}
++
++func setupChatOAuthDB(t *testing.T) {
++	t.Helper()
++	gin.SetMode(gin.TestMode)
++	if err := i18n.Init(); err != nil {
++		t.Fatal(err)
++	}
++	oldDB, oldPath, oldMaster := model.DB, common.SQLitePath, common.IsMasterNode
++	oldRedis, oldBatch := common.RedisEnabled, common.BatchUpdateEnabled
++	t.Setenv("SQL_DSN", "local")
++	t.Setenv("SQL_MAX_OPEN_CONNS", "1")
++	t.Setenv("CHAT_OAUTH_RELAY_ENABLED", "true")
++	common.SQLitePath = "file:chat-oauth-" + t.Name() + "?mode=memory&cache=shared"
++	common.IsMasterNode, common.RedisEnabled, common.BatchUpdateEnabled = false, false, false
++	if err := model.InitDB(); err != nil {
++		t.Fatal(err)
++	}
++	model.DB.Logger = logger.Default.LogMode(logger.Silent)
++	if err := model.DB.AutoMigrate(&model.User{}, &model.Token{}, &model.CustomOAuthProvider{}, &model.UserOAuthBinding{}); err != nil {
++		t.Fatal(err)
++	}
++	t.Cleanup(func() {
++		sqlDB, _ := model.DB.DB()
++		_ = sqlDB.Close()
++		model.DB, common.SQLitePath, common.IsMasterNode = oldDB, oldPath, oldMaster
++		common.RedisEnabled, common.BatchUpdateEnabled = oldRedis, oldBatch
++	})
++	provider := model.CustomOAuthProvider{Id: 1, Slug: "pingxingxian", Name: "fixture", Enabled: true, UserIdField: "sub", UserInfoEndpoint: chatOAuthUserInfoURL}
++	if err := model.DB.Create(&provider).Error; err != nil {
++		t.Fatal(err)
++	}
++	for i, sub := range []string{"fixture-a", "fixture-b", "fixture-zero"} {
++		quota := 100
++		if i == 2 {
++			quota = 0
++		}
++		user := model.User{Id: 101 + i, Username: sub, AffCode: sub, Role: common.RoleCommonUser, Status: common.UserStatusEnabled, Group: "default", Quota: quota}
++		if err := model.DB.Create(&user).Error; err != nil {
++			t.Fatal(err)
++		}
++		binding := model.UserOAuthBinding{UserId: user.Id, ProviderId: 1, ProviderUserId: sub}
++		if err := model.DB.Create(&binding).Error; err != nil {
++			t.Fatal(err)
++		}
++	}
++}
++
++func TestChatOAuthRelayNativeIdentityAndQuotaIsolation(t *testing.T) {
++	setupChatOAuthDB(t)
++	userinfoCalls := 0
++	mockChatUserInfo(t, func(r *http.Request) (int, any) {
++		userinfoCalls++
++		sub := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer oauth-")
++		if !strings.HasPrefix(sub, "fixture-") {
++			return 401, map[string]any{"error": "invalid_token"}
++		}
++		return 200, fixtureChatClaims(sub)
++	})
++	r := gin.New()
++	r.Use(BodyStorageCleanup())
++	tokens := map[int]int{}
++	seenPaths := map[string]int{}
++	terminal := func(c *gin.Context) {
++		uid, tid := c.GetInt("id"), c.GetInt("token_id")
++		if old := tokens[uid]; old != 0 && old != tid {
++			t.Error("credential not reused for same owner")
++		}
++		tokens[uid] = tid
++		seenPaths[c.Request.URL.Path]++
++		if strings.Contains(c.GetHeader("Authorization"), "oauth-") || c.GetHeader("Cookie") != "" {
++			t.Error("source credentials survived mapping")
++		}
++		if c.Request.Method == "POST" {
++			info := &relaycommon.RelayInfo{UserId: uid, TokenId: tid, TokenKey: c.GetString("token_key"), TokenUnlimited: c.GetBool("token_unlimited_quota"), UserSetting: dto.UserSetting{BillingPreference: "wallet_only"}}
++			billing, apiErr := service.NewBillingSession(c, info, 10)
++			if apiErr != nil {
++				c.Status(apiErr.StatusCode)
++				return
++			}
++			if err := billing.Settle(7); err != nil {
++				t.Fatal(err)
++			}
++		}
++		c.JSON(200, gin.H{"ok": true})
++	}
++	r.GET("/oauth-relay/v1/models", ChatOAuthRelay("/v1/models"), TokenAuth(), terminal)
++	r.POST("/oauth-relay/v1/chat/completions", ChatOAuthRelay("/v1/chat/completions"), TokenAuth(), ChatOAuthRelayModelLimit(), terminal)
++	r.POST("/oauth-relay/v1/responses", ChatOAuthRelay("/v1/responses"), TokenAuth(), ChatOAuthRelayModelLimit(), terminal)
++	r.GET("/v1/models", TokenAuth(), terminal)
++	r.GET("/usage", TokenAuthReadOnly(), terminal)
++	request := func(method, path, bearer string, headers map[string]string, body string) int {
++		req := httptest.NewRequest(method, path, strings.NewReader(body))
++		if bearer != "" {
++			req.Header.Set("Authorization", "Bearer "+bearer)
++		}
++		req.Header.Set("Content-Type", "application/json")
++		for k, v := range headers {
++			req.Header.Set(k, v)
++		}
++		w := httptest.NewRecorder()
++		r.ServeHTTP(w, req)
++		// The public test responses must never contain any persisted relay key.
++		var internal []model.Token
++		model.DB.Where("internal_purpose IS NOT NULL").Find(&internal)
++		for _, key := range internal {
++			if strings.Contains(w.Body.String(), key.Key) {
++				t.Fatal("relay key exposed in response")
++			}
++		}
++		return w.Code
++	}
++	for _, sub := range []string{"fixture-a", "fixture-b", "fixture-zero"} {
++		if status := request("GET", "/oauth-relay/v1/models", "oauth-"+sub, nil, ""); status != 200 {
++			t.Fatalf("free discovery status %d", status)
++		}
++	}
++	body := `{"model":"gpt-6-luna","messages":[{"role":"user","content":[{"type":"text","text":"fixture"},{"type":"image_url","image_url":{"url":"data:image/png;base64,fixture"}}]}]}`
++	for _, path := range []string{"/oauth-relay/v1/chat/completions", "/oauth-relay/v1/responses"} {
++		if status := request("POST", path, "oauth-fixture-a", nil, body); status != 200 {
++			t.Fatalf("native billing status %d", status)
++		}
++	}
++	if tokens[101] == 0 || tokens[101] == tokens[102] || tokens[102] == tokens[103] {
++		t.Fatal("different users shared an internal credential")
++	}
++	for uid, want := range map[int]int{101: 86, 102: 100, 103: 0} {
++		user, err := model.GetUserById(uid, false)
++		if err != nil || user.Quota != want {
++			t.Fatalf("user %d quota changed incorrectly", uid)
++		}
++	}
++	if status := request("POST", "/oauth-relay/v1/responses", "oauth-fixture-zero", nil, body); status != 403 {
++		t.Fatalf("zero quota was not rejected: %d", status)
++	}
++	if seenPaths["/v1/models"] != 3 || seenPaths["/v1/chat/completions"] != 1 || seenPaths["/v1/responses"] != 2 {
++		t.Fatal("canonical paths not preserved")
++	}
++	for _, h := range []string{"X-Api-Key", "X-Goog-Api-Key", "Sec-WebSocket-Protocol", "Mj-Api-Secret", "New-Api-User", "X-User-Id"} {
++		before := userinfoCalls
++		if status := request("GET", "/oauth-relay/v1/models", "oauth-fixture-a", map[string]string{h: "spoof"}, ""); status != 400 || userinfoCalls != before {
++			t.Fatal("alternate credential header accepted")
++		}
++	}
++	if status := request("GET", "/oauth-relay/v1/models?key=spoof", "oauth-fixture-a", nil, ""); status != 400 {
++		t.Fatal("query accepted")
++	}
++	if status := request("GET", "/oauth-relay/v1/models", "", nil, ""); status != 401 {
++		t.Fatal("anonymous request accepted")
++	}
++	if status := request("GET", "/oauth-relay/v1/models", "oauth-fixture-missing", nil, ""); status != 403 {
++		t.Fatal("missing native binding accepted")
++	}
++	if status := request("POST", "/oauth-relay/v1/responses", "oauth-fixture-a", nil, `{"model":"gpt-6-luna-thinking"}`); status != 403 {
++		t.Fatal("nonexact model accepted")
++	}
++	internal, err := model.GetOrCreateOAuthRelayToken(101)
++	if err != nil {
++		t.Fatal(err)
++	}
++	for _, path := range []string{"/v1/models", "/usage"} {
++		if request("GET", path, internal.Key, nil, "") != 401 {
++			t.Fatal("internal key accepted outside verified adapter")
++		}
++	}
++	if err := model.RevokeOAuthRelayToken(101); err != nil {
++		t.Fatal(err)
++	}
++	if request("GET", "/oauth-relay/v1/models", "oauth-fixture-a", nil, "") != 403 {
++		t.Fatal("revoked internal key was renewed")
++	}
++	model.DB.Model(&model.User{}).Where("id = ?", 102).Update("status", common.UserStatusDisabled)
++	if request("GET", "/oauth-relay/v1/models", "oauth-fixture-b", nil, "") != 403 {
++		t.Fatal("disabled user accepted")
++	}
++}
+diff --git a/model/oauth_relay.go b/model/oauth_relay.go
+new file mode 100644
+index 0000000..c460404
+--- /dev/null
++++ b/model/oauth_relay.go
+@@ -0,0 +1,183 @@
++package model
++
++import (
++	"errors"
++	"fmt"
++	"strings"
++
++	"github.com/QuantumNous/new-api/common"
++	"gorm.io/gorm"
++	"gorm.io/gorm/clause"
++	"gorm.io/gorm/logger"
++)
++
++const OAuthRelayTokenPurpose = "chat-oauth-v1"
++const OAuthRelayModelLimits = "gpt-6-luna,gpt-6.1-terra,gpt-6.1-sol"
++const OAuthRelayUserInfoURL = "https://pingxingxian.space/auth/oidc/me"
++
++var (
++	ErrOAuthRelayIdentityDenied        = errors.New("OAuth relay identity is not bound to an active user")
++	ErrOAuthRelayCredentialUnavailable = errors.New("OAuth relay credential is unavailable")
++)
++
++// Internal credentials never enter the ordinary token-management surface, even
++// when the caller owns their billing account. NULL preserves all upstream tokens.
++func userManagedTokens(db *gorm.DB) *gorm.DB {
++	return db.Where("internal_purpose IS NULL")
++}
++
++func activeOAuthRelayRole(user *User) bool {
++	return user.Status == common.UserStatusEnabled && !user.DeletedAt.Valid &&
++		(user.Role == common.RoleCommonUser || user.Role == common.RoleAdminUser || user.Role == common.RoleRootUser)
++}
++
++func validOAuthRelayKey(key string) bool {
++	if len(key) != 48 {
++		return false
++	}
++	for _, c := range key {
++		if !((c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')) {
++			return false
++		}
++	}
++	return true
++}
++
++// ResolveOAuthRelayUser accepts only an existing native provider/sub binding.
++// User creation, email matching, role changes and quota grants are intentionally
++// absent. Read the database on every resolution so binding/status changes are not
++// hidden by a cached OAuth identity or an old login session.
++func ResolveOAuthRelayUser(providerID int, slug string, sub string) (*User, error) {
++	if providerID <= 0 || slug == "" || sub == "" || strings.TrimSpace(sub) != sub {
++		return nil, ErrOAuthRelayIdentityDenied
++	}
++	var provider CustomOAuthProvider
++	if err := DB.First(&provider, "id = ?", providerID).Error; err != nil {
++		if errors.Is(err, gorm.ErrRecordNotFound) {
++			return nil, ErrOAuthRelayIdentityDenied
++		}
++		return nil, fmt.Errorf("%w: OAuth provider lookup failed", ErrDatabase)
++	}
++	if !provider.Enabled || provider.Slug != slug || provider.UserIdField != "sub" || provider.UserInfoEndpoint != OAuthRelayUserInfoURL {
++		return nil, ErrOAuthRelayIdentityDenied
++	}
++	var bindings []UserOAuthBinding
++	if err := DB.Where("provider_id = ? AND provider_user_id = ?", providerID, sub).Limit(2).Find(&bindings).Error; err != nil {
++		return nil, fmt.Errorf("%w: OAuth binding lookup failed", ErrDatabase)
++	}
++	// Some MySQL installations use case-insensitive VARCHAR collations. OAuth
++	// subjects are opaque, case-sensitive identifiers regardless of DB collation.
++	if len(bindings) != 1 || bindings[0].ProviderId != providerID || bindings[0].ProviderUserId != sub {
++		return nil, ErrOAuthRelayIdentityDenied
++	}
++	user, err := GetUserById(bindings[0].UserId, false)
++	if err != nil {
++		if errors.Is(err, gorm.ErrRecordNotFound) {
++			return nil, ErrOAuthRelayIdentityDenied
++		}
++		return nil, fmt.Errorf("%w: OAuth user lookup failed", ErrDatabase)
++	}
++	if !activeOAuthRelayRole(user) {
++		return nil, ErrOAuthRelayIdentityDenied
++	}
++	return user, nil
++}
++
++func loadOAuthRelayToken(userID int) (*Token, error) {
++	var token Token
++	err := DB.Unscoped().Where("user_id = ? AND internal_purpose = ?", userID, OAuthRelayTokenPurpose).First(&token).Error
++	if err != nil {
++		return nil, err
++	}
++	if token.UserId != userID || token.InternalPurpose == nil || *token.InternalPurpose != OAuthRelayTokenPurpose ||
++		token.DeletedAt.Valid || token.Status != common.TokenStatusEnabled || token.ExpiredTime != -1 ||
++		!validOAuthRelayKey(token.Key) || !token.UnlimitedQuota || !token.ModelLimitsEnabled || token.ModelLimits != OAuthRelayModelLimits ||
++		token.Group != "" || token.CrossGroupRetry || (token.AllowIps != nil && *token.AllowIps != "") {
++		return nil, ErrOAuthRelayCredentialUnavailable
++	}
++	return &token, nil
++}
++
++// GetOrCreateOAuthRelayToken creates one server-only credential per existing user.
++// The nullable-purpose unique index keeps ordinary NULL-purpose tokens unlimited
++// in number while making concurrent internal issuance single-winner on all three
++// supported databases. Disabled/expired/soft-deleted credentials are never renewed.
++// UnlimitedQuota removes only a redundant token budget; the unchanged relay
++// pipeline continues to enforce and settle the user's own wallet/subscription.
++func GetOrCreateOAuthRelayToken(userID int) (*Token, error) {
++	if userID <= 0 {
++		return nil, ErrOAuthRelayIdentityDenied
++	}
++	user, err := GetUserById(userID, false)
++	if err != nil {
++		if errors.Is(err, gorm.ErrRecordNotFound) {
++			return nil, ErrOAuthRelayIdentityDenied
++		}
++		return nil, fmt.Errorf("%w: OAuth user lookup failed", ErrDatabase)
++	}
++	if !activeOAuthRelayRole(user) {
++		return nil, ErrOAuthRelayIdentityDenied
++	}
++	token, err := loadOAuthRelayToken(userID)
++	if err == nil || errors.Is(err, ErrOAuthRelayCredentialUnavailable) {
++		return token, err
++	}
++	if !errors.Is(err, gorm.ErrRecordNotFound) {
++		return nil, fmt.Errorf("%w: OAuth credential lookup failed", ErrDatabase)
++	}
++	key, err := common.GenerateKey()
++	if err != nil {
++		return nil, ErrOAuthRelayCredentialUnavailable
++	}
++	purpose := OAuthRelayTokenPurpose
++	token = &Token{
++		UserId: userID, InternalPurpose: &purpose, Key: key,
++		Name: "Chat OAuth internal", Status: common.TokenStatusEnabled,
++		CreatedTime: common.GetTimestamp(), AccessedTime: common.GetTimestamp(), ExpiredTime: -1,
++		RemainQuota: 0, UnlimitedQuota: true, ModelLimitsEnabled: true, ModelLimits: OAuthRelayModelLimits,
++	}
++	if err := DB.Session(&gorm.Session{Logger: DB.Logger.LogMode(logger.Silent)}).
++		Clauses(clause.OnConflict{DoNothing: true}).Create(token).Error; err != nil {
++		// Do not include driver/SQL details: some drivers interpolate credential keys.
++		return nil, fmt.Errorf("%w: OAuth credential creation failed", ErrDatabase)
++	}
++	// Always load the unique winner rather than returning an uncommitted candidate.
++	token, err = loadOAuthRelayToken(userID)
++	if err != nil {
++		if errors.Is(err, ErrOAuthRelayCredentialUnavailable) {
++			return nil, err
++		}
++		return nil, fmt.Errorf("%w: OAuth credential lookup failed", ErrDatabase)
++	}
++	return token, nil
++}
++
++// RevokeOAuthRelayToken disables an already issued internal credential. A missing
++// row is reported, not treated as a durable ban on future issuance. Revocation is
++// idempotent; retrieval never recreates or enables a disabled/deleted credential.
++func RevokeOAuthRelayToken(userID int) error {
++	if userID <= 0 {
++		return gorm.ErrRecordNotFound
++	}
++	var token Token
++	err := DB.Unscoped().Where("user_id = ? AND internal_purpose = ?", userID, OAuthRelayTokenPurpose).First(&token).Error
++	if err != nil {
++		if errors.Is(err, gorm.ErrRecordNotFound) {
++			return gorm.ErrRecordNotFound
++		}
++		return fmt.Errorf("%w: OAuth credential lookup failed", ErrDatabase)
++	}
++	if token.InternalPurpose == nil || *token.InternalPurpose != OAuthRelayTokenPurpose {
++		return ErrOAuthRelayCredentialUnavailable
++	}
++	if err := DB.Unscoped().Model(&Token{}).Where("id = ? AND user_id = ?", token.Id, userID).
++		Update("status", common.TokenStatusDisabled).Error; err != nil {
++		return fmt.Errorf("%w: OAuth credential revocation failed", ErrDatabase)
++	}
++	if common.RedisEnabled {
++		if err := cacheDeleteToken(token.Key); err != nil {
++			return fmt.Errorf("%w: OAuth credential cache invalidation failed", ErrDatabase)
++		}
++	}
++	return nil
++}
+diff --git a/model/oauth_relay_test.go b/model/oauth_relay_test.go
+new file mode 100644
+index 0000000..ac7e519
+--- /dev/null
++++ b/model/oauth_relay_test.go
+@@ -0,0 +1,417 @@
++package model
++
++import (
++	"errors"
++	"fmt"
++	"strings"
++	"sync"
++	"testing"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/glebarez/sqlite"
++	"gorm.io/gorm"
++	"gorm.io/gorm/logger"
++)
++
++func oauthRelayTestDB(t *testing.T) *gorm.DB {
++	t.Helper()
++	oldDB, oldRedis := DB, common.RedisEnabled
++	oldKeyCol, oldGroupCol := commonKeyCol, commonGroupCol
++	dsn := "file:oauth_relay_" + strings.ReplaceAll(t.Name(), "/", "_") + "?mode=memory&cache=shared"
++	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
++	if err != nil {
++		t.Fatal(err)
++	}
++	sqlDB, err := db.DB()
++	if err != nil {
++		t.Fatal(err)
++	}
++	sqlDB.SetMaxOpenConns(1)
++	sqlDB.SetMaxIdleConns(1)
++	DB, common.RedisEnabled = db, false
++	commonKeyCol, commonGroupCol = "`key`", "`group`"
++	t.Cleanup(func() {
++		DB, common.RedisEnabled = oldDB, oldRedis
++		commonKeyCol, commonGroupCol = oldKeyCol, oldGroupCol
++		_ = sqlDB.Close()
++	})
++	if err := db.AutoMigrate(&User{}, &CustomOAuthProvider{}, &UserOAuthBinding{}, &Token{}); err != nil {
++		t.Fatal(err)
++	}
++	return db
++}
++
++func oauthRelayFixture(t *testing.T, db *gorm.DB, userID int, sub string) *User {
++	t.Helper()
++	user := &User{
++		Id: userID, Username: fmt.Sprintf("relay-fixture-%d", userID), AffCode: fmt.Sprintf("relay-aff-%d", userID),
++		Role: common.RoleCommonUser, Status: common.UserStatusEnabled, Group: "default", Quota: 1000 + userID,
++	}
++	if err := db.Create(user).Error; err != nil {
++		t.Fatal(err)
++	}
++	var count int64
++	if err := db.Model(&CustomOAuthProvider{}).Where("id = ?", 1).Count(&count).Error; err != nil {
++		t.Fatal(err)
++	}
++	if count == 0 {
++		provider := &CustomOAuthProvider{Id: 1, Slug: "pingxingxian", Name: "Fixture", Enabled: true, UserIdField: "sub", UserInfoEndpoint: OAuthRelayUserInfoURL}
++		if err := db.Create(provider).Error; err != nil {
++			t.Fatal(err)
++		}
++	}
++	if err := db.Create(&UserOAuthBinding{UserId: userID, ProviderId: 1, ProviderUserId: sub}).Error; err != nil {
++		t.Fatal(err)
++	}
++	return user
++}
++
++func oauthRelayNormalToken(t *testing.T, userID int, name string) *Token {
++	t.Helper()
++	key, err := common.GenerateKey()
++	if err != nil {
++		t.Fatal("failed to generate fixture token")
++	}
++	token := &Token{UserId: userID, Key: key, Name: name, Status: common.TokenStatusEnabled, ExpiredTime: -1, UnlimitedQuota: true}
++	if err := token.Insert(); err != nil {
++		t.Fatal(err)
++	}
++	return token
++}
++
++type oauthRelayLegacyToken struct {
++	Id     int
++	UserId int    `gorm:"index"`
++	Key    string `gorm:"type:varchar(128);uniqueIndex"`
++	Status int    `gorm:"default:1"`
++}
++
++func (oauthRelayLegacyToken) TableName() string { return "tokens" }
++
++func TestOAuthRelayMigratesLegacyTokensWithoutClaimingThem(t *testing.T) {
++	db := oauthRelayTestDB(t)
++	user := oauthRelayFixture(t, db, 11, "stable-sub-A")
++	if err := db.Migrator().DropTable(&Token{}); err != nil {
++		t.Fatal(err)
++	}
++	if err := db.AutoMigrate(&oauthRelayLegacyToken{}); err != nil {
++		t.Fatal(err)
++	}
++	for i := 0; i < 2; i++ {
++		key, err := common.GenerateKey()
++		if err != nil {
++			t.Fatal("fixture credential generation failed")
++		}
++		if err := db.Create(&oauthRelayLegacyToken{UserId: user.Id, Key: key, Status: common.TokenStatusEnabled}).Error; err != nil {
++			t.Fatal(err)
++		}
++	}
++	if err := db.AutoMigrate(&Token{}); err != nil {
++		t.Fatal(err)
++	}
++	if count, err := CountUserTokens(user.Id); err != nil || count != 2 {
++		t.Fatal("migration did not preserve both existing NULL-purpose tokens")
++	}
++	internal, err := GetOrCreateOAuthRelayToken(user.Id)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err := db.AutoMigrate(&Token{}); err != nil {
++		t.Fatal(err)
++	}
++	loaded, err := GetOrCreateOAuthRelayToken(user.Id)
++	if err != nil || loaded.Id != internal.Id || loaded.Key != internal.Key {
++		t.Fatal("repeated migration changed the issued internal credential")
++	}
++	if count, err := CountUserTokens(user.Id); err != nil || count != 2 {
++		t.Fatal("migration exposed or consumed a normal token slot")
++	}
++}
++
++func TestOAuthRelayResolveOnlyExistingExactActiveBinding(t *testing.T) {
++	for _, role := range []int{common.RoleCommonUser, common.RoleAdminUser, common.RoleRootUser} {
++		t.Run(fmt.Sprintf("role_%d", role), func(t *testing.T) {
++			db := oauthRelayTestDB(t)
++			user := oauthRelayFixture(t, db, 11, "stable-sub-A")
++			if err := db.Model(user).Updates(map[string]any{"role": role, "quota": 0}).Error; err != nil {
++				t.Fatal(err)
++			}
++			resolved, err := ResolveOAuthRelayUser(1, "pingxingxian", "stable-sub-A")
++			if err != nil || resolved.Id != user.Id || resolved.Role != role || resolved.Quota != 0 {
++				t.Fatal("existing active binding was not resolved without changing role/quota")
++			}
++		})
++	}
++	cases := []struct {
++		name   string
++		mutate func(*gorm.DB, *User) error
++		id     int
++		slug   string
++		sub    string
++	}{
++		{"unknown_provider", nil, 2, "pingxingxian", "stable-sub-A"},
++		{"wrong_slug", nil, 1, "another", "stable-sub-A"},
++		{"missing_sub", nil, 1, "pingxingxian", ""},
++		{"unknown_sub", nil, 1, "pingxingxian", "stable-sub-B"},
++		{"case_changed_sub", nil, 1, "pingxingxian", "stable-sub-a"},
++		{"disabled_provider", func(db *gorm.DB, _ *User) error {
++			return db.Model(&CustomOAuthProvider{}).Where("id = ?", 1).Update("enabled", false).Error
++		}, 1, "pingxingxian", "stable-sub-A"},
++		{"non_sub_mapping", func(db *gorm.DB, _ *User) error {
++			return db.Model(&CustomOAuthProvider{}).Where("id = ?", 1).Update("user_id_field", "email").Error
++		}, 1, "pingxingxian", "stable-sub-A"},
++		{"wrong_provider_issuer", func(db *gorm.DB, _ *User) error {
++			return db.Model(&CustomOAuthProvider{}).Where("id = ?", 1).Update("user_info_endpoint", "https://other.example/me").Error
++		}, 1, "pingxingxian", "stable-sub-A"},
++		{"missing_binding", func(db *gorm.DB, _ *User) error {
++			return db.Where("provider_id = ?", 1).Delete(&UserOAuthBinding{}).Error
++		}, 1, "pingxingxian", "stable-sub-A"},
++		{"disabled_user", func(db *gorm.DB, u *User) error { return db.Model(u).Update("status", common.UserStatusDisabled).Error }, 1, "pingxingxian", "stable-sub-A"},
++		{"deleted_user", func(db *gorm.DB, u *User) error { return db.Delete(u).Error }, 1, "pingxingxian", "stable-sub-A"},
++		{"guest_role", func(db *gorm.DB, u *User) error { return db.Model(u).Update("role", 0).Error }, 1, "pingxingxian", "stable-sub-A"},
++	}
++	for _, tc := range cases {
++		t.Run(tc.name, func(t *testing.T) {
++			db := oauthRelayTestDB(t)
++			user := oauthRelayFixture(t, db, 11, "stable-sub-A")
++			if tc.mutate != nil {
++				if err := tc.mutate(db, user); err != nil {
++					t.Fatal(err)
++				}
++			}
++			resolved, err := ResolveOAuthRelayUser(tc.id, tc.slug, tc.sub)
++			if resolved != nil || !errors.Is(err, ErrOAuthRelayIdentityDenied) {
++				t.Fatal("invalid binding unexpectedly resolved")
++			}
++			var count int64
++			if err := db.Model(&Token{}).Count(&count).Error; err != nil || count != 0 {
++				t.Fatal("identity resolution created credentials")
++			}
++		})
++	}
++}
++
++func TestOAuthRelayResolveRejectsAmbiguousBinding(t *testing.T) {
++	db := oauthRelayTestDB(t)
++	oauthRelayFixture(t, db, 11, "stable-sub-A")
++	oauthRelayFixture(t, db, 12, "stable-sub-B")
++	if err := db.Migrator().DropIndex(&UserOAuthBinding{}, "ux_provider_userid"); err != nil {
++		t.Fatal(err)
++	}
++	if err := db.Model(&UserOAuthBinding{}).Where("user_id = ?", 12).Update("provider_user_id", "stable-sub-A").Error; err != nil {
++		t.Fatal(err)
++	}
++	if user, err := ResolveOAuthRelayUser(1, "pingxingxian", "stable-sub-A"); user != nil || !errors.Is(err, ErrOAuthRelayIdentityDenied) {
++		t.Fatal("ambiguous binding was accepted")
++	}
++}
++
++func TestOAuthRelayCredentialsAreSeparateRestrictedAndStable(t *testing.T) {
++	db := oauthRelayTestDB(t)
++	a := oauthRelayFixture(t, db, 11, "stable-sub-A")
++	b := oauthRelayFixture(t, db, 12, "stable-sub-B")
++	ta, err := GetOrCreateOAuthRelayToken(a.Id)
++	if err != nil {
++		t.Fatal(err)
++	}
++	tb, err := GetOrCreateOAuthRelayToken(b.Id)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if ta.Id == tb.Id || ta.Key == tb.Key || ta.UserId != a.Id || tb.UserId != b.Id {
++		t.Fatal("two billing users shared a credential or owner")
++	}
++	for _, token := range []*Token{ta, tb} {
++		if token.InternalPurpose == nil || *token.InternalPurpose != OAuthRelayTokenPurpose ||
++			!token.ModelLimitsEnabled || token.ModelLimits != OAuthRelayModelLimits || !token.UnlimitedQuota ||
++			token.RemainQuota != 0 || token.ExpiredTime != -1 || token.Group != "" || token.CrossGroupRetry {
++			t.Fatal("internal credential is not restricted to the approved contract")
++		}
++	}
++	if err := db.Model(&Token{}).Where("id = ?", ta.Id).Updates(map[string]any{"remain_quota": -20, "used_quota": 20}).Error; err != nil {
++		t.Fatal(err)
++	}
++	loaded, err := GetOrCreateOAuthRelayToken(a.Id)
++	if err != nil || loaded.Id != ta.Id || loaded.Key != ta.Key || loaded.UsedQuota != 20 {
++		t.Fatal("normal usage accounting replaced the internal credential")
++	}
++	for _, original := range []*User{a, b} {
++		current, err := GetUserById(original.Id, false)
++		if err != nil || current.Quota != original.Quota || current.Role != original.Role {
++			t.Fatal("credential issuance granted user quota or permissions")
++		}
++	}
++}
++
++func TestOAuthRelayCredentialConcurrentIssuanceAndNullableMigration(t *testing.T) {
++	db := oauthRelayTestDB(t)
++	user := oauthRelayFixture(t, db, 11, "stable-sub-A")
++	normal1 := oauthRelayNormalToken(t, user.Id, "normal-one")
++	normal2 := oauthRelayNormalToken(t, user.Id, "normal-two")
++	if normal1.Id == normal2.Id {
++		t.Fatal("NULL-purpose normal tokens collided")
++	}
++	const workers = 24
++	start := make(chan struct{})
++	ids, failures := make(chan int, workers), make(chan error, workers)
++	var wg sync.WaitGroup
++	for i := 0; i < workers; i++ {
++		wg.Add(1)
++		go func() {
++			defer wg.Done()
++			<-start
++			token, err := GetOrCreateOAuthRelayToken(user.Id)
++			if err != nil {
++				failures <- err
++				return
++			}
++			ids <- token.Id
++		}()
++	}
++	close(start)
++	wg.Wait()
++	close(ids)
++	close(failures)
++	for err := range failures {
++		t.Fatalf("concurrent issuance failed: %v", err)
++	}
++	winner, results := 0, 0
++	for id := range ids {
++		results++
++		if winner == 0 {
++			winner = id
++		} else if id != winner {
++			t.Fatal("concurrent issuance returned different credentials")
++		}
++	}
++	var count int64
++	if err := db.Model(&Token{}).Where("user_id = ? AND internal_purpose = ?", user.Id, OAuthRelayTokenPurpose).Count(&count).Error; err != nil || count != 1 || results != workers {
++		t.Fatal("unique internal credential invariant failed")
++	}
++}
++
++func TestOAuthRelayCredentialRefusesRevokedOrCorruptRows(t *testing.T) {
++	cases := []struct {
++		name   string
++		mutate func(*gorm.DB, *Token) error
++	}{
++		{"disabled", func(db *gorm.DB, token *Token) error {
++			return db.Model(token).Update("status", common.TokenStatusDisabled).Error
++		}},
++		{"expired", func(db *gorm.DB, token *Token) error {
++			return db.Model(token).Update("expired_time", common.GetTimestamp()-1).Error
++		}},
++		{"deleted", func(db *gorm.DB, token *Token) error { return db.Delete(token).Error }},
++		{"model_limits_disabled", func(db *gorm.DB, token *Token) error {
++			return db.Model(token).Update("model_limits_enabled", false).Error
++		}},
++		{"extra_model", func(db *gorm.DB, token *Token) error {
++			return db.Model(token).Update("model_limits", OAuthRelayModelLimits+",unapproved-model").Error
++		}},
++		{"group_override", func(db *gorm.DB, token *Token) error { return db.Model(token).Update("group", "vip").Error }},
++		{"key_separator", func(db *gorm.DB, token *Token) error {
++			return db.Model(token).Update("key", strings.Repeat("A", 47)+"-").Error
++		}},
++	}
++	for _, tc := range cases {
++		t.Run(tc.name, func(t *testing.T) {
++			db := oauthRelayTestDB(t)
++			user := oauthRelayFixture(t, db, 11, "stable-sub-A")
++			token, err := GetOrCreateOAuthRelayToken(user.Id)
++			if err != nil {
++				t.Fatal(err)
++			}
++			if err := tc.mutate(db, token); err != nil {
++				t.Fatal(err)
++			}
++			if found, err := GetOrCreateOAuthRelayToken(user.Id); found != nil || !errors.Is(err, ErrOAuthRelayCredentialUnavailable) {
++				t.Fatal("revoked/corrupt credential was repaired or reissued")
++			}
++			var count int64
++			if err := db.Unscoped().Model(&Token{}).Where("user_id = ?", user.Id).Count(&count).Error; err != nil || count != 1 {
++				t.Fatal("a replacement credential was created")
++			}
++		})
++	}
++}
++
++func TestOAuthRelayCredentialHiddenFromUserTokenManagement(t *testing.T) {
++	db := oauthRelayTestDB(t)
++	user := oauthRelayFixture(t, db, 11, "stable-sub-A")
++	oauthRelayFixture(t, db, 12, "stable-sub-B")
++	internal, err := GetOrCreateOAuthRelayToken(user.Id)
++	if err != nil {
++		t.Fatal(err)
++	}
++	normal1 := oauthRelayNormalToken(t, user.Id, "normal-one")
++	normal2 := oauthRelayNormalToken(t, user.Id, "normal-two")
++	other := oauthRelayNormalToken(t, 12, "other-user")
++	listed, err := GetAllUserTokens(user.Id, 0, 100)
++	if err != nil || len(listed) != 2 {
++		t.Fatal("self token list included internal/other user's credentials")
++	}
++	if count, err := CountUserTokens(user.Id); err != nil || count != 2 {
++		t.Fatal("self token count included internal credentials")
++	}
++	searched, count, err := SearchUserTokens(user.Id, "", "", 0, 100)
++	if err != nil || count != 2 || len(searched) != 2 {
++		t.Fatal("self token search included internal credentials")
++	}
++	searched, count, err = SearchUserTokens(user.Id, "", internal.Key, 0, 100)
++	if err != nil || count != 0 || len(searched) != 0 {
++		t.Fatal("exact key search exposed internal credentials")
++	}
++	if _, err := GetTokenByIds(internal.Id, user.Id); !errors.Is(err, gorm.ErrRecordNotFound) {
++		t.Fatal("self fetch/key/update guard accepted internal credential")
++	}
++	if err := DeleteTokenById(internal.Id, user.Id); !errors.Is(err, gorm.ErrRecordNotFound) {
++		t.Fatal("self delete accepted internal credential")
++	}
++	keys, err := GetTokenKeysByIds([]int{internal.Id, normal1.Id, other.Id}, user.Id)
++	if err != nil || len(keys) != 1 || keys[0].Id != normal1.Id {
++		t.Fatal("batch key export exposed internal/other user's credential")
++	}
++	removed, err := BatchDeleteTokens([]int{internal.Id, normal1.Id, other.Id}, user.Id)
++	if err != nil || removed != 1 {
++		t.Fatal("batch delete affected protected credentials")
++	}
++	for _, token := range []*Token{internal, normal2, other} {
++		if _, err := GetTokenById(token.Id); err != nil {
++			t.Fatal("protected/untargeted token was deleted")
++		}
++	}
++	if byKey, err := GetTokenByKey(internal.Key, true); err != nil || byKey.Id != internal.Id {
++		t.Fatal("ordinary internal billing lookup no longer finds its credential")
++	}
++}
++
++func TestOAuthRelayRevokeIsPermanentAndDoesNotClaimMissingRows(t *testing.T) {
++	db := oauthRelayTestDB(t)
++	user := oauthRelayFixture(t, db, 11, "stable-sub-A")
++	if err := RevokeOAuthRelayToken(user.Id); !errors.Is(err, gorm.ErrRecordNotFound) {
++		t.Fatal("revoking an absent credential claimed success")
++	}
++	internal, err := GetOrCreateOAuthRelayToken(user.Id)
++	if err != nil {
++		t.Fatal(err)
++	}
++	normal := oauthRelayNormalToken(t, user.Id, "normal-one")
++	for i := 0; i < 2; i++ {
++		if err := RevokeOAuthRelayToken(user.Id); err != nil {
++			t.Fatal(err)
++		}
++	}
++	if token, err := GetOrCreateOAuthRelayToken(user.Id); token != nil || !errors.Is(err, ErrOAuthRelayCredentialUnavailable) {
++		t.Fatal("revoked credential was reissued")
++	}
++	var stored Token
++	if err := db.Unscoped().First(&stored, internal.Id).Error; err != nil || stored.Status != common.TokenStatusDisabled {
++		t.Fatal("internal credential was not disabled")
++	}
++	if found, err := GetTokenById(normal.Id); err != nil || found.Status != common.TokenStatusEnabled {
++		t.Fatal("revocation changed a normal user token")
++	}
++	if current, err := GetUserById(user.Id, false); err != nil || current.Quota != user.Quota || current.Role != user.Role {
++		t.Fatal("revocation modified user quota or role")
++	}
++}
+diff --git a/model/token.go b/model/token.go
+index ab841f6..8f5e288 100644
+--- a/model/token.go
++++ b/model/token.go
+@@ -9,11 +9,13 @@ import (
+ 	"github.com/QuantumNous/new-api/setting/operation_setting"
+ 	"github.com/bytedance/gopkg/util/gopool"
+ 	"gorm.io/gorm"
++	"gorm.io/gorm/logger"
+ )
+ 
+ type Token struct {
+ 	Id                 int            `json:"id"`
+-	UserId             int            `json:"user_id" gorm:"index"`
++	UserId             int            `json:"user_id" gorm:"index;uniqueIndex:ux_tokens_user_internal_purpose"`
++	InternalPurpose    *string        `json:"internal_purpose,omitempty" gorm:"type:varchar(64);uniqueIndex:ux_tokens_user_internal_purpose"`
+ 	Key                string         `json:"key" gorm:"type:varchar(128);uniqueIndex"`
+ 	Status             int            `json:"status" gorm:"default:1"`
+ 	Name               string         `json:"name" gorm:"index" `
+@@ -81,7 +83,7 @@ func (token *Token) GetIpLimits() []string {
+ func GetAllUserTokens(userId int, startIdx int, num int) ([]*Token, error) {
+ 	var tokens []*Token
+ 	var err error
+-	err = DB.Where("user_id = ?", userId).Order("id desc").Limit(num).Offset(startIdx).Find(&tokens).Error
++	err = userManagedTokens(DB).Where("user_id = ?", userId).Order("id desc").Limit(num).Offset(startIdx).Find(&tokens).Error
+ 	return tokens, err
+ }
+ 
+@@ -151,7 +153,7 @@ func SearchUserTokens(userId int, keyword string, token string, offset int, limi
+ 		}
+ 	}
+ 
+-	baseQuery := DB.Model(&Token{}).Where("user_id = ?", userId)
++	baseQuery := userManagedTokens(DB.Model(&Token{})).Where("user_id = ?", userId)
+ 
+ 	// 非空才加 LIKE 条件，空则跳过（不过滤该字段）
+ 	if keyword != "" {
+@@ -231,7 +233,7 @@ func GetTokenByIds(id int, userId int) (*Token, error) {
+ 	}
+ 	token := Token{Id: id, UserId: userId}
+ 	var err error = nil
+-	err = DB.First(&token, "id = ? and user_id = ?", id, userId).Error
++	err = userManagedTokens(DB).First(&token, "id = ? and user_id = ?", id, userId).Error
+ 	return &token, err
+ }
+ 
+@@ -272,7 +274,9 @@ func GetTokenByKey(key string, fromDB bool) (token *Token, err error) {
+ 		// Don't return error - fall through to DB
+ 	}
+ 	fromDB = true
+-	err = DB.Where(commonKeyCol+" = ?", key).First(&token).Error
++	// A failed SQL query must not log an interpolated credential value.
++	err = DB.Session(&gorm.Session{Logger: DB.Logger.LogMode(logger.Silent)}).
++		Where(commonKeyCol+" = ?", key).First(&token).Error
+ 	return token, err
+ }
+ 
+@@ -365,7 +369,7 @@ func DeleteTokenById(id int, userId int) (err error) {
+ 		return errors.New("id 或 userId 为空！")
+ 	}
+ 	token := Token{Id: id, UserId: userId}
+-	err = DB.Where(token).First(&token).Error
++	err = userManagedTokens(DB).Where(token).First(&token).Error
+ 	if err != nil {
+ 		return err
+ 	}
+@@ -435,7 +439,7 @@ func decreaseTokenQuota(id int, quota int) (err error) {
+ // CountUserTokens returns total number of tokens for the given user, used for pagination
+ func CountUserTokens(userId int) (int64, error) {
+ 	var total int64
+-	err := DB.Model(&Token{}).Where("user_id = ?", userId).Count(&total).Error
++	err := userManagedTokens(DB.Model(&Token{})).Where("user_id = ?", userId).Count(&total).Error
+ 	return total, err
+ }
+ 
+@@ -448,12 +452,12 @@ func BatchDeleteTokens(ids []int, userId int) (int, error) {
+ 	tx := DB.Begin()
+ 
+ 	var tokens []Token
+-	if err := tx.Where("user_id = ? AND id IN (?)", userId, ids).Find(&tokens).Error; err != nil {
++	if err := userManagedTokens(tx).Where("user_id = ? AND id IN (?)", userId, ids).Find(&tokens).Error; err != nil {
+ 		tx.Rollback()
+ 		return 0, err
+ 	}
+ 
+-	if err := tx.Where("user_id = ? AND id IN (?)", userId, ids).Delete(&Token{}).Error; err != nil {
++	if err := userManagedTokens(tx).Where("user_id = ? AND id IN (?)", userId, ids).Delete(&Token{}).Error; err != nil {
+ 		tx.Rollback()
+ 		return 0, err
+ 	}
+@@ -475,7 +479,7 @@ func BatchDeleteTokens(ids []int, userId int) (int, error) {
+ 
+ func GetTokenKeysByIds(ids []int, userId int) ([]Token, error) {
+ 	var tokens []Token
+-	err := DB.Select("id", commonKeyCol).
++	err := userManagedTokens(DB).Select("id", commonKeyCol).
+ 		Where("user_id = ? AND id IN (?)", userId, ids).
+ 		Find(&tokens).Error
+ 	return tokens, err
+diff --git a/oauth/generic.go b/oauth/generic.go
+index 11bbb9b..178ff0f 100644
+--- a/oauth/generic.go
++++ b/oauth/generic.go
+@@ -99,6 +99,15 @@ func (p *GenericOAuthProvider) ExchangeToken(ctx context.Context, code string, c
+ 	values.Set("grant_type", "authorization_code")
+ 	values.Set("code", code)
+ 	values.Set("redirect_uri", redirectUri)
++	if CustomPKCEEnabled(p.config.Slug) {
++		verifier := c.GetString(PKCEVerifierContextKey)
++		redirect := c.GetString(PKCERedirectContextKey)
++		if verifier == "" || redirect == "" {
++			return nil, NewOAuthError(i18n.MsgOAuthStateInvalid, nil)
++		}
++		values.Set("code_verifier", verifier)
++		values.Set("redirect_uri", redirect)
++	}
+ 
+ 	// Determine auth style
+ 	authStyle := p.config.AuthStyle
+diff --git a/oauth/pkce.go b/oauth/pkce.go
+new file mode 100644
+index 0000000..912b9e4
+--- /dev/null
++++ b/oauth/pkce.go
+@@ -0,0 +1,61 @@
++package oauth
++
++import (
++	"crypto/sha256"
++	"encoding/hex"
++	"fmt"
++	"net/url"
++	"os"
++	"strings"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/model"
++	"github.com/QuantumNous/new-api/setting/system_setting"
++)
++
++const PKCEVerifierContextKey = "custom_oauth_pkce_verifier"
++const PKCERedirectContextKey = "custom_oauth_pkce_redirect"
++
++// CustomPKCEEnabled is explicitly opt-in per custom provider slug. Legacy providers
++// retain their upstream behavior; selected providers never fall back without PKCE.
++func CustomPKCEEnabled(slug string) bool {
++	for _, allowed := range strings.Split(os.Getenv("CUSTOM_OAUTH_PKCE_PROVIDERS"), ",") {
++		if strings.TrimSpace(allowed) == slug && slug != "" {
++			return true
++		}
++	}
++	return false
++}
++
++func (p *GenericOAuthProvider) Snapshot() *GenericOAuthProvider {
++	config := *p.config
++	return NewGenericOAuthProvider(&config)
++}
++
++// PKCEConfiguration freezes the trusted redirect and all provider security settings.
++// The client secret is excluded from the model's JSON, so include it explicitly in
++// this internal hash. Neither the payload nor its digest is returned to browsers.
++func (p *GenericOAuthProvider) PKCEConfiguration() (string, string, error) {
++	base, err := url.Parse(system_setting.ServerAddress)
++	if err != nil || base.Scheme != "https" || base.Host == "" || base.User != nil ||
++		base.RawQuery != "" || base.Fragment != "" || (base.Path != "" && base.Path != "/") {
++		return "", "", fmt.Errorf("PKCE requires an HTTPS ServerAddress origin")
++	}
++	for _, endpoint := range []string{p.config.AuthorizationEndpoint, p.config.TokenEndpoint, p.config.UserInfoEndpoint} {
++		u, parseErr := url.Parse(endpoint)
++		if parseErr != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.Fragment != "" {
++			return "", "", fmt.Errorf("PKCE requires HTTPS provider endpoints")
++		}
++	}
++	redirect := strings.TrimRight(system_setting.ServerAddress, "/") + "/oauth/" + p.config.Slug
++	payload, err := common.Marshal(struct {
++		Provider model.CustomOAuthProvider
++		Secret   string
++		Redirect string
++	}{*p.config, p.config.ClientSecret, redirect})
++	if err != nil {
++		return "", "", err
++	}
++	hash := sha256.Sum256(payload)
++	return redirect, hex.EncodeToString(hash[:]), nil
++}
+diff --git a/pkg/oauthpkce/store.go b/pkg/oauthpkce/store.go
+new file mode 100644
+index 0000000..c273266
+--- /dev/null
++++ b/pkg/oauthpkce/store.go
+@@ -0,0 +1,111 @@
++// Package oauthpkce holds short-lived, single-use OAuth authorization transactions.
++// It deliberately stores verifiers on the server, never in the signed session cookie.
++package oauthpkce
++
++import (
++	"crypto/rand"
++	"crypto/sha256"
++	"encoding/base64"
++	"errors"
++	"sync"
++	"time"
++)
++
++var (
++	ErrInvalidState = errors.New("invalid or expired OAuth transaction")
++	ErrCapacity     = errors.New("too many pending OAuth transactions")
++)
++
++type Binding struct {
++	Session     string
++	UserID      int
++	ProviderID  int
++	Fingerprint string
++}
++
++type transaction struct {
++	binding  Binding
++	verifier string
++	expires  time.Time
++}
++
++type Store struct {
++	mu       sync.Mutex
++	pending  map[[32]byte]transaction
++	ttl      time.Duration
++	capacity int
++	now      func() time.Time
++}
++
++func NewStore(ttl time.Duration, capacity int) *Store {
++	return &Store{pending: make(map[[32]byte]transaction), ttl: ttl, capacity: capacity, now: time.Now}
++}
++
++func RandomValue() (string, error) {
++	var b [32]byte
++	if _, err := rand.Read(b[:]); err != nil {
++		return "", err
++	}
++	return base64.RawURLEncoding.EncodeToString(b[:]), nil
++}
++
++func Challenge(verifier string) string {
++	digest := sha256.Sum256([]byte(verifier))
++	return base64.RawURLEncoding.EncodeToString(digest[:])
++}
++
++func (s *Store) prune(now time.Time) {
++	for key, tx := range s.pending {
++		if !now.Before(tx.expires) {
++			delete(s.pending, key)
++		}
++	}
++}
++
++func (s *Store) Issue(binding Binding) (string, string, error) {
++	if binding.Session == "" || binding.ProviderID <= 0 || binding.Fingerprint == "" {
++		return "", "", ErrInvalidState
++	}
++	state, err := RandomValue()
++	if err != nil {
++		return "", "", err
++	}
++	verifier, err := RandomValue()
++	if err != nil {
++		return "", "", err
++	}
++	s.mu.Lock()
++	defer s.mu.Unlock()
++	now := s.now()
++	s.prune(now)
++	count := 0
++	for _, tx := range s.pending {
++		if tx.binding.Session == binding.Session {
++			count++
++		}
++	}
++	if len(s.pending) >= s.capacity || count >= 8 {
++		return "", "", ErrCapacity
++	}
++	key := sha256.Sum256([]byte(state))
++	if _, exists := s.pending[key]; exists {
++		return "", "", ErrCapacity
++	}
++	s.pending[key] = transaction{binding: binding, verifier: verifier, expires: now.Add(s.ttl)}
++	return state, Challenge(verifier), nil
++}
++
++// Consume rejects mismatched sessions without burning another browser's transaction.
++// A matched transaction is removed atomically before any token exchange is attempted.
++func (s *Store) Consume(state string, binding Binding) (string, error) {
++	s.mu.Lock()
++	defer s.mu.Unlock()
++	s.prune(s.now())
++	key := sha256.Sum256([]byte(state))
++	tx, ok := s.pending[key]
++	if !ok || state == "" || tx.binding != binding {
++		return "", ErrInvalidState
++	}
++	delete(s.pending, key)
++	return tx.verifier, nil
++}
+diff --git a/pkg/oauthpkce/store_test.go b/pkg/oauthpkce/store_test.go
+new file mode 100644
+index 0000000..5a92279
+--- /dev/null
++++ b/pkg/oauthpkce/store_test.go
+@@ -0,0 +1,367 @@
++package oauthpkce
++
++import (
++	"encoding/base64"
++	"errors"
++	"strconv"
++	"sync"
++	"testing"
++	"time"
++)
++
++func testBinding() Binding {
++	return Binding{
++		Session:     "test-browser-binding",
++		UserID:      17,
++		ProviderID:  3,
++		Fingerprint: "test-config-fingerprint",
++	}
++}
++
++func requireRandomValue(t *testing.T, label, value string) {
++	t.Helper()
++	if len(value) != 43 {
++		t.Fatalf("%s length = %d, want 43", label, len(value))
++	}
++	decoded, err := base64.RawURLEncoding.DecodeString(value)
++	if err != nil {
++		t.Fatalf("%s is not unpadded base64url: %v", label, err)
++	}
++	if len(decoded) != 32 {
++		t.Fatalf("%s decodes to %d bytes, want 32", label, len(decoded))
++	}
++}
++
++func requireIssue(t *testing.T, store *Store, binding Binding) (string, string) {
++	t.Helper()
++	state, challenge, err := store.Issue(binding)
++	if err != nil {
++		t.Fatalf("Issue() error: %v", err)
++	}
++	requireRandomValue(t, "state", state)
++	requireRandomValue(t, "challenge", challenge)
++	return state, challenge
++}
++
++func requireConsume(t *testing.T, store *Store, state string, binding Binding, challenge string) {
++	t.Helper()
++	verifier, err := store.Consume(state, binding)
++	if err != nil {
++		t.Fatalf("Consume() error: %v", err)
++	}
++	requireRandomValue(t, "verifier", verifier)
++	if verifier == state {
++		t.Fatal("state and verifier must be generated independently")
++	}
++	if Challenge(verifier) != challenge {
++		t.Fatal("consumed verifier does not match the issued S256 challenge")
++	}
++}
++
++func requireInvalidState(t *testing.T, store *Store, state string, binding Binding) {
++	t.Helper()
++	verifier, err := store.Consume(state, binding)
++	if !errors.Is(err, ErrInvalidState) {
++		t.Fatalf("Consume() error = %v, want ErrInvalidState", err)
++	}
++	if verifier != "" {
++		t.Fatal("rejected Consume() returned a verifier")
++	}
++}
++
++func requireCapacity(t *testing.T, store *Store, binding Binding) {
++	t.Helper()
++	state, challenge, err := store.Issue(binding)
++	if !errors.Is(err, ErrCapacity) {
++		t.Fatalf("Issue() error = %v, want ErrCapacity", err)
++	}
++	if state != "" || challenge != "" {
++		t.Fatal("rejected Issue() returned transaction material")
++	}
++}
++
++func TestChallengeRFC7636(t *testing.T) {
++	// RFC 7636, Appendix B: public S256 example, not a real credential.
++	const verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
++	const expected = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
++	if got := Challenge(verifier); got != expected {
++		t.Fatalf("Challenge(RFC example) = %q, want %q", got, expected)
++	}
++}
++
++func TestRandomValueFormatAndUniqueness(t *testing.T) {
++	seen := make(map[string]bool)
++	for i := 0; i < 64; i++ {
++		value, err := RandomValue()
++		if err != nil {
++			t.Fatalf("RandomValue() error: %v", err)
++		}
++		requireRandomValue(t, "random value", value)
++		if seen[value] {
++			t.Fatal("RandomValue() repeated a value")
++		}
++		seen[value] = true
++	}
++}
++
++func TestStoreBindingMismatchDoesNotConsume(t *testing.T) {
++	tests := []struct {
++		name   string
++		change func(*Binding)
++	}{
++		{"other session", func(b *Binding) { b.Session = "other-browser" }},
++		{"missing session", func(b *Binding) { b.Session = "" }},
++		{"other user", func(b *Binding) { b.UserID++ }},
++		{"logged out", func(b *Binding) { b.UserID = 0 }},
++		{"other provider", func(b *Binding) { b.ProviderID++ }},
++		{"missing provider", func(b *Binding) { b.ProviderID = 0 }},
++		{"changed config", func(b *Binding) { b.Fingerprint = "changed-config" }},
++		{"missing config", func(b *Binding) { b.Fingerprint = "" }},
++	}
++	for _, tt := range tests {
++		t.Run(tt.name, func(t *testing.T) {
++			store := NewStore(5*time.Minute, 16)
++			binding := testBinding()
++			state, challenge := requireIssue(t, store, binding)
++			wrong := binding
++			tt.change(&wrong)
++			requireInvalidState(t, store, state, wrong)
++			requireConsume(t, store, state, binding, challenge)
++		})
++	}
++	t.Run("anonymous initiation then login", func(t *testing.T) {
++		store := NewStore(5*time.Minute, 16)
++		anonymous := testBinding()
++		anonymous.UserID = 0
++		state, challenge := requireIssue(t, store, anonymous)
++		requireInvalidState(t, store, state, testBinding())
++		requireConsume(t, store, state, anonymous, challenge)
++	})
++}
++
++func TestStoreMissingUnknownAndReplayedState(t *testing.T) {
++	store := NewStore(5*time.Minute, 16)
++	binding := testBinding()
++	state, challenge := requireIssue(t, store, binding)
++	requireInvalidState(t, store, "", binding)
++	requireInvalidState(t, store, "unknown-state", binding)
++	requireConsume(t, store, state, binding, challenge)
++	requireInvalidState(t, store, state, binding)
++}
++
++func TestStoreExpiryBoundary(t *testing.T) {
++	const ttl = 5 * time.Minute
++	base := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
++	for _, tt := range []struct {
++		name    string
++		elapsed time.Duration
++		expired bool
++	}{
++		{"just before expiry", ttl - time.Nanosecond, false},
++		{"exactly at expiry", ttl, true},
++		{"after expiry", ttl + time.Nanosecond, true},
++	} {
++		t.Run(tt.name, func(t *testing.T) {
++			now := base
++			store := NewStore(ttl, 16)
++			store.now = func() time.Time { return now }
++			binding := testBinding()
++			state, challenge := requireIssue(t, store, binding)
++			now = base.Add(tt.elapsed)
++			if tt.expired {
++				requireInvalidState(t, store, state, binding)
++			} else {
++				requireConsume(t, store, state, binding, challenge)
++			}
++		})
++	}
++}
++
++func TestStoreMultipleTabsAreIndependent(t *testing.T) {
++	store := NewStore(5*time.Minute, 16)
++	binding := testBinding()
++	var states, challenges []string
++	seen := make(map[string]bool)
++	for i := 0; i < 5; i++ {
++		state, challenge := requireIssue(t, store, binding)
++		if seen[state] {
++			t.Fatal("Issue() repeated a pending state")
++		}
++		seen[state] = true
++		states = append(states, state)
++		challenges = append(challenges, challenge)
++	}
++	// Tabs may complete in a different order from their initiation.
++	for i := len(states) - 1; i >= 0; i-- {
++		requireConsume(t, store, states[i], binding, challenges[i])
++		requireInvalidState(t, store, states[i], binding)
++	}
++}
++
++func TestStoreConcurrentConsumeHasExactlyOneWinner(t *testing.T) {
++	store := NewStore(5*time.Minute, 16)
++	binding := testBinding()
++	state, challenge := requireIssue(t, store, binding)
++	const attempts = 64
++	type result struct {
++		verifier string
++		err      error
++	}
++	start := make(chan struct{})
++	results := make(chan result, attempts)
++	var wg sync.WaitGroup
++	for i := 0; i < attempts; i++ {
++		wg.Add(1)
++		go func() {
++			defer wg.Done()
++			<-start
++			verifier, err := store.Consume(state, binding)
++			results <- result{verifier, err}
++		}()
++	}
++	close(start)
++	wg.Wait()
++	close(results)
++	winners := 0
++	for result := range results {
++		if result.err == nil {
++			winners++
++			requireRandomValue(t, "winning verifier", result.verifier)
++			if Challenge(result.verifier) != challenge {
++				t.Fatal("winning verifier does not match challenge")
++			}
++		} else if !errors.Is(result.err, ErrInvalidState) || result.verifier != "" {
++			t.Fatalf("losing Consume() returned unexpected result: error=%v, verifier present=%t", result.err, result.verifier != "")
++		}
++	}
++	if winners != 1 {
++		t.Fatalf("successful concurrent consumes = %d, want 1", winners)
++	}
++}
++
++func TestStoreGlobalCapacityDoesNotEvictPendingTransactions(t *testing.T) {
++	store := NewStore(5*time.Minute, 2)
++	a, b, c := testBinding(), testBinding(), testBinding()
++	b.Session = "browser-b"
++	c.Session = "browser-c"
++	stateA, challengeA := requireIssue(t, store, a)
++	stateB, challengeB := requireIssue(t, store, b)
++	requireCapacity(t, store, c)
++	requireConsume(t, store, stateA, a, challengeA)
++	stateC, challengeC := requireIssue(t, store, c)
++	requireConsume(t, store, stateB, b, challengeB)
++	requireConsume(t, store, stateC, c, challengeC)
++}
++
++func TestStorePerBindingCapacityDoesNotEvictPendingTransactions(t *testing.T) {
++	store := NewStore(5*time.Minute, 32)
++	binding := testBinding()
++	var states, challenges []string
++	for i := 0; i < 8; i++ {
++		state, challenge := requireIssue(t, store, binding)
++		states = append(states, state)
++		challenges = append(challenges, challenge)
++	}
++	requireCapacity(t, store, binding)
++	other := binding
++	other.Session = "other-browser"
++	otherState, otherChallenge := requireIssue(t, store, other)
++	requireConsume(t, store, states[0], binding, challenges[0])
++	replacement, replacementChallenge := requireIssue(t, store, binding)
++	for i := 1; i < len(states); i++ {
++		requireConsume(t, store, states[i], binding, challenges[i])
++	}
++	requireConsume(t, store, replacement, binding, replacementChallenge)
++	requireConsume(t, store, otherState, other, otherChallenge)
++}
++
++func TestStoreExpiryReleasesCapacity(t *testing.T) {
++	const ttl = 5 * time.Minute
++	for _, tt := range []struct {
++		name     string
++		capacity int
++		count    int
++	}{
++		{"global capacity", 2, 2},
++		{"per binding capacity", 32, 8},
++	} {
++		t.Run(tt.name, func(t *testing.T) {
++			now := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
++			store := NewStore(ttl, tt.capacity)
++			store.now = func() time.Time { return now }
++			binding := testBinding()
++			var oldStates []string
++			for i := 0; i < tt.count; i++ {
++				state, _ := requireIssue(t, store, binding)
++				oldStates = append(oldStates, state)
++			}
++			requireCapacity(t, store, binding)
++			now = now.Add(ttl)
++			// Issue must recover expired capacity without a prior Consume call.
++			state, challenge := requireIssue(t, store, binding)
++			for _, oldState := range oldStates {
++				requireInvalidState(t, store, oldState, binding)
++			}
++			requireConsume(t, store, state, binding, challenge)
++		})
++	}
++}
++
++func TestStoreConcurrentIssueHonorsCapacity(t *testing.T) {
++	for _, tt := range []struct {
++		name        string
++		capacity    int
++		wantIssued  int
++		sameBinding bool
++	}{
++		{"global capacity", 16, 16, false},
++		{"per binding capacity", 64, 8, true},
++	} {
++		t.Run(tt.name, func(t *testing.T) {
++			store := NewStore(5*time.Minute, tt.capacity)
++			const attempts = 64
++			type result struct {
++				state     string
++				challenge string
++				binding   Binding
++				err       error
++			}
++			start := make(chan struct{})
++			results := make(chan result, attempts)
++			var wg sync.WaitGroup
++			for i := 0; i < attempts; i++ {
++				binding := testBinding()
++				if !tt.sameBinding {
++					binding.Session = "test-browser-" + strconv.Itoa(i)
++				}
++				wg.Add(1)
++				go func(binding Binding) {
++					defer wg.Done()
++					<-start
++					state, challenge, err := store.Issue(binding)
++					results <- result{state, challenge, binding, err}
++				}(binding)
++			}
++			close(start)
++			wg.Wait()
++			close(results)
++			seen := make(map[string]bool)
++			for result := range results {
++				if result.err != nil {
++					if !errors.Is(result.err, ErrCapacity) || result.state != "" || result.challenge != "" {
++						t.Fatalf("rejected Issue() returned unexpected result: %v", result.err)
++					}
++					continue
++				}
++				if seen[result.state] {
++					t.Fatal("concurrent Issue() repeated a pending state")
++				}
++				seen[result.state] = true
++				requireConsume(t, store, result.state, result.binding, result.challenge)
++			}
++			if len(seen) != tt.wantIssued {
++				t.Fatalf("successful concurrent issues = %d, want %d", len(seen), tt.wantIssued)
++			}
++		})
++	}
++}
+diff --git a/router/api-router.go b/router/api-router.go
+index 83f5e4a..1619177 100644
+--- a/router/api-router.go
++++ b/router/api-router.go
+@@ -36,6 +36,7 @@ func SetApiRouter(router *gin.Engine) {
+ 		apiRouter.POST("/user/reset", middleware.CriticalRateLimit(), controller.ResetPassword)
+ 		// OAuth routes - specific routes must come before :provider wildcard
+ 		apiRouter.GET("/oauth/state", middleware.CriticalRateLimit(), controller.GenerateOAuthCode)
++		apiRouter.POST("/oauth/:provider/start", middleware.CriticalRateLimit(), controller.StartCustomOAuthPKCE)
+ 		apiRouter.POST("/oauth/email/bind", middleware.CriticalRateLimit(), controller.EmailBind)
+ 		// Non-standard OAuth (WeChat, Telegram) - keep original routes
+ 		apiRouter.GET("/oauth/wechat", middleware.CriticalRateLimit(), controller.WeChatAuth)
+@@ -181,6 +182,7 @@ func SetApiRouter(router *gin.Engine) {
+ 		}
+ 
+ 		// Custom OAuth provider management (root only)
++		apiRouter.POST("/user/:id/oauth-relay/revoke", middleware.RootAuth(), controller.RevokeChatOAuthRelayCredential)
+ 		customOAuthRoute := apiRouter.Group("/custom-oauth-provider")
+ 		customOAuthRoute.Use(middleware.RootAuth())
+ 		{
+diff --git a/router/api_router_pkce_test.go b/router/api_router_pkce_test.go
+new file mode 100644
+index 0000000..e1e56f5
+--- /dev/null
++++ b/router/api_router_pkce_test.go
+@@ -0,0 +1,22 @@
++package router
++
++import (
++	"testing"
++
++	"github.com/gin-gonic/gin"
++)
++
++func TestCustomPKCERouteRegistration(t *testing.T) {
++	gin.SetMode(gin.TestMode)
++	engine := gin.New()
++	SetApiRouter(engine) // Also catches conflicts with existing static OAuth routes.
++	found := false
++	for _, route := range engine.Routes() {
++		if route.Method == "POST" && route.Path == "/api/oauth/:provider/start" {
++			found = true
++		}
++	}
++	if !found {
++		t.Fatal("PKCE authorization route is missing")
++	}
++}
+diff --git a/router/oauth-relay-router.go b/router/oauth-relay-router.go
+new file mode 100644
+index 0000000..a504e8b
+--- /dev/null
++++ b/router/oauth-relay-router.go
+@@ -0,0 +1,28 @@
++package router
++
++import (
++	"github.com/QuantumNous/new-api/controller"
++	"github.com/QuantumNous/new-api/middleware"
++	"github.com/QuantumNous/new-api/types"
++	"github.com/gin-gonic/gin"
++)
++
++func setChatOAuthRelayRouter(router *gin.Engine) {
++	group := router.Group("/oauth-relay/v1", middleware.RouteTag("relay"))
++	group.GET("/models", middleware.ChatOAuthRelay("/v1/models"), middleware.TokenAuth(), controller.ListChatOAuthRelayModels)
++	for _, route := range []struct {
++		path   string
++		format types.RelayFormat
++	}{
++		{"/chat/completions", types.RelayFormatOpenAI},
++		{"/responses", types.RelayFormatOpenAIResponses},
++	} {
++		format := route.format
++		group.POST(route.path,
++			middleware.SystemPerformanceCheck(),
++			middleware.ChatOAuthRelay("/v1"+route.path), middleware.TokenAuth(),
++			middleware.ChatOAuthRelayModelLimit(), middleware.ModelRequestRateLimit(), middleware.Distribute(),
++			func(c *gin.Context) { controller.Relay(c, format) },
++		)
++	}
++}
+diff --git a/router/oauth_relay_integration_test.go b/router/oauth_relay_integration_test.go
+new file mode 100644
+index 0000000..ad25bfb
+--- /dev/null
++++ b/router/oauth_relay_integration_test.go
+@@ -0,0 +1,220 @@
++package router
++
++import (
++	"fmt"
++	"io"
++	"net/http"
++	"net/http/httptest"
++	"reflect"
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/constant"
++	"github.com/QuantumNous/new-api/i18n"
++	"github.com/QuantumNous/new-api/model"
++	"github.com/QuantumNous/new-api/setting/ratio_setting"
++	"github.com/gin-gonic/gin"
++	"gorm.io/gorm/logger"
++)
++
++type oauthRelayIntegrationTransport func(*http.Request) (*http.Response, error)
++
++func (f oauthRelayIntegrationTransport) RoundTrip(r *http.Request) (*http.Response, error) {
++	return f(r)
++}
++
++// All identities, tokens, quota, channels and prices in this test are synthetic.
++// The catch-all transport rejects every non-UserInfo request without opening a socket.
++func TestChatOAuthRelayIntegration(t *testing.T) {
++	gin.SetMode(gin.TestMode)
++	if err := i18n.Init(); err != nil {
++		t.Fatal(err)
++	}
++	oldDB, oldPath, oldMaster := model.DB, common.SQLitePath, common.IsMasterNode
++	oldRedis, oldBatch, oldMemory := common.RedisEnabled, common.BatchUpdateEnabled, common.MemoryCacheEnabled
++	oldCount, oldTransport := constant.CountToken, http.DefaultTransport
++	oldPrices := ratio_setting.ModelPrice2JSONString()
++	t.Setenv("SQL_DSN", "local")
++	t.Setenv("SQL_MAX_OPEN_CONNS", "1")
++	t.Setenv("CHAT_OAUTH_RELAY_ENABLED", "true")
++	common.SQLitePath = "file:oauth-relay-router-integration?mode=memory&cache=shared"
++	common.IsMasterNode, common.RedisEnabled, common.BatchUpdateEnabled, common.MemoryCacheEnabled = false, false, false, false
++	constant.CountToken = false // No tokenizer downloads; price fixtures are per-request, not production rates.
++	if err := model.InitDB(); err != nil {
++		t.Fatal(err)
++	}
++	model.DB.Logger = logger.Default.LogMode(logger.Silent)
++	t.Cleanup(func() {
++		sqlDB, _ := model.DB.DB()
++		_ = sqlDB.Close()
++		model.DB, common.SQLitePath, common.IsMasterNode = oldDB, oldPath, oldMaster
++		common.RedisEnabled, common.BatchUpdateEnabled, common.MemoryCacheEnabled = oldRedis, oldBatch, oldMemory
++		constant.CountToken, http.DefaultTransport = oldCount, oldTransport
++		_ = ratio_setting.UpdateModelPriceByJSONString(oldPrices)
++	})
++	if err := model.DB.AutoMigrate(&model.User{}, &model.Token{}, &model.CustomOAuthProvider{}, &model.UserOAuthBinding{}, &model.Channel{}, &model.Ability{}); err != nil {
++		t.Fatal(err)
++	}
++	provider := model.CustomOAuthProvider{Id: 1, Name: "fixture", Slug: "pingxingxian", Enabled: true, UserIdField: "sub", UserInfoEndpoint: model.OAuthRelayUserInfoURL}
++	if err := model.DB.Create(&provider).Error; err != nil {
++		t.Fatal(err)
++	}
++	for i, sub := range []string{"fixture-zero", "fixture-other"} {
++		group := "default"
++		if i == 1 {
++			group = "fixture-group"
++		}
++		user := model.User{Id: 501 + i, Username: sub, AffCode: sub, Role: common.RoleCommonUser, Status: common.UserStatusEnabled, Group: group, Quota: 0, Setting: `{"billing_preference":"wallet_only"}`}
++		if err := model.DB.Create(&user).Error; err != nil {
++			t.Fatal(err)
++		}
++		if err := model.DB.Create(&model.UserOAuthBinding{UserId: user.Id, ProviderId: 1, ProviderUserId: sub}).Error; err != nil {
++			t.Fatal(err)
++		}
++	}
++	upstream := "https://synthetic-upstream.test"
++	channel := model.Channel{Id: 701, Type: constant.ChannelTypeOpenAI, Name: "synthetic-only", Key: "synthetic-channel-key", Status: common.ChannelStatusEnabled, BaseURL: &upstream, Models: model.OAuthRelayModelLimits, Group: "default,fixture-group"}
++	if err := model.DB.Create(&channel).Error; err != nil {
++		t.Fatal(err)
++	}
++	for _, name := range append(strings.Split(model.OAuthRelayModelLimits, ","), "unapproved-model") {
++		if err := model.DB.Create(&model.Ability{Group: "default", Model: name, ChannelId: channel.Id, Enabled: true}).Error; err != nil {
++			t.Fatal(err)
++		}
++	}
++	for _, ability := range []model.Ability{
++		{Group: "fixture-group", Model: "gpt-6.1-terra", ChannelId: channel.Id, Enabled: true},
++		{Group: "fixture-group", Model: "gpt-6.1-sol", ChannelId: channel.Id, Enabled: false},
++	} {
++		if err := model.DB.Create(&ability).Error; err != nil {
++			t.Fatal(err)
++		}
++	}
++	if err := ratio_setting.UpdateModelPriceByJSONString(`{"gpt-6-luna":0.001,"gpt-6.1-terra":0.001,"gpt-6.1-sol":0.001}`); err != nil {
++		t.Fatal(err)
++	}
++	userinfoCalls, forbiddenCalls := 0, 0
++	http.DefaultTransport = oauthRelayIntegrationTransport(func(r *http.Request) (*http.Response, error) {
++		if r.URL.String() != model.OAuthRelayUserInfoURL || r.Method != http.MethodGet {
++			forbiddenCalls++
++			return nil, fmt.Errorf("all non-UserInfo network requests are blocked by the fixture")
++		}
++		userinfoCalls++
++		sub := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer oauth-")
++		if sub != "fixture-zero" && sub != "fixture-other" {
++			return &http.Response{StatusCode: 401, Body: http.NoBody, Header: make(http.Header), Request: r}, nil
++		}
++		body, err := common.Marshal(map[string]any{"iss": "https://pingxingxian.space/auth/oidc", "aud": "parallellines-openwebui", "sub": sub, "pl_binding": "synthetic-binding", "pl_auth_exp": time.Now().Unix() + 300})
++		if err != nil {
++			return nil, err
++		}
++		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(string(body))), Request: r}, nil
++	})
++	engine := gin.New()
++	SetRelayRouter(engine)
++	request := func(method, path, identity, body string) *httptest.ResponseRecorder {
++		t.Helper()
++		req := httptest.NewRequest(method, path, strings.NewReader(body))
++		if identity != "" {
++			req.Header.Set("Authorization", "Bearer oauth-"+identity)
++		}
++		if body != "" {
++			req.Header.Set("Content-Type", "application/json")
++		}
++		res := httptest.NewRecorder()
++		engine.ServeHTTP(res, req)
++		return res
++	}
++	t.Run("exact route surface", func(t *testing.T) {
++		actual := map[string]bool{}
++		for _, route := range engine.Routes() {
++			if strings.HasPrefix(route.Path, "/oauth-relay/") {
++				actual[route.Method+" "+route.Path] = true
++			}
++		}
++		want := map[string]bool{"GET /oauth-relay/v1/models": true, "POST /oauth-relay/v1/chat/completions": true, "POST /oauth-relay/v1/responses": true}
++		if !reflect.DeepEqual(actual, want) {
++			t.Fatalf("unexpected adapter route surface: %v", actual)
++		}
++	})
++	t.Run("zero quota models respect group and allowlist", func(t *testing.T) {
++		for _, tc := range []struct {
++			sub string
++			ids []string
++		}{
++			{"fixture-zero", strings.Split(model.OAuthRelayModelLimits, ",")},
++			{"fixture-other", []string{"gpt-6.1-terra"}},
++		} {
++			res := request("GET", "/oauth-relay/v1/models", tc.sub, "")
++			if res.Code != 200 {
++				t.Fatalf("models HTTP %d: %s", res.Code, res.Body.String())
++			}
++			var body struct {
++				Data []struct {
++					ID string `json:"id"`
++				} `json:"data"`
++			}
++			if err := common.Unmarshal(res.Body.Bytes(), &body); err != nil {
++				t.Fatal(err)
++			}
++			var ids []string
++			for _, entry := range body.Data {
++				ids = append(ids, entry.ID)
++			}
++			if !reflect.DeepEqual(ids, tc.ids) {
++				t.Fatalf("models escaped group/allowlist: %v", ids)
++			}
++			if res.Header().Get("Cache-Control") != "no-store" {
++				t.Fatal("identity response is cacheable")
++			}
++		}
++	})
++	t.Run("both paid routes reject unsupported models before upstream", func(t *testing.T) {
++		for _, path := range []string{"/chat/completions", "/responses"} {
++			res := request("POST", "/oauth-relay/v1"+path, "fixture-zero", `{"model":"unapproved-model"}`)
++			if res.Code != 403 {
++				t.Fatalf("unsupported model HTTP %d", res.Code)
++			}
++		}
++	})
++	t.Run("native relay billing rejects zero quota for both protocols", func(t *testing.T) {
++		for _, tc := range []struct{ path, body string }{
++			{"/chat/completions", `{"model":"gpt-6-luna","messages":[{"role":"user","content":"synthetic"}]}`},
++			{"/responses", `{"model":"gpt-6-luna","input":"synthetic"}`},
++		} {
++			res := request("POST", "/oauth-relay/v1"+tc.path, "fixture-zero", tc.body)
++			if res.Code != 403 || !strings.Contains(res.Body.String(), "insufficient_user_quota") {
++				t.Fatalf("native quota rejection missing: HTTP %d %s", res.Code, res.Body.String())
++			}
++		}
++	})
++	t.Run("anonymous and invalid identities rejected", func(t *testing.T) {
++		for _, identity := range []string{"", "untrusted"} {
++			if res := request("GET", "/oauth-relay/v1/models", identity, ""); res.Code != 401 {
++				t.Fatalf("untrusted identity HTTP %d", res.Code)
++			}
++		}
++	})
++	var tokens []model.Token
++	if err := model.DB.Where("internal_purpose = ?", model.OAuthRelayTokenPurpose).Order("user_id").Find(&tokens).Error; err != nil {
++		t.Fatal(err)
++	}
++	if len(tokens) != 2 || tokens[0].UserId != 501 || tokens[1].UserId != 502 || tokens[0].Key == tokens[1].Key {
++		t.Fatal("router identities did not receive separate native token owners")
++	}
++	for _, token := range tokens {
++		res := request("GET", "/oauth-relay/v1/models", "fixture-zero", "")
++		if strings.Contains(res.Body.String(), token.Key) {
++			t.Fatal("internal credential leaked in client response")
++		}
++		var user model.User
++		if err := model.DB.First(&user, token.UserId).Error; err != nil || user.Quota != 0 || user.UsedQuota != 0 {
++			t.Fatal("read/denied request changed quota")
++		}
++	}
++	if userinfoCalls == 0 || forbiddenCalls != 0 {
++		t.Fatalf("unexpected request counts: UserInfo=%d blocked-other=%d", userinfoCalls, forbiddenCalls)
++	}
++}
+diff --git a/router/relay-router.go b/router/relay-router.go
+index 17a13ca..552e169 100644
+--- a/router/relay-router.go
++++ b/router/relay-router.go
+@@ -15,6 +15,7 @@ func SetRelayRouter(router *gin.Engine) {
+ 	router.Use(middleware.DecompressRequestMiddleware())
+ 	router.Use(middleware.BodyStorageCleanup()) // 清理请求体存储
+ 	router.Use(middleware.StatsMiddleware())
++	setChatOAuthRelayRouter(router)
+ 	// https://platform.openai.com/docs/api-reference/introduction
+ 	modelsRouter := router.Group("/v1/models")
+ 	modelsRouter.Use(middleware.RouteTag("relay"))
+diff --git a/router/web-router.go b/router/web-router.go
+index 17a8378..b89f9eb 100644
+--- a/router/web-router.go
++++ b/router/web-router.go
+@@ -20,7 +20,7 @@ func SetWebRouter(router *gin.Engine, buildFS embed.FS, indexPage []byte) {
+ 	router.Use(static.Serve("/", common.EmbedFolder(buildFS, "web/dist")))
+ 	router.NoRoute(func(c *gin.Context) {
+ 		c.Set(middleware.RouteTagKey, "web")
+-		if strings.HasPrefix(c.Request.RequestURI, "/v1") || strings.HasPrefix(c.Request.RequestURI, "/api") || strings.HasPrefix(c.Request.RequestURI, "/assets") {
++		if strings.HasPrefix(c.Request.RequestURI, "/v1") || strings.HasPrefix(c.Request.RequestURI, "/api") || strings.HasPrefix(c.Request.RequestURI, "/assets") || strings.HasPrefix(c.Request.RequestURI, "/oauth-relay") {
+ 			controller.RelayNotFound(c)
+ 			return
+ 		}
+diff --git a/web/src/helpers/api.js b/web/src/helpers/api.js
+index 88122a5..2a9baf6 100644
+--- a/web/src/helpers/api.js
++++ b/web/src/helpers/api.js
+@@ -326,6 +326,30 @@ export async function onLinuxDOOAuthClicked(
+  * @param {boolean} options.shouldLogout - Whether to logout first
+  */
+ export async function onCustomOAuthClicked(provider, options = {}) {
++  if (provider.pkce_enabled) {
++    try {
++      if (options.shouldLogout) {
++        // Unlike the legacy flow, failed logout must not turn login into binding.
++        const { data } = await API.get('/api/user/logout', {
++          skipErrorHandler: true,
++        });
++        if (!data.success) throw new Error(data.message);
++        localStorage.removeItem('user');
++        updateAPI();
++      }
++      const aff = localStorage.getItem('aff');
++      const { data } = await API.post(
++        `/api/oauth/${encodeURIComponent(provider.slug)}/start`,
++        null,
++        { params: aff ? { aff } : {} },
++      );
++      if (!data.success) throw new Error(data.message);
++      redirectToOAuthUrl(data.data.authorization_url);
++    } catch (error) {
++      showError(error);
++    }
++    return;
++  }
+   const state = await prepareOAuthState(options);
+   if (!state) return;
+ 
+diff --git a/web/src/helpers/api.pkce.test.js b/web/src/helpers/api.pkce.test.js
+new file mode 100644
+index 0000000..b7eff08
+--- /dev/null
++++ b/web/src/helpers/api.pkce.test.js
+@@ -0,0 +1,258 @@
++import assert from 'node:assert/strict';
++import { readFileSync } from 'node:fs';
++import { test } from 'node:test';
++import { Script } from 'node:vm';
++
++// Exercise the actual helper bodies without importing React or starting an app.
++// Every browser and HTTP dependency is an in-memory stub; no requests are sent.
++const source = readFileSync(new URL('./api.js', import.meta.url), 'utf8');
++
++function extract(startMarker, endMarker) {
++  const start = source.indexOf(startMarker);
++  const end = source.indexOf(endMarker, start + startMarker.length);
++  assert.ok(
++    start >= 0 && end > start,
++    'OAuth helper source boundaries changed',
++  );
++  return source.slice(start, end).replace(/^export /, '');
++}
++
++const helperScript = new Script(
++  [
++    extract(
++      'export async function getOAuthState(',
++      '\nasync function prepareOAuthState(',
++    ),
++    extract(
++      'async function prepareOAuthState(',
++      '\nexport async function onDiscordOAuthClicked(',
++    ),
++    extract(
++      'export async function onCustomOAuthClicked(',
++      '\nlet channelModels =',
++    ),
++    'onCustomOAuthClicked;',
++  ].join('\n'),
++  { filename: 'api.js (isolated OAuth helpers)' },
++);
++
++const serverAuthorizationURL =
++  'https://issuer.example/authorize?state=fixture-state&code_challenge=fixture-challenge&code_challenge_method=S256';
++const provider = {
++  slug: 'fixture-provider',
++  pkce_enabled: true,
++  client_id: 'fixture-client',
++  authorization_endpoint:
++    'https://legacy.example/authorize?audience=fixture-audience',
++  scopes: 'openid profile offline_access',
++};
++
++function harness(options = {}) {
++  const calls = [];
++  const events = [];
++  const errors = [];
++  const redirects = [];
++  const storage = new Map([['user', 'fixture-local-user']]);
++  if (options.aff) storage.set('aff', options.aff);
++  const copy = (value) =>
++    value === undefined ? undefined : JSON.parse(JSON.stringify(value));
++  const record = (method, path, body, requestOptions) => {
++    calls.push({ method, path, body, options: copy(requestOptions) });
++    events.push(`${method}:${path}`);
++  };
++  const API = {
++    async get(path, requestOptions) {
++      record('get', path, undefined, requestOptions);
++      if (path === '/api/user/logout') {
++        if (options.logoutError) throw options.logoutError;
++        return { data: options.logoutResponse ?? { success: true } };
++      }
++      if (path.startsWith('/api/oauth/state')) {
++        return {
++          data: options.stateResponse ?? {
++            success: true,
++            data: 'fixture-legacy-state',
++          },
++        };
++      }
++      throw new Error(`Unexpected mocked GET: ${path}`);
++    },
++    async post(path, body, requestOptions) {
++      record('post', path, body, requestOptions);
++      if (path !== '/api/oauth/fixture-provider/start') {
++        throw new Error(`Unexpected mocked POST: ${path}`);
++      }
++      if (options.startError) throw options.startError;
++      return {
++        data: options.startResponse ?? {
++          success: true,
++          data: { authorization_url: serverAuthorizationURL },
++        },
++      };
++    },
++  };
++  const click = helperScript.runInNewContext({
++    API,
++    URL,
++    window: { location: { origin: 'https://candidate.example' } },
++    localStorage: {
++      getItem: (key) => storage.get(key) ?? null,
++      removeItem(key) {
++        events.push(`remove:${key}`);
++        storage.delete(key);
++      },
++    },
++    updateAPI: () => events.push('updateAPI'),
++    showError: (error) => errors.push(error),
++    redirectToOAuthUrl(url) {
++      redirects.push(url.toString());
++      events.push('redirect');
++    },
++    console: { error() {} },
++  });
++  return { click, calls, events, errors, redirects, storage };
++}
++
++function requestPaths(h) {
++  return h.calls.map(({ method, path }) => `${method}:${path}`);
++}
++
++test('PKCE uses the server URL and never requests legacy state', async () => {
++  const h = harness({ aff: 'fixture-affiliate+code' });
++  await h.click(provider);
++
++  assert.deepEqual(requestPaths(h), ['post:/api/oauth/fixture-provider/start']);
++  assert.equal(h.calls[0].body, null);
++  assert.deepEqual(h.calls[0].options, {
++    params: { aff: 'fixture-affiliate+code' },
++  });
++  assert.deepEqual(h.redirects, [serverAuthorizationURL]);
++  assert.deepEqual(h.errors, []);
++  assert.equal(h.storage.get('user'), 'fixture-local-user');
++  assert.ok(!h.events.includes('updateAPI'));
++});
++
++test('PKCE omits an absent affiliate and does not log out a binding flow', async () => {
++  const h = harness();
++  await h.click(provider, { shouldLogout: false });
++
++  assert.deepEqual(requestPaths(h), ['post:/api/oauth/fixture-provider/start']);
++  assert.deepEqual(h.calls[0].options, { params: {} });
++  assert.deepEqual(h.redirects, [serverAuthorizationURL]);
++  assert.equal(h.storage.get('user'), 'fixture-local-user');
++});
++
++test('PKCE waits for successful logout before clearing the user and starting', async () => {
++  const h = harness();
++  await h.click(provider, { shouldLogout: true });
++
++  assert.deepEqual(h.events, [
++    'get:/api/user/logout',
++    'remove:user',
++    'updateAPI',
++    'post:/api/oauth/fixture-provider/start',
++    'redirect',
++  ]);
++  assert.deepEqual(h.calls[0].options, { skipErrorHandler: true });
++  assert.equal(h.storage.has('user'), false);
++  assert.deepEqual(h.redirects, [serverAuthorizationURL]);
++  assert.deepEqual(h.errors, []);
++});
++
++for (const [name, failure] of [
++  [
++    'business rejection',
++    { logoutResponse: { success: false, message: 'fixture logout rejected' } },
++  ],
++  ['request failure', { logoutError: new Error('fixture logout unavailable') }],
++]) {
++  test(`PKCE stops after logout ${name}`, async () => {
++    const h = harness(failure);
++    await h.click(provider, { shouldLogout: true });
++
++    assert.deepEqual(h.events, ['get:/api/user/logout']);
++    assert.equal(h.storage.get('user'), 'fixture-local-user');
++    assert.deepEqual(h.redirects, []);
++    assert.equal(h.errors.length, 1);
++    assert.match(h.errors[0].message, /fixture logout/);
++  });
++}
++
++for (const [name, failure] of [
++  [
++    'business rejection',
++    { startResponse: { success: false, message: 'fixture start rejected' } },
++  ],
++  ['request failure', { startError: new Error('fixture start unavailable') }],
++]) {
++  test(`PKCE start ${name} does not redirect or fall back to legacy state`, async () => {
++    const h = harness(failure);
++    await h.click(provider);
++
++    assert.deepEqual(requestPaths(h), [
++      'post:/api/oauth/fixture-provider/start',
++    ]);
++    assert.deepEqual(h.redirects, []);
++    assert.equal(h.errors.length, 1);
++    assert.match(h.errors[0].message, /fixture start/);
++  });
++}
++
++for (const flag of [false, undefined]) {
++  test(`legacy provider with pkce_enabled=${flag} retains its authorization flow`, async () => {
++    const h = harness({ aff: 'fixture-affiliate' });
++    await h.click({ ...provider, pkce_enabled: flag });
++
++    assert.deepEqual(requestPaths(h), [
++      'get:/api/oauth/state?aff=fixture-affiliate',
++    ]);
++    assert.equal(h.redirects.length, 1);
++    const url = new URL(h.redirects[0]);
++    assert.equal(url.origin, 'https://legacy.example');
++    assert.equal(url.pathname, '/authorize');
++    assert.equal(url.searchParams.get('audience'), 'fixture-audience');
++    assert.equal(url.searchParams.get('client_id'), provider.client_id);
++    assert.equal(
++      url.searchParams.get('redirect_uri'),
++      'https://candidate.example/oauth/fixture-provider',
++    );
++    assert.equal(url.searchParams.get('response_type'), 'code');
++    assert.equal(url.searchParams.get('scope'), provider.scopes);
++    assert.equal(url.searchParams.get('state'), 'fixture-legacy-state');
++    assert.equal(url.searchParams.has('code_challenge'), false);
++    assert.equal(url.searchParams.has('code_challenge_method'), false);
++    assert.deepEqual(h.errors, []);
++  });
++}
++
++test('legacy logout ordering and default scope remain unchanged', async () => {
++  const h = harness();
++  await h.click(
++    { ...provider, pkce_enabled: false, scopes: '' },
++    { shouldLogout: true },
++  );
++
++  assert.deepEqual(h.events, [
++    'get:/api/user/logout',
++    'remove:user',
++    'updateAPI',
++    'get:/api/oauth/state',
++    'redirect',
++  ]);
++  assert.equal(
++    new URL(h.redirects[0]).searchParams.get('scope'),
++    'openid profile email',
++  );
++  assert.deepEqual(h.errors, []);
++});
++
++test('legacy state rejection still stops before authorization', async () => {
++  const h = harness({
++    stateResponse: { success: false, message: 'fixture state rejected' },
++  });
++  await h.click({ ...provider, pkce_enabled: false });
++
++  assert.deepEqual(requestPaths(h), ['get:/api/oauth/state']);
++  assert.deepEqual(h.redirects, []);
++  assert.deepEqual(h.errors, ['fixture state rejected']);
++});

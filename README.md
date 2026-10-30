@@ -5,6 +5,19 @@ used by the ParallelLines identity provider. The upstream UI is retained. Source
 **v0.13.2**, commit `bee339d279ccecbf8c8a89e14ddbbd902f78bd5d`; see
 `upstream.lock.json` and [NOTICE.md](NOTICE.md). License: [AGPL v3](LICENSE).
 
+## Current release
+
+The deployed release is **v0.13.2-pkce.5**. Start with its
+[release instructions](releases/v0.13.2-pkce.5/README.md) and
+[complete ordered patch lock](releases/v0.13.2-pkce.5/upstream.lock.json).
+It includes the pkce.3 billing/relay implementation, pkce.4 bound-profile
+synchronization, and pkce.5 deleted-account session rejection. The root lock and
+the base-build commands below intentionally describe the reusable pkce.3 base;
+do not use that base image to replace the current live release.
+
+The source archives and manifests describe application source only. Runtime
+secrets, databases, identities and logs are excluded from version control.
+
 ## Prepare and build
 
 On a Linux build machine with Bash, curl, unzip, Git, sha256sum, Go 1.26.1 and

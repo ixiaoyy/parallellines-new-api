@@ -1,0 +1,372 @@
+diff --git a/middleware/auth.go b/middleware/auth.go
+index 629857f..aabcf28 100644
+--- a/middleware/auth.go
++++ b/middleware/auth.go
+@@ -39,6 +39,10 @@ func authHelper(c *gin.Context, minRole int) {
+ 	role := session.Get("role")
+ 	id := session.Get("id")
+ 	status := session.Get("status")
++	if err := checkCookieUserExists(c); err != nil {
++		rejectCookieIdentity(c, err)
++		return
++	}
+ 	useAccessToken := false
+ 	if username == nil {
+ 		// Check access token
+@@ -158,6 +162,15 @@ func authHelper(c *gin.Context, minRole int) {
+ 
+ func TryUserAuth() func(c *gin.Context) {
+ 	return func(c *gin.Context) {
++		if err := checkCookieUserExists(c); err != nil {
++			if errors.Is(err, errCookieIdentityDatabase) {
++				rejectCookieIdentity(c, err)
++				return
++			}
++			clearInvalidLoginCookie(c)
++			c.Next()
++			return
++		}
+ 		session := sessions.Default(c)
+ 		id := session.Get("id")
+ 		if id != nil {
+@@ -193,6 +206,10 @@ func WssAuth(c *gin.Context) {
+ // Used for endpoints that need to be accessible from both the dashboard and API clients.
+ func TokenOrUserAuth() func(c *gin.Context) {
+ 	return func(c *gin.Context) {
++		if err := checkCookieUserExists(c); err != nil {
++			rejectCookieIdentity(c, err)
++			return
++		}
+ 		// Try session auth first (dashboard users)
+ 		session := sessions.Default(c)
+ 		if id := session.Get("id"); id != nil {
+diff --git a/middleware/session_user.go b/middleware/session_user.go
+new file mode 100644
+--- /dev/null
++++ b/middleware/session_user.go
+@@ -0,0 +1,55 @@
++package middleware
++
++import (
++	"errors"
++	"net/http"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/i18n"
++	"github.com/QuantumNous/new-api/model"
++	"github.com/gin-contrib/sessions"
++	"github.com/gin-gonic/gin"
++	"gorm.io/gorm"
++)
++
++var errCookieIdentityInvalid = errors.New("invalid login session")
++var errCookieIdentityDatabase = errors.New("login session lookup unavailable")
++
++// Check only account existence. All existing cookie authorization claims keep
++// their native meaning; anonymous and OAuth state-only cookies need no DB read.
++func checkCookieUserExists(c *gin.Context) error {
++	session := sessions.Default(c)
++	rawID := session.Get("id")
++	if rawID == nil {
++		return nil
++	}
++	id, ok := rawID.(int)
++	if !ok || id <= 0 {
++		return errCookieIdentityInvalid
++	}
++	err := model.CheckSessionUserExists(id)
++	if errors.Is(err, gorm.ErrRecordNotFound) {
++		return errCookieIdentityInvalid
++	}
++	if err != nil {
++		return errCookieIdentityDatabase
++	}
++	return nil
++}
++
++func clearInvalidLoginCookie(c *gin.Context) {
++	session := sessions.Default(c)
++	session.Clear()
++	// Clearing this browser is a convenience; replay is rejected by the DB check
++	// even if saving fails or a caller retains the original signed cookie.
++	_ = session.Save()
++}
++
++func rejectCookieIdentity(c *gin.Context, err error) {
++	if errors.Is(err, errCookieIdentityDatabase) {
++		c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": common.TranslateMessage(c, i18n.MsgDatabaseError)})
++		return
++	}
++	clearInvalidLoginCookie(c)
++	c.AbortWithStatusJSON(http.StatusUnauthorized, gin.H{"success": false, "message": common.TranslateMessage(c, i18n.MsgAuthNotLoggedIn)})
++}
+diff --git a/middleware/session_user_test.go b/middleware/session_user_test.go
+new file mode 100644
+--- /dev/null
++++ b/middleware/session_user_test.go
+@@ -0,0 +1,183 @@
++package middleware
++
++import (
++	"errors"
++	"net/http"
++	"net/http/httptest"
++	"testing"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/i18n"
++	"github.com/QuantumNous/new-api/model"
++	"github.com/gin-contrib/sessions"
++	"github.com/gin-contrib/sessions/cookie"
++	"github.com/gin-gonic/gin"
++	"github.com/stretchr/testify/require"
++	"gorm.io/gorm"
++	"gorm.io/gorm/logger"
++)
++
++func sessionRevocationFixture(t *testing.T) *gin.Engine {
++	t.Helper()
++	gin.SetMode(gin.TestMode)
++	require.NoError(t, i18n.Init())
++	oldDB, oldPath, oldMaster := model.DB, common.SQLitePath, common.IsMasterNode
++	oldRedis, oldBatch := common.RedisEnabled, common.BatchUpdateEnabled
++	oldSQLite, oldMySQL, oldPostgres := common.UsingSQLite, common.UsingMySQL, common.UsingPostgreSQL
++	t.Setenv("SQL_DSN", "local")
++	t.Setenv("SQL_MAX_OPEN_CONNS", "1")
++	common.SQLitePath = ":memory:"
++	common.IsMasterNode, common.RedisEnabled, common.BatchUpdateEnabled = false, false, false
++	common.UsingMySQL, common.UsingPostgreSQL = false, false
++	require.NoError(t, model.InitDB())
++	db := model.DB
++	db.Logger = logger.Default.LogMode(logger.Silent)
++	t.Cleanup(func() {
++		sqlDB, _ := db.DB()
++		_ = sqlDB.Close()
++		model.DB, common.SQLitePath, common.IsMasterNode = oldDB, oldPath, oldMaster
++		common.RedisEnabled, common.BatchUpdateEnabled = oldRedis, oldBatch
++		common.UsingSQLite, common.UsingMySQL, common.UsingPostgreSQL = oldSQLite, oldMySQL, oldPostgres
++	})
++	require.NoError(t, db.AutoMigrate(&model.User{}, &model.Token{}))
++	access := "synthetic-management-access"
++	require.NoError(t, db.Create(&model.User{Id: 1, Username: "synthetic-root", Role: common.RoleRootUser, Status: common.UserStatusEnabled, Group: "default", AffCode: "fixture-one"}).Error)
++	require.NoError(t, db.Create(&model.User{Id: 2, Username: "synthetic-user", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, Group: "default", AffCode: "fixture-two", AccessToken: &access}).Error)
++	require.NoError(t, db.Create(&model.Token{UserId: 2, Key: "syntheticrelaykey", Status: common.TokenStatusEnabled, ExpiredTime: -1, RemainQuota: 10}).Error)
++	r := gin.New()
++	store := cookie.NewStore([]byte("synthetic-cookie-signing-key-32-bytes"))
++	store.Options(sessions.Options{Path: "/", HttpOnly: true, MaxAge: 2592000})
++	r.Use(sessions.Sessions("session", store))
++	probe := func(c *gin.Context) {
++		c.JSON(http.StatusOK, gin.H{"handler": true, "id": c.GetInt("id"), "role": c.GetInt("role"), "username": c.GetString("username"), "group": c.GetString("group"), "token_id": c.GetInt("token_id"), "access": c.GetBool("use_access_token")})
++	}
++	r.GET("/root", RootAuth(), probe)
++	r.GET("/admin", AdminAuth(), probe)
++	r.GET("/user", UserAuth(), probe)
++	r.GET("/video", TokenOrUserAuth(), probe)
++	r.GET("/pricing", TryUserAuth(), probe)
++	return r
++}
++
++func sessionRevocationCookie(t *testing.T, r *gin.Engine, values map[string]any) *http.Cookie {
++	t.Helper()
++	// Sign with the real store implementation, not a mocked middleware identity.
++	r.GET("/fixture-sign", func(c *gin.Context) {
++		session := sessions.Default(c)
++		for key, value := range values {
++			session.Set(key, value)
++		}
++		require.NoError(t, session.Save())
++		c.Status(http.StatusNoContent)
++	})
++	w := httptest.NewRecorder()
++	r.ServeHTTP(w, httptest.NewRequest(http.MethodGet, "/fixture-sign", nil))
++	require.NotEmpty(t, w.Result().Cookies())
++	return w.Result().Cookies()[0]
++}
++
++func sessionRevocationRequest(r *gin.Engine, path string, login *http.Cookie, bearer, userID string) *httptest.ResponseRecorder {
++	w := httptest.NewRecorder()
++	req := httptest.NewRequest(http.MethodGet, path, nil)
++	if login != nil {
++		req.AddCookie(login)
++	}
++	if bearer != "" {
++		req.Header.Set("Authorization", "Bearer "+bearer)
++	}
++	if userID != "" {
++		req.Header.Set("New-Api-User", userID)
++	}
++	r.ServeHTTP(w, req)
++	return w
++}
++
++func sessionRevocationRootClaims() map[string]any {
++	return map[string]any{"id": 1, "username": "synthetic-root", "role": common.RoleRootUser, "status": common.UserStatusEnabled, "group": "old-cookie-group"}
++}
++
++func TestSessionRevocationDeletedCookieCannotReplay(t *testing.T) {
++	for _, change := range []string{"hard-delete", "soft-delete"} {
++		t.Run(change, func(t *testing.T) {
++			r := sessionRevocationFixture(t)
++			login := sessionRevocationCookie(t, r, sessionRevocationRootClaims())
++			require.Contains(t, sessionRevocationRequest(r, "/root", login, "", "1").Body.String(), `"handler":true`)
++			var err error
++			switch change {
++			case "hard-delete":
++				err = model.DB.Unscoped().Delete(&model.User{}, 1).Error
++			case "soft-delete":
++				err = model.DB.Delete(&model.User{}, 1).Error
++			}
++			require.NoError(t, err)
++			for _, path := range []string{"/root", "/admin", "/user", "/video"} {
++				// Keep replaying the original cookie, ignoring any browser-clearing response.
++				for replay := 0; replay < 2; replay++ {
++					w := sessionRevocationRequest(r, path, login, "syntheticrelaykey", "1")
++					require.Equal(t, http.StatusUnauthorized, w.Code)
++					require.NotContains(t, w.Body.String(), `"handler":true`)
++				}
++			}
++			w := sessionRevocationRequest(r, "/pricing", login, "", "")
++			require.Equal(t, http.StatusOK, w.Code)
++			require.Contains(t, w.Body.String(), `"id":0`)
++		})
++	}
++}
++
++func TestSessionRevocationPreservesExistingCookieClaims(t *testing.T) {
++	r := sessionRevocationFixture(t)
++	login := sessionRevocationCookie(t, r, sessionRevocationRootClaims())
++	// The approved scope is deletion only. Changes to an existing row's claims
++	// intentionally retain the native cookie semantics in this increment.
++	require.NoError(t, model.DB.Model(&model.User{}).Where("id = ?", 1).Updates(map[string]any{"role": common.RoleCommonUser, "status": common.UserStatusDisabled, "username": "renamed-user", "group": "new-group"}).Error)
++	for _, path := range []string{"/root", "/admin", "/user"} {
++		w := sessionRevocationRequest(r, path, login, "", "1")
++		require.Equal(t, http.StatusOK, w.Code)
++		require.Contains(t, w.Body.String(), `"id":1`)
++		require.Contains(t, w.Body.String(), `"role":100`)
++		require.Contains(t, w.Body.String(), `"username":"synthetic-root"`)
++		require.Contains(t, w.Body.String(), `"group":"old-cookie-group"`)
++	}
++	for _, path := range []string{"/video", "/pricing"} {
++		w := sessionRevocationRequest(r, path, login, "", "")
++		require.Equal(t, http.StatusOK, w.Code)
++		require.Contains(t, w.Body.String(), `"id":1`)
++		require.Contains(t, w.Body.String(), `"role":0`)
++	}
++	w := sessionRevocationRequest(r, "/user", login, "", "2")
++	require.Equal(t, http.StatusUnauthorized, w.Code)
++	require.NotContains(t, w.Body.String(), `"handler":true`)
++}
++
++func TestSessionRevocationDatabaseFailureIsClosedAndSanitized(t *testing.T) {
++	r := sessionRevocationFixture(t)
++	login := sessionRevocationCookie(t, r, sessionRevocationRootClaims())
++	require.NoError(t, model.DB.Callback().Query().Before("gorm:query").Register("session_failure", func(tx *gorm.DB) { tx.AddError(errors.New("synthetic-private-db-detail")) }))
++	for _, path := range []string{"/root", "/video", "/pricing"} {
++		w := sessionRevocationRequest(r, path, login, "", "1")
++		require.Equal(t, http.StatusServiceUnavailable, w.Code)
++		require.NotContains(t, w.Body.String(), "synthetic-private-db-detail")
++		require.NotContains(t, w.Body.String(), `"handler":true`)
++	}
++	// No identity means no authorization DB read, even if the database is down.
++	w := sessionRevocationRequest(r, "/pricing", nil, "", "")
++	require.Equal(t, http.StatusOK, w.Code)
++	require.Contains(t, w.Body.String(), `"id":0`)
++}
++
++func TestSessionRevocationAnonymousAndBearerPaths(t *testing.T) {
++	r := sessionRevocationFixture(t)
++	state := sessionRevocationCookie(t, r, map[string]any{"oauth_state": "synthetic-state", "aff": "synthetic-aff"})
++	w := sessionRevocationRequest(r, "/pricing", state, "", "")
++	require.Equal(t, http.StatusOK, w.Code)
++	require.Empty(t, w.Result().Cookies(), "OAuth state-only cookie must not be cleared")
++	w = sessionRevocationRequest(r, "/user", nil, "synthetic-management-access", "2")
++	require.Equal(t, http.StatusOK, w.Code)
++	require.Contains(t, w.Body.String(), `"id":2`)
++	require.Contains(t, w.Body.String(), `"access":true`)
++	w = sessionRevocationRequest(r, "/video", nil, "syntheticrelaykey", "")
++	require.Equal(t, http.StatusOK, w.Code)
++	require.Contains(t, w.Body.String(), `"id":2`)
++	require.NotContains(t, w.Body.String(), `"token_id":0`)
++}
+diff --git a/model/session_auth.go b/model/session_auth.go
+new file mode 100644
+--- /dev/null
++++ b/model/session_auth.go
+@@ -0,0 +1,14 @@
++package model
++
++import "gorm.io/gorm"
++
++// CheckSessionUserExists rejects only a missing/soft-deleted account. It does
++// not refresh role, status, username or group for existing cookie sessions.
++// Using User preserves GORM's soft-delete scope; only the ID is selected.
++func CheckSessionUserExists(id int) error {
++	if id <= 0 {
++		return gorm.ErrRecordNotFound
++	}
++	var user User
++	return DB.Select("id").First(&user, id).Error
++}
+diff --git a/model/session_auth_test.go b/model/session_auth_test.go
+new file mode 100644
+--- /dev/null
++++ b/model/session_auth_test.go
+@@ -0,0 +1,38 @@
++package model
++
++import (
++	"errors"
++	"testing"
++
++	"github.com/glebarez/sqlite"
++	"github.com/stretchr/testify/require"
++	"gorm.io/gorm"
++	"gorm.io/gorm/logger"
++)
++
++func TestSessionRevocationNarrowProjectionAndLegacyLookup(t *testing.T) {
++	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
++	require.NoError(t, err)
++	oldDB := DB
++	DB = db
++	t.Cleanup(func() { sqlDB, _ := db.DB(); _ = sqlDB.Close(); DB = oldDB })
++	// No role/status/profile/credential columns exist: this must remain only an
++	// account-existence query, preserving existing cookie claims for valid IDs.
++	require.NoError(t, db.Exec("CREATE TABLE users (id integer PRIMARY KEY, deleted_at datetime)").Error)
++	require.NoError(t, db.Exec("INSERT INTO users (id) VALUES (1)").Error)
++	require.NoError(t, CheckSessionUserExists(1))
++	require.NoError(t, db.Delete(&User{}, 1).Error)
++	require.ErrorIs(t, CheckSessionUserExists(1), gorm.ErrRecordNotFound)
++	legacy := &User{Id: 1}
++	require.ErrorIs(t, legacy.FillUserById(), gorm.ErrRecordNotFound)
++	require.NoError(t, db.Unscoped().Delete(&User{}, 1).Error)
++	require.ErrorIs(t, CheckSessionUserExists(1), gorm.ErrRecordNotFound)
++	require.ErrorIs(t, legacy.FillUserById(), gorm.ErrRecordNotFound)
++	for _, id := range []int{0, -1} {
++		require.ErrorIs(t, CheckSessionUserExists(id), gorm.ErrRecordNotFound)
++	}
++	require.NoError(t, db.Callback().Query().Before("gorm:query").Register("session_lookup_failure", func(tx *gorm.DB) { tx.AddError(errors.New("synthetic-private-driver-detail")) }))
++	err = legacy.FillUserById()
++	require.ErrorIs(t, err, ErrDatabase)
++	require.NotContains(t, err.Error(), "synthetic-private-driver-detail")
++}
+diff --git a/model/user.go b/model/user.go
+index b632ef9..597ca5e 100644
+--- a/model/user.go
++++ b/model/user.go
+@@ -620,8 +620,13 @@ func (user *User) FillUserById() error {
+ 	if user.Id == 0 {
+ 		return errors.New("id 为空！")
+ 	}
+-	DB.Where(User{Id: user.Id}).First(user)
+-	return nil
++	err := DB.Where(User{Id: user.Id}).First(user).Error
++	if err != nil && !errors.Is(err, gorm.ErrRecordNotFound) {
++		// Callers return this error to the browser. Preserve failure without
++		// exposing driver details, connection information or SQL statements.
++		return ErrDatabase
++	}
++	return err
+ }
+ 
+ func (user *User) FillUserByEmail() error {

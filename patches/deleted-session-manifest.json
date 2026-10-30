@@ -1,0 +1,45 @@
+{
+  "status": "DELETED_ONLY_PKCE5_READY_FOR_RELEASE_NOT_DEPLOYED_BY_THIS_TASK",
+  "basis": "profile-only pkce.4 source snapshot, exact per-file hashes below",
+  "candidate": "pkce.5 deleted-account-only increment; never use the superseded broader proposal or mix into pkce.4",
+  "patch": "newapi-session-revocation.increment.patch",
+  "patch_sha256": "13c4171b19f077bf7b581f5bd3433eeb93a77923cf80aa32bb988a164b5cf39b",
+  "files": [
+    {
+      "path": "middleware/auth.go",
+      "base_sha256": "fafb8d9409494515f99d43f0765c088047d03570131785764a735660b802ecca",
+      "staged_sha256": "f5bec30f69e91e4acd6ec03bd00e5c58726ad6cfe3215acdf911c9d60b8d9188"
+    },
+    {
+      "path": "middleware/session_user.go",
+      "base_sha256": null,
+      "staged_sha256": "89b218c95ed258060a53dc1d9fa2f8f13320e9f08df15bb5d8e3d66c0cd7166c"
+    },
+    {
+      "path": "middleware/session_user_test.go",
+      "base_sha256": null,
+      "staged_sha256": "97c6b8a1ad6656ed58ab51eb2ea0f1b537a8f0f139301173e3e24518ecfaa162"
+    },
+    {
+      "path": "model/session_auth.go",
+      "base_sha256": null,
+      "staged_sha256": "fcd3c1767f1b08e73afe64c996493f3de2530fc788450949e80684456f4adec1"
+    },
+    {
+      "path": "model/session_auth_test.go",
+      "base_sha256": null,
+      "staged_sha256": "efe7b23dc78dcf1c3bbc8dc0ee85a57efa42b263cbd591f0fa6b537cd7795d7e"
+    },
+    {
+      "path": "model/user.go",
+      "base_sha256": "e5ef7f3cbff93cad4359b10b3aeee3dc158f659457144faa95e554dee34e2df2",
+      "staged_sha256": "1f69e484729c35bdfa13976d063f908353d2b65284f297a9574962c76034c331"
+    }
+  ],
+  "scope": "Three cookie-auth entry points check only non-deleted ID existence, plus FillUserById error propagation; existing cookie claims unchanged; no schema/store/secret/account/server changes",
+  "validation": {
+    "session_tests": "PASS: five deleted-only top-level tests; model 0.148s; middleware 0.156s; refreshed session-tests.log",
+    "independent_review": "PASS: deleted-only source reviewed separately by /root/billing_review/session_patch_review",
+    "existing_pkce_positive_tests": "PKCE source unchanged; previous optional attempt was blocked by loopback socket permissions and was not retried. Parent separately validated profile-only pkce.4."
+  }
+}

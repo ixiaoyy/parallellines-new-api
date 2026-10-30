@@ -1,0 +1,29 @@
+{
+  "version": "v0.13.2-pkce.5",
+  "scope": "deleted-account-only session rejection over frozen profile-only pkce.4",
+  "increment_sha256": "13c4171b19f077bf7b581f5bd3433eeb93a77923cf80aa32bb988a164b5cf39b",
+  "increment_manifest_sha256": "a3fd44d35f411991ed9bb4536c30c4769b682926ed0a423cee7d42f45fcec6e6",
+  "modified_or_new_source_files_verified": 6,
+  "frontend_assets_reused_and_verified": 127,
+  "compiled_binary_confirmations": [
+    "github.com/QuantumNous/new-api/model.CheckSessionUserExists",
+    "github.com/QuantumNous/new-api/middleware.checkCookieUserExists",
+    "v0.13.2-pkce.5"
+  ],
+  "toolchain": {"go": "go1.26.1", "platform": "linux/amd64", "CGO_ENABLED": "0", "GOEXPERIMENT": "greenteagc"},
+  "tests": [
+    {"command": "go test -buildvcs=false ./model ./middleware -run '^TestSessionRevocation' -count=1", "result": "passed", "model_seconds": 0.073, "middleware_seconds": 0.083},
+    {"command": "python3 -m unittest discover -s releases/v0.13.2-pkce.5 -p test_delta.py -v", "result": "passed", "tests": 6},
+    {"command": "python3 -m unittest discover -s deploy -p test_deploy_deleted_session.py -v", "result": "passed", "tests": 10, "seconds": 0.121},
+    {"check": "independent source and deployment helper review", "result": "passed; no blocking findings"},
+    {"check": "JavaScript full delta reconstruction compared byte-for-byte with target", "result": "passed"},
+    {"check": "Python decoder full real artifact reconstruction and SHA verification", "result": "passed", "bytes": 70639778}
+  ],
+  "deployment_helper_sha256": "d7276d8211282c7bfd8f82d9225b83508c9998b372176fdb3fb8df67792ffbda",
+  "delta_decoder_sha256": "03e3e03b0291835b23f06421c45d119f3fd77133e4cc408a6920753ff5e5e7bf",
+  "server_operations_by_release_builder": false,
+  "accounts_deleted_by_release_builder": false,
+  "roles_balances_or_secrets_changed": false,
+  "paid_model_requests": false,
+  "production_cookie_replay_verified_by_release_builder": false
+}

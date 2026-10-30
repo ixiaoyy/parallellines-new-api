@@ -1,0 +1,1528 @@
+diff --git a/controller/misc.go b/controller/misc.go
+index 519caed..698da0d 100644
+--- a/controller/misc.go
++++ b/controller/misc.go
+@@ -141,6 +141,7 @@ func GetStatus(c *gin.Context) {
+ 			ClientId              string `json:"client_id"`
+ 			AuthorizationEndpoint string `json:"authorization_endpoint"`
+ 			Scopes                string `json:"scopes"`
++			PKCEEnabled           bool   `json:"pkce_enabled"`
+ 		}
+ 		providersInfo := make([]CustomOAuthInfo, 0, len(customProviders))
+ 		for _, p := range customProviders {
+@@ -153,6 +154,7 @@ func GetStatus(c *gin.Context) {
+ 				ClientId:              config.ClientId,
+ 				AuthorizationEndpoint: config.AuthorizationEndpoint,
+ 				Scopes:                config.Scopes,
++				PKCEEnabled:           oauth.CustomPKCEEnabled(config.Slug),
+ 			})
+ 		}
+ 		data["custom_oauth_providers"] = providersInfo
+diff --git a/controller/oauth.go b/controller/oauth.go
+index 9951f22..bb6b3b2 100644
+--- a/controller/oauth.go
++++ b/controller/oauth.go
+@@ -56,7 +56,15 @@ func HandleOAuth(c *gin.Context) {
+ 
+ 	// 1. Validate state (CSRF protection)
+ 	state := c.Query("state")
+-	if state == "" || session.Get("oauth_state") == nil || state != session.Get("oauth_state").(string) {
++	validState := false
++	if custom, ok := provider.(*oauth.GenericOAuthProvider); ok && oauth.CustomPKCEEnabled(providerName) {
++		custom = custom.Snapshot()
++		provider = custom
++		validState = consumeCustomOAuthPKCE(c, session, custom) == nil
++	} else {
++		validState = state != "" && session.Get("oauth_state") != nil && state == session.Get("oauth_state").(string)
++	}
++	if !validState {
+ 		c.JSON(http.StatusForbidden, gin.H{
+ 			"success": false,
+ 			"message": i18n.T(c, i18n.MsgOAuthStateInvalid),
+diff --git a/controller/oauth_pkce.go b/controller/oauth_pkce.go
+new file mode 100644
+index 0000000..d0704b1
+--- /dev/null
++++ b/controller/oauth_pkce.go
+@@ -0,0 +1,113 @@
++package controller
++
++import (
++	"errors"
++	"net/http"
++	"net/url"
++	"time"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/i18n"
++	"github.com/QuantumNous/new-api/oauth"
++	"github.com/QuantumNous/new-api/pkg/oauthpkce"
++	"github.com/gin-contrib/sessions"
++	"github.com/gin-gonic/gin"
++)
++
++const pkceSessionKey = "custom_oauth_pkce_session"
++
++// This candidate is intentionally single-process. Restart cancels pending logins.
++// Do not deploy multiple replicas without a shared atomic transaction store.
++var customPKCETransactions = oauthpkce.NewStore(5*time.Minute, 10000)
++
++func pkceBinding(session sessions.Session, provider *oauth.GenericOAuthProvider) (oauthpkce.Binding, string, error) {
++	binding, ok := session.Get(pkceSessionKey).(string)
++	if !ok || binding == "" {
++		return oauthpkce.Binding{}, "", oauthpkce.ErrInvalidState
++	}
++	userID := 0
++	if session.Get("username") != nil {
++		var valid bool
++		userID, valid = session.Get("id").(int)
++		if !valid || userID <= 0 {
++			return oauthpkce.Binding{}, "", oauthpkce.ErrInvalidState
++		}
++	} else if session.Get("id") != nil {
++		return oauthpkce.Binding{}, "", oauthpkce.ErrInvalidState
++	}
++	redirect, fingerprint, err := provider.PKCEConfiguration()
++	return oauthpkce.Binding{Session: binding, UserID: userID, ProviderID: provider.GetProviderId(), Fingerprint: fingerprint}, redirect, err
++}
++
++func StartCustomOAuthPKCE(c *gin.Context) {
++	c.Header("Cache-Control", "no-store")
++	provider, ok := oauth.GetProvider(c.Param("provider")).(*oauth.GenericOAuthProvider)
++	if !ok || !provider.IsEnabled() || !oauth.CustomPKCEEnabled(c.Param("provider")) {
++		c.JSON(http.StatusBadRequest, gin.H{"success": false, "message": i18n.T(c, i18n.MsgOAuthNotEnabled)})
++		return
++	}
++	provider = provider.Snapshot()
++	session := sessions.Default(c)
++	if value, ok := session.Get(pkceSessionKey).(string); !ok || value == "" {
++		binding, err := oauthpkce.RandomValue()
++		if err != nil {
++			common.ApiError(c, err)
++			return
++		}
++		session.Set(pkceSessionKey, binding)
++	}
++	if aff := c.Query("aff"); aff != "" {
++		session.Set("aff", aff)
++	}
++	// Save before issuing a transaction; failed persistence must never redirect.
++	if err := session.Save(); err != nil {
++		common.ApiError(c, err)
++		return
++	}
++	binding, redirect, err := pkceBinding(session, provider)
++	if err != nil {
++		common.ApiError(c, err)
++		return
++	}
++	state, challenge, err := customPKCETransactions.Issue(binding)
++	if err != nil {
++		status := http.StatusInternalServerError
++		if errors.Is(err, oauthpkce.ErrCapacity) {
++			status = http.StatusTooManyRequests
++		}
++		c.JSON(status, gin.H{"success": false, "message": err.Error()})
++		return
++	}
++	config := provider.GetConfig()
++	authURL, _ := url.Parse(config.AuthorizationEndpoint) // validated above
++	q := authURL.Query()
++	q.Set("client_id", config.ClientId)
++	q.Set("redirect_uri", redirect)
++	q.Set("response_type", "code")
++	q.Set("scope", config.Scopes)
++	q.Set("state", state)
++	q.Set("code_challenge", challenge)
++	q.Set("code_challenge_method", "S256")
++	// Verifiers and client secrets belong only at the token endpoint.
++	q.Del("code_verifier")
++	q.Del("client_secret")
++	authURL.RawQuery = q.Encode()
++	common.ApiSuccess(c, gin.H{"authorization_url": authURL.String()})
++}
++
++func consumeCustomOAuthPKCE(c *gin.Context, session sessions.Session, provider *oauth.GenericOAuthProvider) error {
++	if !provider.IsEnabled() {
++		return oauthpkce.ErrInvalidState
++	}
++	binding, redirect, err := pkceBinding(session, provider)
++	if err != nil {
++		return err
++	}
++	verifier, err := customPKCETransactions.Consume(c.Query("state"), binding)
++	if err != nil {
++		return err
++	}
++	c.Set(oauth.PKCEVerifierContextKey, verifier)
++	c.Set(oauth.PKCERedirectContextKey, redirect)
++	return nil
++}
+diff --git a/controller/oauth_pkce_test.go b/controller/oauth_pkce_test.go
+new file mode 100644
+index 0000000..c4d0bd4
+--- /dev/null
++++ b/controller/oauth_pkce_test.go
+@@ -0,0 +1,320 @@
++package controller
++
++import (
++	"context"
++	"net/http"
++	"net/http/httptest"
++	"net/url"
++	"strconv"
++	"strings"
++	"sync/atomic"
++	"testing"
++	"time"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/i18n"
++	"github.com/QuantumNous/new-api/model"
++	"github.com/QuantumNous/new-api/oauth"
++	"github.com/QuantumNous/new-api/pkg/oauthpkce"
++	"github.com/QuantumNous/new-api/setting/system_setting"
++	"github.com/gin-contrib/sessions"
++	"github.com/gin-contrib/sessions/cookie"
++	"github.com/gin-gonic/gin"
++)
++
++type pkceBrowser struct{ cookies []*http.Cookie }
++type pkceHarness struct {
++	router   *gin.Engine
++	config   *model.CustomOAuthProvider
++	codes    map[string]string
++	calls    atomic.Int32
++	accepted atomic.Int32
++}
++
++func newPKCEHarness(t *testing.T) *pkceHarness {
++	t.Helper()
++	gin.SetMode(gin.TestMode)
++	if err := i18n.Init(); err != nil {
++		t.Fatal(err)
++	}
++	t.Setenv("CUSTOM_OAUTH_PKCE_PROVIDERS", "pkce-test")
++	oldAddress, oldStore := system_setting.ServerAddress, customPKCETransactions
++	system_setting.ServerAddress = "https://candidate.example"
++	customPKCETransactions = oauthpkce.NewStore(5*time.Minute, 100)
++	h := &pkceHarness{codes: make(map[string]string)}
++	upstream := httptest.NewTLSServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
++		w.Header().Set("Content-Type", "application/json")
++		if r.URL.Path == "/userinfo" {
++			// Deliberately stop before account/database operations. This suite tests
++			// the authorization transaction and token exchange, not account creation.
++			w.WriteHeader(http.StatusUnauthorized)
++			return
++		}
++		if r.URL.Path != "/token" {
++			t.Errorf("unexpected upstream path %s", r.URL.Path)
++			w.WriteHeader(404)
++			return
++		}
++		h.calls.Add(1)
++		if err := r.ParseForm(); err != nil {
++			t.Error(err)
++		}
++		clientID, secret, basic := r.BasicAuth()
++		if !basic || clientID != "fixture-client" || secret != "fixture-secret" {
++			t.Error("client_secret_basic contract failed")
++		}
++		if r.PostForm.Get("client_secret") != "" {
++			t.Error("Basic credentials duplicated into form")
++		}
++		if r.PostForm.Get("grant_type") != "authorization_code" {
++			t.Error("wrong grant")
++		}
++		code, verifier := r.PostForm.Get("code"), r.PostForm.Get("code_verifier")
++		valid := false
++		if code == "legacy" {
++			valid = verifier == "" && r.PostForm.Get("redirect_uri") == "https://candidate.example/oauth/legacy-test"
++		} else {
++			expected, exists := h.codes[code]
++			valid = exists && len(verifier) == 43 && oauthpkce.Challenge(verifier) == expected &&
++				r.PostForm.Get("redirect_uri") == "https://candidate.example/oauth/pkce-test"
++		}
++		if !valid {
++			w.WriteHeader(400)
++			_, _ = w.Write([]byte(`{"error":"invalid_grant"}`))
++			return
++		}
++		h.accepted.Add(1)
++		_, _ = w.Write([]byte(`{"access_token":"synthetic-test-token","token_type":"Bearer"}`))
++	}))
++	oldTransport := http.DefaultTransport
++	http.DefaultTransport = upstream.Client().Transport
++	h.config = &model.CustomOAuthProvider{
++		Id: 77, Slug: "pkce-test", Name: "PKCE fixture", Enabled: true,
++		ClientId: "fixture-client", ClientSecret: "fixture-secret", AuthStyle: 2,
++		AuthorizationEndpoint: upstream.URL + "/authorize", TokenEndpoint: upstream.URL + "/token",
++		UserInfoEndpoint: upstream.URL + "/userinfo", Scopes: "openid profile",
++		UserIdField: "sub", UsernameField: "preferred_username", DisplayNameField: "name",
++	}
++	oauth.RegisterCustom("pkce-test", oauth.NewGenericOAuthProvider(h.config))
++	t.Cleanup(func() {
++		http.DefaultTransport = oldTransport
++		upstream.Close()
++		oauth.UnregisterCustomProvider("pkce-test")
++		oauth.UnregisterCustomProvider("legacy-test")
++		system_setting.ServerAddress, customPKCETransactions = oldAddress, oldStore
++	})
++	h.router = gin.New()
++	store := cookie.NewStore([]byte("synthetic-session-test-signing-key"))
++	store.Options(sessions.Options{Path: "/", HttpOnly: true, SameSite: http.SameSiteStrictMode})
++	h.router.Use(sessions.Sessions("session", store))
++	h.router.POST("/api/oauth/:provider/start", StartCustomOAuthPKCE)
++	h.router.GET("/api/oauth/state", GenerateOAuthCode)
++	h.router.GET("/api/oauth/:provider", HandleOAuth)
++	h.router.POST("/test/session/:id", func(c *gin.Context) {
++		s := sessions.Default(c)
++		id, _ := strconv.Atoi(c.Param("id"))
++		if id == 0 {
++			s.Delete("id")
++			s.Delete("username")
++		} else {
++			s.Set("id", id)
++			s.Set("username", "fixture-user")
++		}
++		if err := s.Save(); err != nil {
++			t.Error(err)
++		}
++		c.Status(200)
++	})
++	return h
++}
++
++func (h *pkceHarness) request(b *pkceBrowser, method, path string) *httptest.ResponseRecorder {
++	req := httptest.NewRequest(method, path, nil)
++	for _, c := range b.cookies {
++		req.AddCookie(c)
++	}
++	w := httptest.NewRecorder()
++	h.router.ServeHTTP(w, req)
++	if cookies := w.Result().Cookies(); len(cookies) > 0 {
++		b.cookies = cookies
++	}
++	return w
++}
++
++func (h *pkceHarness) start(t *testing.T, b *pkceBrowser) (string, string) {
++	t.Helper()
++	w := h.request(b, "POST", "/api/oauth/pkce-test/start")
++	var response struct {
++		Success bool
++		Data    struct {
++			URL string `json:"authorization_url"`
++		}
++	}
++	if err := common.Unmarshal(w.Body.Bytes(), &response); err != nil {
++		t.Fatal(err)
++	}
++	if w.Code != 200 || !response.Success {
++		t.Fatalf("start failed: %d %s", w.Code, w.Body.String())
++	}
++	if w.Header().Get("Cache-Control") != "no-store" {
++		t.Error("authorization response must not be cached")
++	}
++	u, err := url.Parse(response.Data.URL)
++	if err != nil {
++		t.Fatal(err)
++	}
++	q := u.Query()
++	if q.Get("code_challenge_method") != "S256" || q.Get("redirect_uri") != "https://candidate.example/oauth/pkce-test" ||
++		q.Get("client_id") != "fixture-client" || q.Get("response_type") != "code" {
++		t.Fatal("bad authorization parameters")
++	}
++	if q.Has("code_verifier") || strings.Contains(w.Body.String(), "fixture-secret") {
++		t.Fatal("authorization response leaked a secret")
++	}
++	for _, c := range b.cookies {
++		if c.Name == "session" && !c.HttpOnly {
++			t.Error("session must be HttpOnly")
++		}
++	}
++	return q.Get("state"), q.Get("code_challenge")
++}
++
++func callbackPath(state, code string) string {
++	return "/api/oauth/pkce-test?" + url.Values{"state": {state}, "code": {code}}.Encode()
++}
++
++func TestCustomPKCERejectsCrossSessionAndReplay(t *testing.T) {
++	h := newPKCEHarness(t)
++	a, b := &pkceBrowser{}, &pkceBrowser{}
++	state, challenge := h.start(t, a)
++	h.codes["valid"] = challenge
++	h.start(t, b)
++	if w := h.request(b, "GET", callbackPath(state, "valid")); w.Code != 403 {
++		t.Fatalf("cross-session status %d", w.Code)
++	}
++	if h.calls.Load() != 0 {
++		t.Fatal("wrong session reached upstream")
++	}
++	stale := &pkceBrowser{cookies: a.cookies}
++	h.request(a, "GET", callbackPath(state, "valid"))
++	if h.accepted.Load() != 1 {
++		t.Fatal("correct session/verifier did not reach upstream")
++	}
++	if w := h.request(stale, "GET", callbackPath(state, "valid")); w.Code != 403 {
++		t.Fatal("stale signed cookie replay accepted")
++	}
++	if h.calls.Load() != 1 {
++		t.Fatal("replay reached token endpoint")
++	}
++}
++
++func TestCustomPKCECodeFailuresConsumeTransaction(t *testing.T) {
++	for _, code := range []string{"", "wrong-code", "wrong-challenge"} {
++		t.Run(code, func(t *testing.T) {
++			h := newPKCEHarness(t)
++			b := &pkceBrowser{}
++			state, challenge := h.start(t, b)
++			h.codes["valid"] = challenge
++			h.codes["wrong-challenge"] = oauthpkce.Challenge("different-verifier")
++			h.request(b, "GET", callbackPath(state, code))
++			if h.accepted.Load() != 0 {
++				t.Fatal("invalid code/PKCE accepted")
++			}
++			before := h.calls.Load()
++			if code == "" && before != 0 {
++				t.Fatal("empty code reached upstream")
++			}
++			if w := h.request(b, "GET", callbackPath(state, "valid")); w.Code != 403 {
++				t.Fatal("failed transaction was reusable")
++			}
++			if h.calls.Load() != before {
++				t.Fatal("replayed failed transaction reached upstream")
++			}
++		})
++	}
++}
++
++func TestCustomPKCEMultipleTabsAndLoginChanges(t *testing.T) {
++	h := newPKCEHarness(t)
++	b := &pkceBrowser{}
++	first, c1 := h.start(t, b)
++	second, c2 := h.start(t, b)
++	h.codes["first"], h.codes["second"] = c1, c2
++	h.request(b, "POST", "/test/session/5")
++	if w := h.request(b, "GET", callbackPath(first, "first")); w.Code != 403 {
++		t.Fatal("anonymous transaction became account binding")
++	}
++	h.request(b, "POST", "/test/session/0")
++	h.request(b, "GET", callbackPath(second, "second"))
++	h.request(b, "GET", callbackPath(first, "first"))
++	if h.accepted.Load() != 2 {
++		t.Fatal("same-session tabs did not complete independently")
++	}
++}
++
++func TestCustomPKCEFirstCookieRaceFailsClosed(t *testing.T) {
++	h := newPKCEHarness(t)
++	tab1, tab2 := &pkceBrowser{}, &pkceBrowser{}
++	first, c1 := h.start(t, tab1)
++	second, c2 := h.start(t, tab2)
++	h.codes["first"], h.codes["second"] = c1, c2
++	// Both starts lacked a cookie; the browser kept the second Set-Cookie.
++	if w := h.request(tab2, "GET", callbackPath(first, "first")); w.Code != 403 {
++		t.Fatal("first-cookie race crossed sessions")
++	}
++	h.request(tab2, "GET", callbackPath(second, "second"))
++	if h.accepted.Load() != 1 {
++		t.Fatal("surviving cookie transaction failed")
++	}
++}
++
++func TestCustomPKCEProviderConfigurationAndMissingState(t *testing.T) {
++	h := newPKCEHarness(t)
++	b := &pkceBrowser{}
++	state, challenge := h.start(t, b)
++	h.codes["valid"] = challenge
++	for _, wrong := range []string{"", "unknown"} {
++		if w := h.request(b, "GET", callbackPath(wrong, "valid")); w.Code != 403 {
++			t.Fatal("bad state accepted")
++		}
++	}
++	changed := *h.config
++	changed.AccessPolicy = `{"logic":"and","conditions":[{"field":"allowed","op":"eq","value":true}]}`
++	oauth.RegisterCustom(changed.Slug, oauth.NewGenericOAuthProvider(&changed))
++	if w := h.request(b, "GET", callbackPath(state, "valid")); w.Code != 403 {
++		t.Fatal("configuration changed during authorization")
++	}
++	if h.calls.Load() != 0 {
++		t.Fatal("invalid transaction reached upstream")
++	}
++	oauth.RegisterCustom(h.config.Slug, oauth.NewGenericOAuthProvider(h.config))
++	h.request(b, "GET", callbackPath(state, "valid"))
++	if h.accepted.Load() != 1 {
++		t.Fatal("invalid attempt consumed legitimate state")
++	}
++}
++
++func TestCustomPKCECannotBypassControllerAndLegacyIsUnchanged(t *testing.T) {
++	h := newPKCEHarness(t)
++	c, _ := gin.CreateTestContext(httptest.NewRecorder())
++	_, err := oauth.NewGenericOAuthProvider(h.config).ExchangeToken(context.Background(), "valid", c)
++	if err == nil || h.calls.Load() != 0 {
++		t.Fatal("PKCE-required exchange accepted no validated transaction")
++	}
++	legacy := *h.config
++	legacy.Id, legacy.Slug = 78, "legacy-test"
++	oauth.RegisterCustom(legacy.Slug, oauth.NewGenericOAuthProvider(&legacy))
++	b := &pkceBrowser{}
++	w := h.request(b, "GET", "/api/oauth/state")
++	var response struct{ Data string }
++	if err := common.Unmarshal(w.Body.Bytes(), &response); err != nil {
++		t.Fatal(err)
++	}
++	h.request(b, "GET", "/api/oauth/legacy-test?state="+response.Data+"&code=legacy")
++	if h.accepted.Load() != 1 {
++		t.Fatal("legacy provider behavior changed")
++	}
++	if w := h.request(b, "POST", "/api/oauth/legacy-test/start"); w.Code != 400 {
++		t.Fatal("non-opt-in provider started PKCE")
++	}
++}
+diff --git a/docs/PKCE-CANDIDATE.md b/docs/PKCE-CANDIDATE.md
+new file mode 100644
+index 0000000..debb491
+--- /dev/null
++++ b/docs/PKCE-CANDIDATE.md
+@@ -0,0 +1,120 @@
++# Custom OAuth PKCE candidate
++
++Base: official QuantumNous/new-api v0.13.2, commit
++`bee339d279ccecbf8c8a89e14ddbbd902f78bd5d`. Source was obtained from the
++fixed-commit official GitHub archive. This is a local candidate patch, not an
++upstream release. The original UI, branding, database schema, role assignment,
++quota behavior and existing providers are retained.
++
++## Scope and activation
++
++Set `CUSTOM_OAUTH_PKCE_PROVIDERS` to a comma-separated list of **custom provider
++slugs**, for example `pingxingxian`. The default is empty (upstream behavior).
++This is an explicit server-side requirement, not a browser preference. An
++allowlisted provider rejects legacy callbacks without a matching PKCE transaction.
++
++Configure the existing custom OAuth provider normally, including client ID,
++client secret, endpoints, scopes, field mappings and `auth_style=2` for Basic.
++`ServerAddress` must be the trusted public HTTPS origin. Its callback is
++`ServerAddress/oauth/<slug>`. All three provider endpoints must use HTTPS.
++The configuration is not applied by this patch.
++
++The unchanged login button obtains an authorization URL with
++`POST /api/oauth/<slug>/start`. This uses the existing rate limiter and a
++`Cache-Control: no-store` response. A 256-bit random verifier remains exclusively
++in a bounded in-process store. The signed HttpOnly session cookie carries only a
++random binding ID, never the verifier. State and the S256 challenge are returned
++in the authorization URL.
++
++Transactions bind the session, initiating local user ID (including anonymous),
++provider ID, trusted redirect and a fingerprint of the full provider configuration.
++The callback snapshots the provider, checks every binding and atomically consumes
++the transaction **before** a token request, including the existing-account bind
++path. The token request adds the verified `code_verifier` and frozen redirect.
++Missing/invalid state, expired state, wrong session/user/provider/configuration,
++and replay cannot fall back to the old flow. An invalid code burns its own valid
++transaction and requires a new login attempt.
++
++## Deliberate limits
++
++- This remains the upstream OAuth authorization-code + UserInfo identity flow.
++  The returned ID Token is not used for authentication. This patch does not add
++  nonce or ID Token validation and must not be described as doing so.
++- Single application process only. Transactions expire after five minutes, with
++  at most eight pending transactions per browser binding and 10,000 total.
++  Restart or routing a callback to a different process fails closed. Multiple
++  replicas require a separate review and a shared atomic transaction store.
++- Existing-cookie tabs have independent transactions while their session principal
++  stays unchanged. Once one tab actually logs in, other anonymous transactions
++  are rejected rather than being converted into account-binding attempts.
++  Simultaneous first starts without any cookie can race their Set-Cookie responses;
++  the losing tab fails closed and must restart authorization. It cannot inherit
++  the winning tab's transaction.
++- Network retries after a consumed callback cannot resend the token exchange.
++  A lost successful response may require a fresh authorization.
++- This does not add SSO role inheritance, admin claims, quota synchronization,
++  relay-token provisioning, Open WebUI token delivery, or main-site logout/
++  authorization-expiry propagation. New accounts retain upstream role 1.
++- No persistent secret, real account, provider configuration, server deployment,
++  or paid model call is created by the tests. Upstream DEBUG logging must remain
++  disabled for real OAuth credentials, as its existing token debug logs are
++  outside this patch's scope.
++
++## Validation
++
++Use the upstream Dockerfile's Go 1.26.1 builder (go.mod minimum is 1.25.1).
++Frontend dependencies are installed from the existing bun.lock with
++`bun install --frozen-lockfile`, then `bun run build`.
++
++Targeted tests:
++
++```sh
++go test ./pkg/oauthpkce
++go test ./controller -run '^TestCustomPKCE' -count=1
++go test ./router -run '^TestCustomPKCERouteRegistration$' -count=1
++```
++
++Store tests exercise RFC 7636 S256, unpredictable values, all binding failures,
++expiry, replay, multi-tab completion, capacity limits and concurrent single-use
++consumption. Controller tests use a local TLS mock token endpoint that validates
++Basic auth, redirect and S256, and deliberately stops at UserInfo before any
++account/database writes. They cover missing/wrong codes, wrong verifier challenge,
++cross-session use, stale-cookie replay, configuration changes, login-state changes,
++the first-cookie race, required-verifier enforcement and the legacy provider path.
++These are protocol tests; a real main-site SSO flow has not been executed.
++
++Recorded local results (2026-10-30):
++
++- Go 1.26.1: `go test ./controller ./router -run '^TestCustomPKCE' -count=1`
++  passed; `go test ./oauth ./pkg/oauthpkce -count=1` passed (oauth has no tests).
++- Bun 1.4.4: frozen dependency install and full Vite production build passed.
++- `bun test ./web/src/helpers/api.pkce.test.js`: 11 passed, zero failed.
++  These tests execute the actual helper bodies with HTTP/browser stubs and cover
++  logout failures, authorization errors, absence of fallback, and legacy behavior.
++- Independent review found no blocking issue. `git diff --check` passed.
++- Full-file Prettier check reports existing formatting issues in both the pristine
++  `api.js` and candidate. Unrelated upstream formatting was not rewritten.
++  React Doctor is not installed/pinned in this project and was not downloaded.
++- Go race detection was not run: the local Windows environment has no C compiler.
++  The store tests exercise concurrent issuance and single-use consumption.
++
++The Linux amd64 candidate was cross-compiled locally with the upstream build flags,
++plus an explicit candidate version and without the temporary archive Git baseline:
++
++```sh
++CGO_ENABLED=0 GOOS=linux GOARCH=amd64 GOEXPERIMENT=greenteagc \
++go build -buildvcs=false \
++  -ldflags '-s -w -X github.com/QuantumNous/new-api/common.Version=v0.13.2-pkce.1' \
++  -o new-api-linux-amd64
++```
++
++ELF64/x86-64 and embedded Go build metadata were checked. The official Dockerfile
++also uses CGO=0 and installs the executable as `/new-api`. Its SQLite driver is
++`github.com/glebarez/sqlite` with `modernc.org/sqlite`; no new native library was
++introduced. This is build/source evidence, not a Linux-container runtime check.
++The release owner must run the candidate container and real SSO smoke tests.
++
++The handoff contains the patch and a complete source archive assembled from the
++fixed upstream archive plus this patch (including the original Bun lockfile).
++Keep the corresponding source available with any network deployment of this
++modified AGPL application; retain the original notices and branding.
+diff --git a/oauth/generic.go b/oauth/generic.go
+index 11bbb9b..178ff0f 100644
+--- a/oauth/generic.go
++++ b/oauth/generic.go
+@@ -99,6 +99,15 @@ func (p *GenericOAuthProvider) ExchangeToken(ctx context.Context, code string, c
+ 	values.Set("grant_type", "authorization_code")
+ 	values.Set("code", code)
+ 	values.Set("redirect_uri", redirectUri)
++	if CustomPKCEEnabled(p.config.Slug) {
++		verifier := c.GetString(PKCEVerifierContextKey)
++		redirect := c.GetString(PKCERedirectContextKey)
++		if verifier == "" || redirect == "" {
++			return nil, NewOAuthError(i18n.MsgOAuthStateInvalid, nil)
++		}
++		values.Set("code_verifier", verifier)
++		values.Set("redirect_uri", redirect)
++	}
+ 
+ 	// Determine auth style
+ 	authStyle := p.config.AuthStyle
+diff --git a/oauth/pkce.go b/oauth/pkce.go
+new file mode 100644
+index 0000000..912b9e4
+--- /dev/null
++++ b/oauth/pkce.go
+@@ -0,0 +1,61 @@
++package oauth
++
++import (
++	"crypto/sha256"
++	"encoding/hex"
++	"fmt"
++	"net/url"
++	"os"
++	"strings"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/model"
++	"github.com/QuantumNous/new-api/setting/system_setting"
++)
++
++const PKCEVerifierContextKey = "custom_oauth_pkce_verifier"
++const PKCERedirectContextKey = "custom_oauth_pkce_redirect"
++
++// CustomPKCEEnabled is explicitly opt-in per custom provider slug. Legacy providers
++// retain their upstream behavior; selected providers never fall back without PKCE.
++func CustomPKCEEnabled(slug string) bool {
++	for _, allowed := range strings.Split(os.Getenv("CUSTOM_OAUTH_PKCE_PROVIDERS"), ",") {
++		if strings.TrimSpace(allowed) == slug && slug != "" {
++			return true
++		}
++	}
++	return false
++}
++
++func (p *GenericOAuthProvider) Snapshot() *GenericOAuthProvider {
++	config := *p.config
++	return NewGenericOAuthProvider(&config)
++}
++
++// PKCEConfiguration freezes the trusted redirect and all provider security settings.
++// The client secret is excluded from the model's JSON, so include it explicitly in
++// this internal hash. Neither the payload nor its digest is returned to browsers.
++func (p *GenericOAuthProvider) PKCEConfiguration() (string, string, error) {
++	base, err := url.Parse(system_setting.ServerAddress)
++	if err != nil || base.Scheme != "https" || base.Host == "" || base.User != nil ||
++		base.RawQuery != "" || base.Fragment != "" || (base.Path != "" && base.Path != "/") {
++		return "", "", fmt.Errorf("PKCE requires an HTTPS ServerAddress origin")
++	}
++	for _, endpoint := range []string{p.config.AuthorizationEndpoint, p.config.TokenEndpoint, p.config.UserInfoEndpoint} {
++		u, parseErr := url.Parse(endpoint)
++		if parseErr != nil || u.Scheme != "https" || u.Host == "" || u.User != nil || u.Fragment != "" {
++			return "", "", fmt.Errorf("PKCE requires HTTPS provider endpoints")
++		}
++	}
++	redirect := strings.TrimRight(system_setting.ServerAddress, "/") + "/oauth/" + p.config.Slug
++	payload, err := common.Marshal(struct {
++		Provider model.CustomOAuthProvider
++		Secret   string
++		Redirect string
++	}{*p.config, p.config.ClientSecret, redirect})
++	if err != nil {
++		return "", "", err
++	}
++	hash := sha256.Sum256(payload)
++	return redirect, hex.EncodeToString(hash[:]), nil
++}
+diff --git a/pkg/oauthpkce/store.go b/pkg/oauthpkce/store.go
+new file mode 100644
+index 0000000..c273266
+--- /dev/null
++++ b/pkg/oauthpkce/store.go
+@@ -0,0 +1,111 @@
++// Package oauthpkce holds short-lived, single-use OAuth authorization transactions.
++// It deliberately stores verifiers on the server, never in the signed session cookie.
++package oauthpkce
++
++import (
++	"crypto/rand"
++	"crypto/sha256"
++	"encoding/base64"
++	"errors"
++	"sync"
++	"time"
++)
++
++var (
++	ErrInvalidState = errors.New("invalid or expired OAuth transaction")
++	ErrCapacity     = errors.New("too many pending OAuth transactions")
++)
++
++type Binding struct {
++	Session     string
++	UserID      int
++	ProviderID  int
++	Fingerprint string
++}
++
++type transaction struct {
++	binding  Binding
++	verifier string
++	expires  time.Time
++}
++
++type Store struct {
++	mu       sync.Mutex
++	pending  map[[32]byte]transaction
++	ttl      time.Duration
++	capacity int
++	now      func() time.Time
++}
++
++func NewStore(ttl time.Duration, capacity int) *Store {
++	return &Store{pending: make(map[[32]byte]transaction), ttl: ttl, capacity: capacity, now: time.Now}
++}
++
++func RandomValue() (string, error) {
++	var b [32]byte
++	if _, err := rand.Read(b[:]); err != nil {
++		return "", err
++	}
++	return base64.RawURLEncoding.EncodeToString(b[:]), nil
++}
++
++func Challenge(verifier string) string {
++	digest := sha256.Sum256([]byte(verifier))
++	return base64.RawURLEncoding.EncodeToString(digest[:])
++}
++
++func (s *Store) prune(now time.Time) {
++	for key, tx := range s.pending {
++		if !now.Before(tx.expires) {
++			delete(s.pending, key)
++		}
++	}
++}
++
++func (s *Store) Issue(binding Binding) (string, string, error) {
++	if binding.Session == "" || binding.ProviderID <= 0 || binding.Fingerprint == "" {
++		return "", "", ErrInvalidState
++	}
++	state, err := RandomValue()
++	if err != nil {
++		return "", "", err
++	}
++	verifier, err := RandomValue()
++	if err != nil {
++		return "", "", err
++	}
++	s.mu.Lock()
++	defer s.mu.Unlock()
++	now := s.now()
++	s.prune(now)
++	count := 0
++	for _, tx := range s.pending {
++		if tx.binding.Session == binding.Session {
++			count++
++		}
++	}
++	if len(s.pending) >= s.capacity || count >= 8 {
++		return "", "", ErrCapacity
++	}
++	key := sha256.Sum256([]byte(state))
++	if _, exists := s.pending[key]; exists {
++		return "", "", ErrCapacity
++	}
++	s.pending[key] = transaction{binding: binding, verifier: verifier, expires: now.Add(s.ttl)}
++	return state, Challenge(verifier), nil
++}
++
++// Consume rejects mismatched sessions without burning another browser's transaction.
++// A matched transaction is removed atomically before any token exchange is attempted.
++func (s *Store) Consume(state string, binding Binding) (string, error) {
++	s.mu.Lock()
++	defer s.mu.Unlock()
++	s.prune(s.now())
++	key := sha256.Sum256([]byte(state))
++	tx, ok := s.pending[key]
++	if !ok || state == "" || tx.binding != binding {
++		return "", ErrInvalidState
++	}
++	delete(s.pending, key)
++	return tx.verifier, nil
++}
+diff --git a/pkg/oauthpkce/store_test.go b/pkg/oauthpkce/store_test.go
+new file mode 100644
+index 0000000..5a92279
+--- /dev/null
++++ b/pkg/oauthpkce/store_test.go
+@@ -0,0 +1,367 @@
++package oauthpkce
++
++import (
++	"encoding/base64"
++	"errors"
++	"strconv"
++	"sync"
++	"testing"
++	"time"
++)
++
++func testBinding() Binding {
++	return Binding{
++		Session:     "test-browser-binding",
++		UserID:      17,
++		ProviderID:  3,
++		Fingerprint: "test-config-fingerprint",
++	}
++}
++
++func requireRandomValue(t *testing.T, label, value string) {
++	t.Helper()
++	if len(value) != 43 {
++		t.Fatalf("%s length = %d, want 43", label, len(value))
++	}
++	decoded, err := base64.RawURLEncoding.DecodeString(value)
++	if err != nil {
++		t.Fatalf("%s is not unpadded base64url: %v", label, err)
++	}
++	if len(decoded) != 32 {
++		t.Fatalf("%s decodes to %d bytes, want 32", label, len(decoded))
++	}
++}
++
++func requireIssue(t *testing.T, store *Store, binding Binding) (string, string) {
++	t.Helper()
++	state, challenge, err := store.Issue(binding)
++	if err != nil {
++		t.Fatalf("Issue() error: %v", err)
++	}
++	requireRandomValue(t, "state", state)
++	requireRandomValue(t, "challenge", challenge)
++	return state, challenge
++}
++
++func requireConsume(t *testing.T, store *Store, state string, binding Binding, challenge string) {
++	t.Helper()
++	verifier, err := store.Consume(state, binding)
++	if err != nil {
++		t.Fatalf("Consume() error: %v", err)
++	}
++	requireRandomValue(t, "verifier", verifier)
++	if verifier == state {
++		t.Fatal("state and verifier must be generated independently")
++	}
++	if Challenge(verifier) != challenge {
++		t.Fatal("consumed verifier does not match the issued S256 challenge")
++	}
++}
++
++func requireInvalidState(t *testing.T, store *Store, state string, binding Binding) {
++	t.Helper()
++	verifier, err := store.Consume(state, binding)
++	if !errors.Is(err, ErrInvalidState) {
++		t.Fatalf("Consume() error = %v, want ErrInvalidState", err)
++	}
++	if verifier != "" {
++		t.Fatal("rejected Consume() returned a verifier")
++	}
++}
++
++func requireCapacity(t *testing.T, store *Store, binding Binding) {
++	t.Helper()
++	state, challenge, err := store.Issue(binding)
++	if !errors.Is(err, ErrCapacity) {
++		t.Fatalf("Issue() error = %v, want ErrCapacity", err)
++	}
++	if state != "" || challenge != "" {
++		t.Fatal("rejected Issue() returned transaction material")
++	}
++}
++
++func TestChallengeRFC7636(t *testing.T) {
++	// RFC 7636, Appendix B: public S256 example, not a real credential.
++	const verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
++	const expected = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
++	if got := Challenge(verifier); got != expected {
++		t.Fatalf("Challenge(RFC example) = %q, want %q", got, expected)
++	}
++}
++
++func TestRandomValueFormatAndUniqueness(t *testing.T) {
++	seen := make(map[string]bool)
++	for i := 0; i < 64; i++ {
++		value, err := RandomValue()
++		if err != nil {
++			t.Fatalf("RandomValue() error: %v", err)
++		}
++		requireRandomValue(t, "random value", value)
++		if seen[value] {
++			t.Fatal("RandomValue() repeated a value")
++		}
++		seen[value] = true
++	}
++}
++
++func TestStoreBindingMismatchDoesNotConsume(t *testing.T) {
++	tests := []struct {
++		name   string
++		change func(*Binding)
++	}{
++		{"other session", func(b *Binding) { b.Session = "other-browser" }},
++		{"missing session", func(b *Binding) { b.Session = "" }},
++		{"other user", func(b *Binding) { b.UserID++ }},
++		{"logged out", func(b *Binding) { b.UserID = 0 }},
++		{"other provider", func(b *Binding) { b.ProviderID++ }},
++		{"missing provider", func(b *Binding) { b.ProviderID = 0 }},
++		{"changed config", func(b *Binding) { b.Fingerprint = "changed-config" }},
++		{"missing config", func(b *Binding) { b.Fingerprint = "" }},
++	}
++	for _, tt := range tests {
++		t.Run(tt.name, func(t *testing.T) {
++			store := NewStore(5*time.Minute, 16)
++			binding := testBinding()
++			state, challenge := requireIssue(t, store, binding)
++			wrong := binding
++			tt.change(&wrong)
++			requireInvalidState(t, store, state, wrong)
++			requireConsume(t, store, state, binding, challenge)
++		})
++	}
++	t.Run("anonymous initiation then login", func(t *testing.T) {
++		store := NewStore(5*time.Minute, 16)
++		anonymous := testBinding()
++		anonymous.UserID = 0
++		state, challenge := requireIssue(t, store, anonymous)
++		requireInvalidState(t, store, state, testBinding())
++		requireConsume(t, store, state, anonymous, challenge)
++	})
++}
++
++func TestStoreMissingUnknownAndReplayedState(t *testing.T) {
++	store := NewStore(5*time.Minute, 16)
++	binding := testBinding()
++	state, challenge := requireIssue(t, store, binding)
++	requireInvalidState(t, store, "", binding)
++	requireInvalidState(t, store, "unknown-state", binding)
++	requireConsume(t, store, state, binding, challenge)
++	requireInvalidState(t, store, state, binding)
++}
++
++func TestStoreExpiryBoundary(t *testing.T) {
++	const ttl = 5 * time.Minute
++	base := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
++	for _, tt := range []struct {
++		name    string
++		elapsed time.Duration
++		expired bool
++	}{
++		{"just before expiry", ttl - time.Nanosecond, false},
++		{"exactly at expiry", ttl, true},
++		{"after expiry", ttl + time.Nanosecond, true},
++	} {
++		t.Run(tt.name, func(t *testing.T) {
++			now := base
++			store := NewStore(ttl, 16)
++			store.now = func() time.Time { return now }
++			binding := testBinding()
++			state, challenge := requireIssue(t, store, binding)
++			now = base.Add(tt.elapsed)
++			if tt.expired {
++				requireInvalidState(t, store, state, binding)
++			} else {
++				requireConsume(t, store, state, binding, challenge)
++			}
++		})
++	}
++}
++
++func TestStoreMultipleTabsAreIndependent(t *testing.T) {
++	store := NewStore(5*time.Minute, 16)
++	binding := testBinding()
++	var states, challenges []string
++	seen := make(map[string]bool)
++	for i := 0; i < 5; i++ {
++		state, challenge := requireIssue(t, store, binding)
++		if seen[state] {
++			t.Fatal("Issue() repeated a pending state")
++		}
++		seen[state] = true
++		states = append(states, state)
++		challenges = append(challenges, challenge)
++	}
++	// Tabs may complete in a different order from their initiation.
++	for i := len(states) - 1; i >= 0; i-- {
++		requireConsume(t, store, states[i], binding, challenges[i])
++		requireInvalidState(t, store, states[i], binding)
++	}
++}
++
++func TestStoreConcurrentConsumeHasExactlyOneWinner(t *testing.T) {
++	store := NewStore(5*time.Minute, 16)
++	binding := testBinding()
++	state, challenge := requireIssue(t, store, binding)
++	const attempts = 64
++	type result struct {
++		verifier string
++		err      error
++	}
++	start := make(chan struct{})
++	results := make(chan result, attempts)
++	var wg sync.WaitGroup
++	for i := 0; i < attempts; i++ {
++		wg.Add(1)
++		go func() {
++			defer wg.Done()
++			<-start
++			verifier, err := store.Consume(state, binding)
++			results <- result{verifier, err}
++		}()
++	}
++	close(start)
++	wg.Wait()
++	close(results)
++	winners := 0
++	for result := range results {
++		if result.err == nil {
++			winners++
++			requireRandomValue(t, "winning verifier", result.verifier)
++			if Challenge(result.verifier) != challenge {
++				t.Fatal("winning verifier does not match challenge")
++			}
++		} else if !errors.Is(result.err, ErrInvalidState) || result.verifier != "" {
++			t.Fatalf("losing Consume() returned unexpected result: error=%v, verifier present=%t", result.err, result.verifier != "")
++		}
++	}
++	if winners != 1 {
++		t.Fatalf("successful concurrent consumes = %d, want 1", winners)
++	}
++}
++
++func TestStoreGlobalCapacityDoesNotEvictPendingTransactions(t *testing.T) {
++	store := NewStore(5*time.Minute, 2)
++	a, b, c := testBinding(), testBinding(), testBinding()
++	b.Session = "browser-b"
++	c.Session = "browser-c"
++	stateA, challengeA := requireIssue(t, store, a)
++	stateB, challengeB := requireIssue(t, store, b)
++	requireCapacity(t, store, c)
++	requireConsume(t, store, stateA, a, challengeA)
++	stateC, challengeC := requireIssue(t, store, c)
++	requireConsume(t, store, stateB, b, challengeB)
++	requireConsume(t, store, stateC, c, challengeC)
++}
++
++func TestStorePerBindingCapacityDoesNotEvictPendingTransactions(t *testing.T) {
++	store := NewStore(5*time.Minute, 32)
++	binding := testBinding()
++	var states, challenges []string
++	for i := 0; i < 8; i++ {
++		state, challenge := requireIssue(t, store, binding)
++		states = append(states, state)
++		challenges = append(challenges, challenge)
++	}
++	requireCapacity(t, store, binding)
++	other := binding
++	other.Session = "other-browser"
++	otherState, otherChallenge := requireIssue(t, store, other)
++	requireConsume(t, store, states[0], binding, challenges[0])
++	replacement, replacementChallenge := requireIssue(t, store, binding)
++	for i := 1; i < len(states); i++ {
++		requireConsume(t, store, states[i], binding, challenges[i])
++	}
++	requireConsume(t, store, replacement, binding, replacementChallenge)
++	requireConsume(t, store, otherState, other, otherChallenge)
++}
++
++func TestStoreExpiryReleasesCapacity(t *testing.T) {
++	const ttl = 5 * time.Minute
++	for _, tt := range []struct {
++		name     string
++		capacity int
++		count    int
++	}{
++		{"global capacity", 2, 2},
++		{"per binding capacity", 32, 8},
++	} {
++		t.Run(tt.name, func(t *testing.T) {
++			now := time.Date(2026, time.January, 1, 0, 0, 0, 0, time.UTC)
++			store := NewStore(ttl, tt.capacity)
++			store.now = func() time.Time { return now }
++			binding := testBinding()
++			var oldStates []string
++			for i := 0; i < tt.count; i++ {
++				state, _ := requireIssue(t, store, binding)
++				oldStates = append(oldStates, state)
++			}
++			requireCapacity(t, store, binding)
++			now = now.Add(ttl)
++			// Issue must recover expired capacity without a prior Consume call.
++			state, challenge := requireIssue(t, store, binding)
++			for _, oldState := range oldStates {
++				requireInvalidState(t, store, oldState, binding)
++			}
++			requireConsume(t, store, state, binding, challenge)
++		})
++	}
++}
++
++func TestStoreConcurrentIssueHonorsCapacity(t *testing.T) {
++	for _, tt := range []struct {
++		name        string
++		capacity    int
++		wantIssued  int
++		sameBinding bool
++	}{
++		{"global capacity", 16, 16, false},
++		{"per binding capacity", 64, 8, true},
++	} {
++		t.Run(tt.name, func(t *testing.T) {
++			store := NewStore(5*time.Minute, tt.capacity)
++			const attempts = 64
++			type result struct {
++				state     string
++				challenge string
++				binding   Binding
++				err       error
++			}
++			start := make(chan struct{})
++			results := make(chan result, attempts)
++			var wg sync.WaitGroup
++			for i := 0; i < attempts; i++ {
++				binding := testBinding()
++				if !tt.sameBinding {
++					binding.Session = "test-browser-" + strconv.Itoa(i)
++				}
++				wg.Add(1)
++				go func(binding Binding) {
++					defer wg.Done()
++					<-start
++					state, challenge, err := store.Issue(binding)
++					results <- result{state, challenge, binding, err}
++				}(binding)
++			}
++			close(start)
++			wg.Wait()
++			close(results)
++			seen := make(map[string]bool)
++			for result := range results {
++				if result.err != nil {
++					if !errors.Is(result.err, ErrCapacity) || result.state != "" || result.challenge != "" {
++						t.Fatalf("rejected Issue() returned unexpected result: %v", result.err)
++					}
++					continue
++				}
++				if seen[result.state] {
++					t.Fatal("concurrent Issue() repeated a pending state")
++				}
++				seen[result.state] = true
++				requireConsume(t, store, result.state, result.binding, result.challenge)
++			}
++			if len(seen) != tt.wantIssued {
++				t.Fatalf("successful concurrent issues = %d, want %d", len(seen), tt.wantIssued)
++			}
++		})
++	}
++}
+diff --git a/router/api-router.go b/router/api-router.go
+index 83f5e4a..65cdb99 100644
+--- a/router/api-router.go
++++ b/router/api-router.go
+@@ -36,6 +36,7 @@ func SetApiRouter(router *gin.Engine) {
+ 		apiRouter.POST("/user/reset", middleware.CriticalRateLimit(), controller.ResetPassword)
+ 		// OAuth routes - specific routes must come before :provider wildcard
+ 		apiRouter.GET("/oauth/state", middleware.CriticalRateLimit(), controller.GenerateOAuthCode)
++		apiRouter.POST("/oauth/:provider/start", middleware.CriticalRateLimit(), controller.StartCustomOAuthPKCE)
+ 		apiRouter.POST("/oauth/email/bind", middleware.CriticalRateLimit(), controller.EmailBind)
+ 		// Non-standard OAuth (WeChat, Telegram) - keep original routes
+ 		apiRouter.GET("/oauth/wechat", middleware.CriticalRateLimit(), controller.WeChatAuth)
+diff --git a/router/api_router_pkce_test.go b/router/api_router_pkce_test.go
+new file mode 100644
+index 0000000..e1e56f5
+--- /dev/null
++++ b/router/api_router_pkce_test.go
+@@ -0,0 +1,22 @@
++package router
++
++import (
++	"testing"
++
++	"github.com/gin-gonic/gin"
++)
++
++func TestCustomPKCERouteRegistration(t *testing.T) {
++	gin.SetMode(gin.TestMode)
++	engine := gin.New()
++	SetApiRouter(engine) // Also catches conflicts with existing static OAuth routes.
++	found := false
++	for _, route := range engine.Routes() {
++		if route.Method == "POST" && route.Path == "/api/oauth/:provider/start" {
++			found = true
++		}
++	}
++	if !found {
++		t.Fatal("PKCE authorization route is missing")
++	}
++}
+diff --git a/web/src/helpers/api.js b/web/src/helpers/api.js
+index 88122a5..2a9baf6 100644
+--- a/web/src/helpers/api.js
++++ b/web/src/helpers/api.js
+@@ -326,6 +326,30 @@ export async function onLinuxDOOAuthClicked(
+  * @param {boolean} options.shouldLogout - Whether to logout first
+  */
+ export async function onCustomOAuthClicked(provider, options = {}) {
++  if (provider.pkce_enabled) {
++    try {
++      if (options.shouldLogout) {
++        // Unlike the legacy flow, failed logout must not turn login into binding.
++        const { data } = await API.get('/api/user/logout', {
++          skipErrorHandler: true,
++        });
++        if (!data.success) throw new Error(data.message);
++        localStorage.removeItem('user');
++        updateAPI();
++      }
++      const aff = localStorage.getItem('aff');
++      const { data } = await API.post(
++        `/api/oauth/${encodeURIComponent(provider.slug)}/start`,
++        null,
++        { params: aff ? { aff } : {} },
++      );
++      if (!data.success) throw new Error(data.message);
++      redirectToOAuthUrl(data.data.authorization_url);
++    } catch (error) {
++      showError(error);
++    }
++    return;
++  }
+   const state = await prepareOAuthState(options);
+   if (!state) return;
+ 
+diff --git a/web/src/helpers/api.pkce.test.js b/web/src/helpers/api.pkce.test.js
+new file mode 100644
+index 0000000..b7eff08
+--- /dev/null
++++ b/web/src/helpers/api.pkce.test.js
+@@ -0,0 +1,258 @@
++import assert from 'node:assert/strict';
++import { readFileSync } from 'node:fs';
++import { test } from 'node:test';
++import { Script } from 'node:vm';
++
++// Exercise the actual helper bodies without importing React or starting an app.
++// Every browser and HTTP dependency is an in-memory stub; no requests are sent.
++const source = readFileSync(new URL('./api.js', import.meta.url), 'utf8');
++
++function extract(startMarker, endMarker) {
++  const start = source.indexOf(startMarker);
++  const end = source.indexOf(endMarker, start + startMarker.length);
++  assert.ok(
++    start >= 0 && end > start,
++    'OAuth helper source boundaries changed',
++  );
++  return source.slice(start, end).replace(/^export /, '');
++}
++
++const helperScript = new Script(
++  [
++    extract(
++      'export async function getOAuthState(',
++      '\nasync function prepareOAuthState(',
++    ),
++    extract(
++      'async function prepareOAuthState(',
++      '\nexport async function onDiscordOAuthClicked(',
++    ),
++    extract(
++      'export async function onCustomOAuthClicked(',
++      '\nlet channelModels =',
++    ),
++    'onCustomOAuthClicked;',
++  ].join('\n'),
++  { filename: 'api.js (isolated OAuth helpers)' },
++);
++
++const serverAuthorizationURL =
++  'https://issuer.example/authorize?state=fixture-state&code_challenge=fixture-challenge&code_challenge_method=S256';
++const provider = {
++  slug: 'fixture-provider',
++  pkce_enabled: true,
++  client_id: 'fixture-client',
++  authorization_endpoint:
++    'https://legacy.example/authorize?audience=fixture-audience',
++  scopes: 'openid profile offline_access',
++};
++
++function harness(options = {}) {
++  const calls = [];
++  const events = [];
++  const errors = [];
++  const redirects = [];
++  const storage = new Map([['user', 'fixture-local-user']]);
++  if (options.aff) storage.set('aff', options.aff);
++  const copy = (value) =>
++    value === undefined ? undefined : JSON.parse(JSON.stringify(value));
++  const record = (method, path, body, requestOptions) => {
++    calls.push({ method, path, body, options: copy(requestOptions) });
++    events.push(`${method}:${path}`);
++  };
++  const API = {
++    async get(path, requestOptions) {
++      record('get', path, undefined, requestOptions);
++      if (path === '/api/user/logout') {
++        if (options.logoutError) throw options.logoutError;
++        return { data: options.logoutResponse ?? { success: true } };
++      }
++      if (path.startsWith('/api/oauth/state')) {
++        return {
++          data: options.stateResponse ?? {
++            success: true,
++            data: 'fixture-legacy-state',
++          },
++        };
++      }
++      throw new Error(`Unexpected mocked GET: ${path}`);
++    },
++    async post(path, body, requestOptions) {
++      record('post', path, body, requestOptions);
++      if (path !== '/api/oauth/fixture-provider/start') {
++        throw new Error(`Unexpected mocked POST: ${path}`);
++      }
++      if (options.startError) throw options.startError;
++      return {
++        data: options.startResponse ?? {
++          success: true,
++          data: { authorization_url: serverAuthorizationURL },
++        },
++      };
++    },
++  };
++  const click = helperScript.runInNewContext({
++    API,
++    URL,
++    window: { location: { origin: 'https://candidate.example' } },
++    localStorage: {
++      getItem: (key) => storage.get(key) ?? null,
++      removeItem(key) {
++        events.push(`remove:${key}`);
++        storage.delete(key);
++      },
++    },
++    updateAPI: () => events.push('updateAPI'),
++    showError: (error) => errors.push(error),
++    redirectToOAuthUrl(url) {
++      redirects.push(url.toString());
++      events.push('redirect');
++    },
++    console: { error() {} },
++  });
++  return { click, calls, events, errors, redirects, storage };
++}
++
++function requestPaths(h) {
++  return h.calls.map(({ method, path }) => `${method}:${path}`);
++}
++
++test('PKCE uses the server URL and never requests legacy state', async () => {
++  const h = harness({ aff: 'fixture-affiliate+code' });
++  await h.click(provider);
++
++  assert.deepEqual(requestPaths(h), ['post:/api/oauth/fixture-provider/start']);
++  assert.equal(h.calls[0].body, null);
++  assert.deepEqual(h.calls[0].options, {
++    params: { aff: 'fixture-affiliate+code' },
++  });
++  assert.deepEqual(h.redirects, [serverAuthorizationURL]);
++  assert.deepEqual(h.errors, []);
++  assert.equal(h.storage.get('user'), 'fixture-local-user');
++  assert.ok(!h.events.includes('updateAPI'));
++});
++
++test('PKCE omits an absent affiliate and does not log out a binding flow', async () => {
++  const h = harness();
++  await h.click(provider, { shouldLogout: false });
++
++  assert.deepEqual(requestPaths(h), ['post:/api/oauth/fixture-provider/start']);
++  assert.deepEqual(h.calls[0].options, { params: {} });
++  assert.deepEqual(h.redirects, [serverAuthorizationURL]);
++  assert.equal(h.storage.get('user'), 'fixture-local-user');
++});
++
++test('PKCE waits for successful logout before clearing the user and starting', async () => {
++  const h = harness();
++  await h.click(provider, { shouldLogout: true });
++
++  assert.deepEqual(h.events, [
++    'get:/api/user/logout',
++    'remove:user',
++    'updateAPI',
++    'post:/api/oauth/fixture-provider/start',
++    'redirect',
++  ]);
++  assert.deepEqual(h.calls[0].options, { skipErrorHandler: true });
++  assert.equal(h.storage.has('user'), false);
++  assert.deepEqual(h.redirects, [serverAuthorizationURL]);
++  assert.deepEqual(h.errors, []);
++});
++
++for (const [name, failure] of [
++  [
++    'business rejection',
++    { logoutResponse: { success: false, message: 'fixture logout rejected' } },
++  ],
++  ['request failure', { logoutError: new Error('fixture logout unavailable') }],
++]) {
++  test(`PKCE stops after logout ${name}`, async () => {
++    const h = harness(failure);
++    await h.click(provider, { shouldLogout: true });
++
++    assert.deepEqual(h.events, ['get:/api/user/logout']);
++    assert.equal(h.storage.get('user'), 'fixture-local-user');
++    assert.deepEqual(h.redirects, []);
++    assert.equal(h.errors.length, 1);
++    assert.match(h.errors[0].message, /fixture logout/);
++  });
++}
++
++for (const [name, failure] of [
++  [
++    'business rejection',
++    { startResponse: { success: false, message: 'fixture start rejected' } },
++  ],
++  ['request failure', { startError: new Error('fixture start unavailable') }],
++]) {
++  test(`PKCE start ${name} does not redirect or fall back to legacy state`, async () => {
++    const h = harness(failure);
++    await h.click(provider);
++
++    assert.deepEqual(requestPaths(h), [
++      'post:/api/oauth/fixture-provider/start',
++    ]);
++    assert.deepEqual(h.redirects, []);
++    assert.equal(h.errors.length, 1);
++    assert.match(h.errors[0].message, /fixture start/);
++  });
++}
++
++for (const flag of [false, undefined]) {
++  test(`legacy provider with pkce_enabled=${flag} retains its authorization flow`, async () => {
++    const h = harness({ aff: 'fixture-affiliate' });
++    await h.click({ ...provider, pkce_enabled: flag });
++
++    assert.deepEqual(requestPaths(h), [
++      'get:/api/oauth/state?aff=fixture-affiliate',
++    ]);
++    assert.equal(h.redirects.length, 1);
++    const url = new URL(h.redirects[0]);
++    assert.equal(url.origin, 'https://legacy.example');
++    assert.equal(url.pathname, '/authorize');
++    assert.equal(url.searchParams.get('audience'), 'fixture-audience');
++    assert.equal(url.searchParams.get('client_id'), provider.client_id);
++    assert.equal(
++      url.searchParams.get('redirect_uri'),
++      'https://candidate.example/oauth/fixture-provider',
++    );
++    assert.equal(url.searchParams.get('response_type'), 'code');
++    assert.equal(url.searchParams.get('scope'), provider.scopes);
++    assert.equal(url.searchParams.get('state'), 'fixture-legacy-state');
++    assert.equal(url.searchParams.has('code_challenge'), false);
++    assert.equal(url.searchParams.has('code_challenge_method'), false);
++    assert.deepEqual(h.errors, []);
++  });
++}
++
++test('legacy logout ordering and default scope remain unchanged', async () => {
++  const h = harness();
++  await h.click(
++    { ...provider, pkce_enabled: false, scopes: '' },
++    { shouldLogout: true },
++  );
++
++  assert.deepEqual(h.events, [
++    'get:/api/user/logout',
++    'remove:user',
++    'updateAPI',
++    'get:/api/oauth/state',
++    'redirect',
++  ]);
++  assert.equal(
++    new URL(h.redirects[0]).searchParams.get('scope'),
++    'openid profile email',
++  );
++  assert.deepEqual(h.errors, []);
++});
++
++test('legacy state rejection still stops before authorization', async () => {
++  const h = harness({
++    stateResponse: { success: false, message: 'fixture state rejected' },
++  });
++  await h.click({ ...provider, pkce_enabled: false });
++
++  assert.deepEqual(requestPaths(h), ['get:/api/oauth/state']);
++  assert.deepEqual(h.redirects, []);
++  assert.deepEqual(h.errors, ['fixture state rejected']);
++});

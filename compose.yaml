@@ -1,0 +1,36 @@
+services:
+  newapi:
+    image: ${API_IMAGE:?Set the reviewed locally built image or immutable registry digest}
+    platform: linux/amd64
+    ports:
+      - "127.0.0.1:${API_LOOPBACK_PORT:-13000}:3000"
+    env_file:
+      - ${API_SECRETS_ENV:?Set a server-only absolute env path}
+    environment:
+      TZ: UTC
+      SQLITE_PATH: /data/new-api.db
+      GENERATE_DEFAULT_TOKEN: "false"
+      CUSTOM_OAUTH_PKCE_PROVIDERS: pingxingxian
+      CHANNEL_TEST_FREQUENCY: "0"
+    volumes:
+      - type: bind
+        source: ${API_DATA_DIR:?Set a data-disk path}
+        target: /data
+        bind:
+          create_host_path: false
+    networks:
+      edge:
+        aliases: [parallellines-api]
+    restart: unless-stopped
+    mem_limit: 384m
+    cpus: 0.5
+    pids_limit: 256
+    logging:
+      driver: json-file
+      options:
+        max-size: 10m
+        max-file: "3"
+networks:
+  edge:
+    external: true
+    name: ${EDGE_NETWORK:?Set the explicitly attached reverse-proxy network}

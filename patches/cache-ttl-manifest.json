@@ -1,0 +1,41 @@
+{
+  "base_release": "v0.13.2-pkce.5",
+  "files": {
+    "docs/OPENAI-STANDARD-BILLING.md": {
+      "base_sha256": "ce7ddd1189d36f0c59c46d0ec8995b8c72031c47b6de39c048f34113a56473c8",
+      "result_sha256": "f033a6421ac3492b1a11ba707fad6ac2f17533502f5731318da4639e7f8efce6"
+    },
+    "dto/openai_cache_options_test.go": {
+      "base_sha256": null,
+      "result_sha256": "9441422a0d7a0a63c1a8c8f9a207d36bcd5607bda1890b22e9efe0e0d81b4600"
+    },
+    "dto/openai_request.go": {
+      "base_sha256": "417c52654ef7ad64c88631b2890771433b6937434395c33b8c5cfae0c9790b54",
+      "result_sha256": "7c65463f85febe7ba99d3586e6b842ffcd6b089471a192e91671d49ee08cda8a"
+    },
+    "relay/channel/openai/openai_standard_usage.go": {
+      "base_sha256": "97830fb5e783409a2d9f59dab3dc0bc705b5d06d0d85e7588d4d5f4b05552e3b",
+      "result_sha256": "f1df51c38660f4b9611b800fad092f633a50c457af3070fe72aa01c0450c8734"
+    },
+    "relay/channel/openai/relay_responses.go": {
+      "base_sha256": "a0ec0c338bd76bd180518a840b770533f5336161146ea51b3713024b147ef0f8",
+      "result_sha256": "6d8883fbae9a5a0b34d66a36babb0547847a967331c265926d7d1ec92f8e7fc0"
+    },
+    "service/openai_standard_billing.go": {
+      "base_sha256": "0058ecaf0f6154081e536c3fa7d4fac9f5aace74f9a45f90a0ef0179cc44b8c9",
+      "result_sha256": "7808d70df3ecb463b36bcec8e42763a2a9b7f837f6ad28b08d31bac8e5710b60"
+    },
+    "service/openai_standard_cache_ttl.go": {
+      "base_sha256": null,
+      "result_sha256": "96a9ef91b6f68ee428f18e9d6aa4b1388481b1e71393644407e9c43594e1dfb3"
+    },
+    "service/openai_standard_cache_ttl_test.go": {
+      "base_sha256": null,
+      "result_sha256": "b6e7f5d782b8e6689a281e0af56d4989e1e21b331d8f396eb23cf8f1845f0b86"
+    },
+    "service/openai_standard_usage.go": {
+      "base_sha256": "4b83e8cc3c9c3604635e5deca8c8f7ef2b7e33886178705b49c17bd00377a13c",
+      "result_sha256": "5678b5bf411a2715a0b3f32469bd0ef24237ce15d834a7517cb36a1e04227838"
+    }
+  }
+}

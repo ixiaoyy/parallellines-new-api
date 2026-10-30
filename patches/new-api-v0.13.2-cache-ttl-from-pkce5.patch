@@ -1,0 +1,284 @@
+diff --git a/docs/OPENAI-STANDARD-BILLING.md b/docs/OPENAI-STANDARD-BILLING.md
+--- a/docs/OPENAI-STANDARD-BILLING.md
++++ b/docs/OPENAI-STANDARD-BILLING.md
+@@ -63,7 +63,11 @@
+ 
+ Core input/output/total usage fields must be present, nonnegative integers and
+ consistent. Optional cache counters default to zero when omitted. Responses
+-with cache writes require an explicit 30m/12h breakdown matching total writes.
++with cache writes use the explicit 30m/12h breakdown when present. If that
++breakdown is absent, a uniform lifetime proven by the original validated request
++may classify actual cache_write_tokens. The documented default is 30m; explicit
++12h is retained. Mixed breakpoint lifetimes and server-side history require an
++upstream breakdown. Explicit null/partial/invalid breakdowns are not inferred.
+ Explicit all-zero usage is accepted only when no generated content is present.
+ No missing usage is replaced with a local token estimate or a zero charge.
+ 
+diff --git a/dto/openai_cache_options_test.go b/dto/openai_cache_options_test.go
+--- /dev/null
++++ b/dto/openai_cache_options_test.go
+@@ -0,0 +1,23 @@
++package dto
++
++import (
++	"encoding/json"
++	"testing"
++)
++
++func TestResponsesCacheOptionsSurviveNativeRequestEncoding(t *testing.T) {
++	var request OpenAIResponsesRequest
++	if err := json.Unmarshal([]byte(`{"model":"gpt-6-luna","input":"hello","prompt_cache_options":{"ttl":"12h","mode":"explicit"}}`), &request); err != nil {
++		t.Fatal(err)
++	}
++	encoded, err := json.Marshal(request)
++	if err != nil {
++		t.Fatal(err)
++	}
++	var wire struct {
++		Options struct{ TTL, Mode string } `json:"prompt_cache_options"`
++	}
++	if err := json.Unmarshal(encoded, &wire); err != nil || wire.Options.TTL != "12h" || wire.Options.Mode != "explicit" {
++		t.Fatal("cache lifetime was lost before upstream dispatch")
++	}
++}
+diff --git a/dto/openai_request.go b/dto/openai_request.go
+--- a/dto/openai_request.go
++++ b/dto/openai_request.go
+@@ -840,6 +840,8 @@
+ 	Store                json.RawMessage `json:"store,omitempty"`
+ 	PromptCacheKey       json.RawMessage `json:"prompt_cache_key,omitempty"`
+ 	PromptCacheRetention json.RawMessage `json:"prompt_cache_retention,omitempty"`
++	// 原生缓存设置必须实际发给上游，结算才能使用该请求的时长依据。
++	PromptCacheOptions json.RawMessage `json:"prompt_cache_options,omitempty"`
+ 	// SafetyIdentifier carries client identity for policy abuse detection.
+ 	// This field is filtered by default and can be enabled via channel setting allow_safety_identifier.
+ 	SafetyIdentifier json.RawMessage `json:"safety_identifier,omitempty"`
+diff --git a/relay/channel/openai/openai_standard_usage.go b/relay/channel/openai/openai_standard_usage.go
+--- a/relay/channel/openai/openai_standard_usage.go
++++ b/relay/channel/openai/openai_standard_usage.go
+@@ -11,19 +11,24 @@
+ )
+ 
+ func standardUsageFromEnvelope(raw []byte, responses bool) (*dto.OpenAIStandardUsage, error) {
++	return standardUsageFromEnvelopeWithCacheTTL(raw, responses, "")
++}
++
++// 统一时长只能来自发送前的请求校验；无证明时继续要求上游明细。
++func standardUsageFromEnvelopeWithCacheTTL(raw []byte, responses bool, cacheTTL string) (*dto.OpenAIStandardUsage, error) {
+ 	var envelope map[string]json.RawMessage
+ 	if common.Unmarshal(raw, &envelope) != nil || envelope == nil {
+ 		return nil, errors.New("invalid_response_envelope")
+ 	}
+-	return service.ParseOpenAIStandardUsage(envelope["usage"], responses)
++	return service.ParseOpenAIStandardUsageWithCacheTTL(envelope["usage"], responses, cacheTTL)
+ }
+ 
+-func standardUsageFromResponsesEvent(raw []byte) (*dto.OpenAIStandardUsage, error) {
++func standardUsageFromResponsesEvent(raw []byte, cacheTTL string) (*dto.OpenAIStandardUsage, error) {
+ 	var envelope map[string]json.RawMessage
+ 	if common.Unmarshal(raw, &envelope) != nil || envelope == nil {
+ 		return nil, errors.New("invalid_response_event")
+ 	}
+-	return standardUsageFromEnvelope(envelope["response"], true)
++	return standardUsageFromEnvelopeWithCacheTTL(envelope["response"], true, cacheTTL)
+ }
+ 
+ func applyStandardUsage(usage *dto.Usage, verified *dto.OpenAIStandardUsage) {
+diff --git a/relay/channel/openai/relay_responses.go b/relay/channel/openai/relay_responses.go
+--- a/relay/channel/openai/relay_responses.go
++++ b/relay/channel/openai/relay_responses.go
+@@ -35,7 +35,7 @@
+ 	}
+ 	var verifiedUsage *dto.OpenAIStandardUsage
+ 	if service.OpenAIStandardBillingEnabled(info) {
+-		verifiedUsage, err = standardUsageFromEnvelope(responseBody, true)
++		verifiedUsage, err = standardUsageFromEnvelopeWithCacheTTL(responseBody, true, c.GetString("openai_standard_cache_write_ttl"))
+ 		if err != nil {
+ 			return nil, service.OpenAIStandardUsageError(err.Error())
+ 		}
+@@ -115,7 +115,7 @@
+ 			return
+ 		}
+ 		if standardEnabled && (streamResponse.Type == "response.completed" || streamResponse.Type == "response.incomplete") {
+-			candidate, parseErr := standardUsageFromResponsesEvent(common.StringToByteSlice(data))
++			candidate, parseErr := standardUsageFromResponsesEvent(common.StringToByteSlice(data), c.GetString("openai_standard_cache_write_ttl"))
+ 			if parseErr == nil && verifiedUsage != nil && *verifiedUsage != *candidate {
+ 				parseErr = fmt.Errorf("conflicting_terminal_stream_usage")
+ 			}
+diff --git a/service/openai_standard_billing.go b/service/openai_standard_billing.go
+--- a/service/openai_standard_billing.go
++++ b/service/openai_standard_billing.go
+@@ -149,6 +149,10 @@
+ 	if tier, exists := object["service_tier"]; exists && tier != nil && tier != "" && tier != "default" {
+ 		return errors.New("only the standard service tier is supported by this quota policy")
+ 	}
++	if info.RelayFormat == types.RelayFormatOpenAIResponses {
++		// 每次实际渠道请求重新计算，不沿用其他尝试或调用方提供的结算元数据。
++		c.Set("openai_standard_cache_write_ttl", openAIStandardCacheTTL(object))
++	}
+ 	// Keep other providers and arbitrary JSON strings/metadata untouched. Only
+ 	// inspect documented Chat cache-control paths, whose 12h schema is ambiguous.
+ 	if info.RelayFormat == types.RelayFormatOpenAI {
+diff --git a/service/openai_standard_cache_ttl.go b/service/openai_standard_cache_ttl.go
+--- /dev/null
++++ b/service/openai_standard_cache_ttl.go
+@@ -0,0 +1,52 @@
++package service
++
++// openAIStandardCacheTTL 从已验证的实际请求计算统一缓存写入时长。
++// 返回空字符串表示有混合时长、未知设置或服务端历史，结算仍须使用上游明细。
++// 只检查原生 input/content 断点，不解释用户文本、工具参数或 metadata。
++func openAIStandardCacheTTL(request map[string]any) string {
++	if previous, exists := request["previous_response_id"]; exists && previous != nil && previous != "" {
++		return ""
++	}
++	if conversation, exists := request["conversation"]; exists && conversation != nil {
++		return ""
++	}
++	// 官方默认 30m；只有省略设置时使用默认值，显式无效值不能被默认值掩盖。
++	ttl := "30m"
++	if raw, exists := request["prompt_cache_options"]; exists {
++		options, ok := raw.(map[string]any)
++		if !ok {
++			return ""
++		}
++		if rawTTL, exists := options["ttl"]; exists {
++			value, ok := rawTTL.(string)
++			if !ok || (value != "30m" && value != "12h") {
++				return ""
++			}
++			ttl = value
++		}
++	}
++	items, _ := request["input"].([]any)
++	for _, rawItem := range items {
++		item, ok := rawItem.(map[string]any)
++		if !ok {
++			return ""
++		}
++		content, _ := item["content"].([]any)
++		for _, rawBlock := range content {
++			block, ok := rawBlock.(map[string]any)
++			if !ok {
++				return ""
++			}
++			if raw, exists := block["prompt_cache_breakpoint"]; exists {
++				breakpoint, ok := raw.(map[string]any)
++				if !ok {
++					return ""
++				}
++				if override, exists := breakpoint["ttl"]; exists && override != ttl {
++					return ""
++				}
++			}
++		}
++	}
++	return ttl
++}
+diff --git a/service/openai_standard_cache_ttl_test.go b/service/openai_standard_cache_ttl_test.go
+--- /dev/null
++++ b/service/openai_standard_cache_ttl_test.go
+@@ -0,0 +1,63 @@
++package service
++
++import (
++	"testing"
++
++	"github.com/QuantumNous/new-api/common"
++)
++
++func TestOpenAIStandardCacheTTLRequestEvidence(t *testing.T) {
++	for _, tt := range []struct{ request, want string }{
++		{`{"input":"hello"}`, "30m"},
++		{`{"prompt_cache_options":{"ttl":"12h"}}`, "12h"},
++		{`{"input":[{"role":"user","content":[{"type":"input_text","text":"x","prompt_cache_breakpoint":{"mode":"explicit"}}]}]}`, "30m"},
++		{`{"input":[{"content":[{"prompt_cache_breakpoint":{"ttl":"12h"}}]}]}`, ""},
++		{`{"prompt_cache_options":{"ttl":"12h"},"input":[{"content":[{"prompt_cache_breakpoint":{"ttl":"12h"}}]}]}`, "12h"},
++		{`{"previous_response_id":"resp-history"}`, ""},
++		{`{"conversation":"conv-history"}`, ""},
++		{`{"prompt_cache_options":null}`, ""},
++		{`{"prompt_cache_options":{"ttl":"24h"}}`, ""},
++		{`{"metadata":{"prompt_cache_breakpoint":{"ttl":"12h"}}}`, "30m"},
++	} {
++		var request map[string]any
++		if err := common.Unmarshal([]byte(tt.request), &request); err != nil {
++			t.Fatal(err)
++		}
++		if got := openAIStandardCacheTTL(request); got != tt.want {
++			t.Fatalf("request=%s got=%q want=%q", tt.request, got, tt.want)
++		}
++	}
++}
++
++func TestOpenAIStandardUsageUsesOnlyProvenTTLWhenSplitAbsent(t *testing.T) {
++	raw := []byte(`{"input_tokens":30,"output_tokens":1,"total_tokens":31,"input_tokens_details":{"cache_write_tokens":20}}`)
++	for _, ttl := range []string{"30m", "12h"} {
++		got, err := ParseOpenAIStandardUsageWithCacheTTL(raw, true, ttl)
++		if err != nil || got == nil {
++			t.Fatalf("ttl=%s usage=%+v error=%v", ttl, got, err)
++		}
++		if ttl == "30m" && (got.CacheWrite30mTokens != 20 || got.CacheWrite12hTokens != 0) {
++			t.Fatal("30m write partition changed")
++		}
++		if ttl == "12h" && (got.CacheWrite30mTokens != 0 || got.CacheWrite12hTokens != 20) {
++			t.Fatal("12h write partition changed")
++		}
++	}
++	if _, err := ParseOpenAIStandardUsage(raw, true); err == nil {
++		t.Fatal("legacy strict parser accepted unproven duration")
++	}
++	for _, raw := range []string{
++		`{"input_tokens":30,"output_tokens":1,"total_tokens":31,"input_tokens_details":{"cache_write_tokens":20,"cache_write_tokens_details":null}}`,
++		`{"input_tokens":30,"output_tokens":1,"total_tokens":31,"input_tokens_details":{"cache_write_tokens":20,"cache_write_tokens_details":{"ttl_30m_tokens":20}}}`,
++		`{"input_tokens":30,"output_tokens":1,"total_tokens":31,"input_tokens_details":{"cache_write_tokens":20,"cache_write_tokens_details":{"ttl_30m_tokens":20,"ttl_12h_tokens":1}}}`,
++	} {
++		if _, err := ParseOpenAIStandardUsageWithCacheTTL([]byte(raw), true, "30m"); err == nil {
++			t.Fatal("invalid explicit breakdown was hidden by request TTL")
++		}
++	}
++	valid := []byte(`{"input_tokens":30,"output_tokens":1,"total_tokens":31,"input_tokens_details":{"cache_write_tokens":20,"cache_write_tokens_details":{"ttl_30m_tokens":10,"ttl_12h_tokens":10}}}`)
++	got, err := ParseOpenAIStandardUsageWithCacheTTL(valid, true, "30m")
++	if err != nil || got.CacheWrite30mTokens != 10 || got.CacheWrite12hTokens != 10 {
++		t.Fatal("explicit mixed breakdown must remain authoritative")
++	}
++}
+diff --git a/service/openai_standard_usage.go b/service/openai_standard_usage.go
+--- a/service/openai_standard_usage.go
++++ b/service/openai_standard_usage.go
+@@ -15,6 +15,12 @@
+ // usage cannot silently become zero. Only fixed safe field names
+ // are returned in errors; response content is never included.
+ func ParseOpenAIStandardUsage(rawUsage []byte, responses bool) (*dto.OpenAIStandardUsage, error) {
++	return ParseOpenAIStandardUsageWithCacheTTL(rawUsage, responses, "")
++}
++
++// ParseOpenAIStandardUsageWithCacheTTL 使用已验证请求的统一缓存时长；空值保持严格明细校验。
++// 仅分配真实 cache_write_tokens，不估算用量；上游明细存在时始终优先校验明细。
++func ParseOpenAIStandardUsageWithCacheTTL(rawUsage []byte, responses bool, cacheTTL string) (*dto.OpenAIStandardUsage, error) {
+ 	var fields map[string]json.RawMessage
+ 	if len(rawUsage) == 0 || common.Unmarshal(rawUsage, &fields) != nil || fields == nil {
+ 		return nil, errors.New("missing_or_invalid_usage")
+@@ -90,10 +96,20 @@
+ 			return nil, errors.New("inconsistent_cache_write_durations")
+ 		}
+ 	} else if responses && write != 0 {
+-		return nil, errors.New("missing_cache_write_durations")
++		// 只有原始请求能证明统一时长时，才可分配没有时长明细的真实写入数。
++		if _, present := details["cache_write_tokens_details"]; present {
++			return nil, errors.New("missing_cache_write_durations")
++		}
++		switch cacheTTL {
++		case "30m":
++			write30 = write
++		case "12h":
++			write12 = write
++		default:
++			return nil, errors.New("missing_cache_write_durations")
++		}
+ 	} else {
+-		// Chat's verified request-level contract permits 30m only. A Responses
+-		// write with no split is ambiguous and was rejected above.
++		// Chat 的既有请求校验只允许 30m；Responses 的零写入不需要时长推断。
+ 		write30 = write
+ 	}
+ 	if !responses && write12 != 0 {

@@ -7,11 +7,13 @@ used by the ParallelLines identity provider. The upstream UI is retained. Source
 
 ## Current release
 
-The deployed release is **v0.13.2-pkce.5**. Start with its
-[release instructions](releases/v0.13.2-pkce.5/README.md) and
-[complete ordered patch lock](releases/v0.13.2-pkce.5/upstream.lock.json).
-It includes the pkce.3 billing/relay implementation, pkce.4 bound-profile
-synchronization, and pkce.5 deleted-account session rejection. The root lock and
+The latest release recipe is **v0.13.2-pkce.6**. Start with its
+[release instructions](releases/v0.13.2-pkce.6/README.md) and
+[complete ordered patch lock](releases/v0.13.2-pkce.6/upstream.lock.json).
+It retains the pkce.3 billing/relay implementation, pkce.4 bound-profile
+synchronization, and pkce.5 deleted-account session rejection, and adds validated
+request-TTL classification for Responses cache writes without a duration split.
+Actual activation is recorded in the server's private deployment receipt. The root lock and
 the base-build commands below intentionally describe the reusable pkce.3 base;
 do not use that base image to replace the current live release.
 

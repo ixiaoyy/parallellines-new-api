@@ -1,0 +1,29 @@
+{
+  "baseline": "pkce3-frozen",
+  "files": {
+    "controller/oauth.go": {
+      "base_sha256": "8c9a210b1faa3a6922052887b7b1c34697528994abf6a826a6c196cfa4ba41be",
+      "result_sha256": "9034805c141f704099fa035eea9900c5db378e6de241b8d9d7fb847981a02b72"
+    },
+    "controller/oauth_main_profile.go": {
+      "base_sha256": null,
+      "result_sha256": "2b8c6b7ca80adf98817d89f384ea270ac5931f4fc5d31c1b2c6229afe68f37d8"
+    },
+    "controller/oauth_main_profile_test.go": {
+      "base_sha256": null,
+      "result_sha256": "0f1884d4a58f5b333aae3cf8e8f0369a3af2e556e97eb17bce6e75a017a949ea"
+    },
+    "oauth/generic.go": {
+      "base_sha256": "42444c2bc18c54556e30076111319be6e46d24bb8087950caa49ab689100b83e",
+      "result_sha256": "60bae0a465c91ac36af727ca873dde5d94f57af9e2df4e00112efddaafcdf440"
+    },
+    "oauth/main_profile.go": {
+      "base_sha256": null,
+      "result_sha256": "24efd778b92259d1f6d87849b2237cacb73820de8e57f4853e99d581f59f45ea"
+    },
+    "oauth/main_profile_test.go": {
+      "base_sha256": null,
+      "result_sha256": "11a3f479a55e411e39ddbb97b040cbfad3924a366bbe1e6576f8531d75bc3187"
+    }
+  }
+}

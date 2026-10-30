@@ -1,0 +1,682 @@
+--- a/controller/oauth.go
++++ b/controller/oauth.go
+@@ -115,6 +115,8 @@
+ 	user, err := findOrCreateOAuthUser(c, provider, oauthUser, session)
+ 	if err != nil {
+ 		switch err.(type) {
++		case *MainProfileConflictError:
++			c.JSON(http.StatusConflict, gin.H{"success": false, "message": err.Error()})
+ 		case *OAuthUserDeletedError:
+ 			common.ApiErrorI18n(c, i18n.MsgOAuthUserDeleted)
+ 		case *OAuthRegistrationDisabledError:
+@@ -205,6 +207,20 @@
+ 
+ // findOrCreateOAuthUser finds existing user or creates new user
+ func findOrCreateOAuthUser(c *gin.Context, provider oauth.Provider, oauthUser *oauth.OAuthUser, session sessions.Session) (*model.User, error) {
++	if mainProvider, ok := provider.(*oauth.GenericOAuthProvider); ok && mainProvider.MainProfileSyncRequired() {
++		inviterID := 0
++		if affCode, ok := session.Get("aff").(string); ok && affCode != "" {
++			inviterID, _ = model.GetUserIdByAffCode(affCode)
++		}
++		user, created, err := findOrCreateMainProfileUser(model.DB, mainProvider, oauthUser, inviterID)
++		if err != nil {
++			return nil, err
++		}
++		if created {
++			user.FinalizeOAuthUserCreation(inviterID)
++		}
++		return user, nil
++	}
+ 	user := &model.User{}
+ 
+ 	// Check if user already exists with new ID
+--- /dev/null
++++ b/controller/oauth_main_profile.go
+@@ -0,0 +1,112 @@
++package controller
++
++import (
++	"errors"
++	"strings"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/model"
++	"github.com/QuantumNous/new-api/oauth"
++	"gorm.io/gorm"
++	"gorm.io/gorm/clause"
++	gormlogger "gorm.io/gorm/logger"
++)
++
++type MainProfileConflictError struct{}
++
++func (*MainProfileConflictError) Error() string {
++	return "Main account profile conflicts with an existing account. Contact an administrator."
++}
++
++var errMainProfileUnavailable = errors.New("Main account profile could not be synchronized. Please retry or contact an administrator.")
++
++func mainProfileCollision(tx *gorm.DB, userID int, profile *oauth.OAuthUser) error {
++	var count int64
++	if err := tx.Unscoped().Model(&model.User{}).Where("id <> ? AND (username = ? OR LOWER(email) = ?)",
++		userID, profile.Username, strings.ToLower(profile.Email)).Count(&count).Error; err != nil {
++		return errMainProfileUnavailable
++	}
++	if count != 0 {
++		return &MainProfileConflictError{}
++	}
++	return nil
++}
++
++// The stable provider+subject binding is the sole account lookup key. Neither
++// username nor email may merge accounts, change role, or rewrite a password.
++func findOrCreateMainProfileUser(db *gorm.DB, provider *oauth.GenericOAuthProvider,
++	profile *oauth.OAuthUser, inviterID int) (*model.User, bool, error) {
++	if err := provider.ValidateMainProfileConfiguration(); err != nil {
++		return nil, false, err
++	}
++	if err := oauth.ValidateMainProfile(profile); err != nil {
++		return nil, false, err
++	}
++	var user model.User
++	created := false
++	// Database errors can include query parameters. Never log private profile values.
++	err := db.Session(&gorm.Session{Logger: db.Logger.LogMode(gormlogger.Silent)}).Transaction(func(tx *gorm.DB) error {
++		var liveProvider model.CustomOAuthProvider
++		// Serializes Main-profile writers on databases with row locks. SQLite's
++		// write serialization rejects a racing write, which fails the login closed.
++		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&liveProvider, provider.GetProviderId()).Error; err != nil {
++			return errMainProfileUnavailable
++		}
++		if err := oauth.NewGenericOAuthProvider(&liveProvider).ValidateMainProfileConfiguration(); err != nil {
++			return err
++		}
++		var binding model.UserOAuthBinding
++		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("provider_id = ? AND provider_user_id = ?",
++			provider.GetProviderId(), profile.ProviderUserID).First(&binding).Error
++		if err == nil {
++			if tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&user, binding.UserId).Error != nil ||
++				user.Status != common.UserStatusEnabled {
++				return errMainProfileUnavailable
++			}
++			if err := mainProfileCollision(tx, user.Id, profile); err != nil {
++				return err
++			}
++			if err := tx.Model(&user).Updates(map[string]any{"username": profile.Username,
++				"display_name": profile.DisplayName, "email": profile.Email}).Error; err != nil {
++				return errMainProfileUnavailable
++			}
++			user.Username, user.DisplayName, user.Email = profile.Username, profile.DisplayName, profile.Email
++			return nil
++		}
++		if !errors.Is(err, gorm.ErrRecordNotFound) {
++			return errMainProfileUnavailable
++		}
++		if !common.RegisterEnabled {
++			return &OAuthRegistrationDisabledError{}
++		}
++		if err := mainProfileCollision(tx, 0, profile); err != nil {
++			return err
++		}
++		user = model.User{Username: profile.Username, DisplayName: profile.DisplayName, Email: profile.Email,
++			Role: common.RoleCommonUser, Status: common.UserStatusEnabled}
++		if user.InsertWithTx(tx, inviterID) != nil {
++			return errMainProfileUnavailable
++		}
++		binding = model.UserOAuthBinding{UserId: user.Id, ProviderId: provider.GetProviderId(), ProviderUserId: profile.ProviderUserID}
++		if model.CreateUserOAuthBindingWithTx(tx, &binding) != nil {
++			return errMainProfileUnavailable
++		}
++		created = true
++		return nil
++	})
++	if err != nil {
++		// Commit/driver errors can contain private SQL values; preserve only our
++		// explicitly safe errors, never forward the raw database message.
++		var conflict *MainProfileConflictError
++		var registration *OAuthRegistrationDisabledError
++		if errors.As(err, &conflict) || errors.As(err, &registration) ||
++			errors.Is(err, oauth.ErrMainProfileConfig) || errors.Is(err, errMainProfileUnavailable) {
++			return nil, false, err
++		}
++		return nil, false, errMainProfileUnavailable
++	}
++	if err := model.InvalidateUserCache(user.Id); err != nil {
++		return nil, false, errMainProfileUnavailable
++	}
++	return &user, created, nil
++}
+--- /dev/null
++++ b/controller/oauth_main_profile_test.go
+@@ -0,0 +1,169 @@
++package controller
++
++import (
++	"errors"
++	"path/filepath"
++	"testing"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/model"
++	"github.com/QuantumNous/new-api/oauth"
++	"github.com/glebarez/sqlite"
++	"gorm.io/gorm"
++	gormlogger "gorm.io/gorm/logger"
++)
++
++func profileDatabase(t *testing.T) (*gorm.DB, *oauth.GenericOAuthProvider) {
++	t.Helper()
++	t.Setenv("MAIN_OAUTH_PROFILE_SYNC_ENABLED", "true")
++	t.Setenv("CUSTOM_OAUTH_PKCE_PROVIDERS", "pingxingxian")
++	db, err := gorm.Open(sqlite.Open(filepath.Join(t.TempDir(), "profile.db")), &gorm.Config{Logger: gormlogger.Default.LogMode(gormlogger.Silent)})
++	if err != nil {
++		t.Fatal(err)
++	}
++	if err := db.AutoMigrate(&model.User{}, &model.UserOAuthBinding{}, &model.CustomOAuthProvider{}); err != nil {
++		t.Fatal(err)
++	}
++	config := model.CustomOAuthProvider{Id: 1, Slug: "pingxingxian", Enabled: true, ClientId: "parallellines-newapi", AuthStyle: oauth.AuthStyleInHeader,
++		UserIdField: "sub", UsernameField: "preferred_username", DisplayNameField: "name", EmailField: "email",
++		AuthorizationEndpoint: "https://pingxingxian.space/auth/oidc/auth", TokenEndpoint: "https://pingxingxian.space/auth/oidc/token",
++		UserInfoEndpoint: "https://pingxingxian.space/auth/oidc/me"}
++	if err := db.Create(&config).Error; err != nil {
++		t.Fatal(err)
++	}
++	originalRedis, originalRegistration := common.RedisEnabled, common.RegisterEnabled
++	common.RedisEnabled, common.RegisterEnabled = false, true
++	t.Cleanup(func() {
++		common.RedisEnabled, common.RegisterEnabled = originalRedis, originalRegistration
++		sqlDB, _ := db.DB()
++		sqlDB.Close()
++	})
++	return db, oauth.NewGenericOAuthProvider(&config)
++}
++
++func testMainProfile() *oauth.OAuthUser {
++	return &oauth.OAuthUser{ProviderUserID: "53", Username: "main-name", DisplayName: "Main display", Email: "synthetic@example.invalid",
++		Extra: map[string]any{"main_profile_verified": true}}
++}
++
++func insertProfileUser(t *testing.T, db *gorm.DB, id int, subject, username, email string) model.User {
++	t.Helper()
++	user := model.User{Id: id, Username: username, DisplayName: "Before", Email: email, Password: "synthetic-hash-do-not-change",
++		Role: common.RoleRootUser, Status: common.UserStatusEnabled, Quota: 12345, UsedQuota: 678, Group: "default", AffCode: username}
++	if err := db.Create(&user).Error; err != nil {
++		t.Fatal(err)
++	}
++	if subject != "" {
++		if err := db.Create(&model.UserOAuthBinding{UserId: id, ProviderId: 1, ProviderUserId: subject}).Error; err != nil {
++			t.Fatal(err)
++		}
++	}
++	return user
++}
++
++func TestMainProfileUpdatesOnlyBoundIdentityAndProfile(t *testing.T) {
++	db, p := profileDatabase(t)
++	before := insertProfileUser(t, db, 2, "53", "pl-53", "old@example.invalid")
++	other := insertProfileUser(t, db, 3, "54", "pl-54", "other@example.invalid")
++	for _, name := range []string{"main-name", "main-renamed"} {
++		profile := testMainProfile()
++		profile.Username = name
++		user, created, err := findOrCreateMainProfileUser(db, p, profile, 0)
++		if err != nil || created || user.Id != 2 || user.Username != name || user.Email != profile.Email {
++			t.Fatal("profile not synchronized")
++		}
++		var after model.User
++		db.First(&after, 2)
++		if after.Role != before.Role || after.Quota != before.Quota || after.UsedQuota != before.UsedQuota || after.Password != before.Password || after.Group != before.Group {
++			t.Fatal("protected fields changed")
++		}
++	}
++	var unchanged model.User
++	db.First(&unchanged, 3)
++	if unchanged.Username != other.Username || unchanged.Email != other.Email {
++		t.Fatal("another identity changed")
++	}
++	var bindings []model.UserOAuthBinding
++	db.Order("id").Find(&bindings)
++	if len(bindings) != 2 || bindings[0].UserId != 2 || bindings[0].ProviderUserId != "53" {
++		t.Fatal("binding changed")
++	}
++}
++
++func TestMainProfileCollisionRollsBackWithoutMergeIncludingDeletedUsers(t *testing.T) {
++	for _, field := range []string{"username", "email", "deleted-email"} {
++		t.Run(field, func(t *testing.T) {
++			db, p := profileDatabase(t)
++			before := insertProfileUser(t, db, 2, "53", "pl-53", "old@example.invalid")
++			profile := testMainProfile()
++			username, email := "other-name", "other@example.invalid"
++			if field == "username" {
++				username = profile.Username
++			} else {
++				email = "SYNTHETIC@example.invalid"
++			}
++			other := insertProfileUser(t, db, 3, "54", username, email)
++			if field == "deleted-email" {
++				db.Delete(&other)
++			}
++			_, _, err := findOrCreateMainProfileUser(db, p, profile, 0)
++			var conflict *MainProfileConflictError
++			if !errors.As(err, &conflict) {
++				t.Fatal("collision did not explicitly fail")
++			}
++			var after model.User
++			db.First(&after, 2)
++			if after.Username != before.Username || after.Email != before.Email || after.DisplayName != before.DisplayName {
++				t.Fatal("partial update during collision")
++			}
++		})
++	}
++}
++
++func TestMainProfileNewRegistrationNoAliasAndNoMerge(t *testing.T) {
++	db, p := profileDatabase(t)
++	profile := testMainProfile()
++	user, created, err := findOrCreateMainProfileUser(db, p, profile, 0)
++	if err != nil || !created || user.Username != profile.Username || user.Role != common.RoleCommonUser {
++		t.Fatal("registration mismatch")
++	}
++	profile.ProviderUserID = "different-sub"
++	_, _, err = findOrCreateMainProfileUser(db, p, profile, 0)
++	var conflict *MainProfileConflictError
++	if !errors.As(err, &conflict) {
++		t.Fatal("registered alias or merged same-profile new subject")
++	}
++	var count int64
++	db.Model(&model.User{}).Count(&count)
++	if count != 1 {
++		t.Fatal("unexpected user count")
++	}
++}
++
++func TestMainProfileDisabledDeletedUnverifiedAndProviderChangedFailClosed(t *testing.T) {
++	for _, state := range []string{"disabled", "deleted", "unverified", "provider-changed"} {
++		t.Run(state, func(t *testing.T) {
++			db, p := profileDatabase(t)
++			user := insertProfileUser(t, db, 2, "53", "pl-53", "old@example.invalid")
++			profile := testMainProfile()
++			switch state {
++			case "disabled":
++				db.Model(&user).Update("status", common.UserStatusDisabled)
++			case "deleted":
++				db.Delete(&user)
++			case "unverified":
++				profile.Extra["main_profile_verified"] = false
++			case "provider-changed":
++				db.Model(&model.CustomOAuthProvider{}).Where("id = ?", 1).Update("email_field", "other")
++			}
++			if _, _, err := findOrCreateMainProfileUser(db, p, profile, 0); err == nil {
++				t.Fatal("unsafe profile login allowed")
++			}
++			var after model.User
++			db.Unscoped().First(&after, 2)
++			if after.Username != user.Username || after.Email != user.Email {
++				t.Fatal("unsafe profile write")
++			}
++		})
++	}
++}
+--- a/oauth/generic.go
++++ b/oauth/generic.go
+@@ -88,11 +88,19 @@
+ }
+ 
+ func (p *GenericOAuthProvider) ExchangeToken(ctx context.Context, code string, c *gin.Context) (*OAuthToken, error) {
++	privateMain := p.MainProfileSyncRequired()
++	if privateMain {
++		if err := p.ValidateMainProfileConfiguration(); err != nil {
++			return nil, err
++		}
++	}
+ 	if code == "" {
+ 		return nil, NewOAuthError(i18n.MsgOAuthInvalidCode, nil)
+ 	}
+ 
+-	logger.LogDebug(ctx, "[OAuth-Generic-%s] ExchangeToken: code=%s...", p.config.Slug, code[:min(len(code), 10)])
++	if !privateMain {
++		logger.LogDebug(ctx, "[OAuth-Generic-%s] ExchangeToken: code=%s...", p.config.Slug, code[:min(len(code), 10)])
++	}
+ 
+ 	redirectUri := fmt.Sprintf("%s/oauth/%s", system_setting.ServerAddress, p.config.Slug)
+ 	values := url.Values{}
+@@ -143,6 +151,9 @@
+ 	client := http.Client{
+ 		Timeout: 20 * time.Second,
+ 	}
++	if privateMain {
++		client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
++	}
+ 	res, err := client.Do(req)
+ 	if err != nil {
+ 		logger.LogError(ctx, fmt.Sprintf("[OAuth-Generic-%s] ExchangeToken error: %s", p.config.Slug, err.Error()))
+@@ -159,7 +170,9 @@
+ 	}
+ 
+ 	bodyStr := string(body)
+-	logger.LogDebug(ctx, "[OAuth-Generic-%s] ExchangeToken response body: %s", p.config.Slug, bodyStr[:min(len(bodyStr), 500)])
++	if !privateMain {
++		logger.LogDebug(ctx, "[OAuth-Generic-%s] ExchangeToken response body: %s", p.config.Slug, bodyStr[:min(len(bodyStr), 500)])
++	}
+ 
+ 	// Try to parse as JSON first
+ 	var tokenResponse struct {
+@@ -186,6 +199,9 @@
+ 	}
+ 
+ 	if tokenResponse.Error != "" {
++		if privateMain {
++			return nil, NewOAuthError(i18n.MsgOAuthTokenFailed, map[string]any{"Provider": p.config.Name})
++		}
+ 		logger.LogError(ctx, fmt.Sprintf("[OAuth-Generic-%s] ExchangeToken OAuth error: %s - %s",
+ 			p.config.Slug, tokenResponse.Error, tokenResponse.ErrorDesc))
+ 		return nil, NewOAuthErrorWithRaw(i18n.MsgOAuthTokenFailed, map[string]any{"Provider": p.config.Name}, tokenResponse.ErrorDesc)
+@@ -209,6 +225,12 @@
+ }
+ 
+ func (p *GenericOAuthProvider) GetUserInfo(ctx context.Context, token *OAuthToken) (*OAuthUser, error) {
++	privateMain := p.MainProfileSyncRequired()
++	if privateMain {
++		if err := p.ValidateMainProfileConfiguration(); err != nil {
++			return nil, err
++		}
++	}
+ 	logger.LogDebug(ctx, "[OAuth-Generic-%s] GetUserInfo: fetching user info from %s", p.config.Slug, p.config.UserInfoEndpoint)
+ 
+ 	req, err := http.NewRequestWithContext(ctx, "GET", p.config.UserInfoEndpoint, nil)
+@@ -224,6 +246,9 @@
+ 	client := http.Client{
+ 		Timeout: 20 * time.Second,
+ 	}
++	if privateMain {
++		client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
++	}
+ 	res, err := client.Do(req)
+ 	if err != nil {
+ 		logger.LogError(ctx, fmt.Sprintf("[OAuth-Generic-%s] GetUserInfo error: %s", p.config.Slug, err.Error()))
+@@ -238,14 +263,29 @@
+ 		return nil, NewOAuthError(i18n.MsgOAuthGetUserErr, nil)
+ 	}
+ 
+-	body, err := io.ReadAll(res.Body)
++	var bodyReader io.Reader = res.Body
++	if privateMain {
++		bodyReader = io.LimitReader(res.Body, 16385)
++	}
++	body, err := io.ReadAll(bodyReader)
+ 	if err != nil {
+ 		logger.LogError(ctx, fmt.Sprintf("[OAuth-Generic-%s] GetUserInfo read body error: %s", p.config.Slug, err.Error()))
+ 		return nil, err
+ 	}
+ 
+ 	bodyStr := string(body)
+-	logger.LogDebug(ctx, "[OAuth-Generic-%s] GetUserInfo response body: %s", p.config.Slug, bodyStr[:min(len(bodyStr), 500)])
++	var mainProfile *OAuthUser
++	if privateMain {
++		if len(body) > 16384 {
++			return nil, ErrMainProfileUnverified
++		}
++		mainProfile, err = p.parseMainProfile(body)
++		if err != nil {
++			return nil, err
++		}
++	} else {
++		logger.LogDebug(ctx, "[OAuth-Generic-%s] GetUserInfo response body: %s", p.config.Slug, bodyStr[:min(len(bodyStr), 500)])
++	}
+ 
+ 	// Extract fields using gjson (supports JSONPath-like syntax)
+ 	userId := gjson.Get(bodyStr, p.config.UserIdField).String()
+@@ -269,8 +309,10 @@
+ 		return nil, NewOAuthError(i18n.MsgOAuthUserInfoEmpty, map[string]any{"Provider": p.config.Name})
+ 	}
+ 
+-	logger.LogDebug(ctx, "[OAuth-Generic-%s] GetUserInfo success: id=%s, username=%s, name=%s, email=%s",
+-		p.config.Slug, userId, username, displayName, email)
++	if !privateMain {
++		logger.LogDebug(ctx, "[OAuth-Generic-%s] GetUserInfo success: id=%s, username=%s, name=%s, email=%s",
++			p.config.Slug, userId, username, displayName, email)
++	}
+ 
+ 	policyRaw := strings.TrimSpace(p.config.AccessPolicy)
+ 	if policyRaw != "" {
+@@ -281,6 +323,9 @@
+ 		}
+ 		allowed, failure := evaluateAccessPolicy(bodyStr, policy)
+ 		if !allowed {
++			if privateMain {
++				return nil, &AccessDeniedError{Message: "Main account does not meet the configured access requirements."}
++			}
+ 			message := renderAccessDeniedMessage(p.config.AccessDeniedMessage, p.config.Name, bodyStr, failure)
+ 			logger.LogWarn(ctx, fmt.Sprintf("[OAuth-Generic-%s] access denied by policy: field=%s op=%s expected=%v current=%v",
+ 				p.config.Slug, failure.Field, failure.Op, failure.Expected, failure.Current))
+@@ -288,6 +333,9 @@
+ 		}
+ 	}
+ 
++	if privateMain {
++		return mainProfile, nil
++	}
+ 	return &OAuthUser{
+ 		ProviderUserID: userId,
+ 		Username:       username,
+--- /dev/null
++++ b/oauth/main_profile.go
+@@ -0,0 +1,82 @@
++package oauth
++
++import (
++	"errors"
++	"net/mail"
++	"os"
++	"strings"
++	"unicode/utf8"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/model"
++)
++
++const mainProfileIssuer = "https://pingxingxian.space/auth/oidc"
++const mainProfileClient = "parallellines-newapi"
++
++var ErrMainProfileConfig = errors.New("Main profile synchronization configuration is invalid")
++var ErrMainProfileUnverified = errors.New("Main profile is incomplete or its email is not verified")
++
++// An intended Main provider with changed identifiers must fail closed, not fall
++// back to the generic provider's permissive registration path.
++func (p *GenericOAuthProvider) MainProfileSyncRequired() bool {
++	return os.Getenv("MAIN_OAUTH_PROFILE_SYNC_ENABLED") == "true" &&
++		(p.config.Id == 1 || p.config.Slug == "pingxingxian" || p.config.ClientId == mainProfileClient)
++}
++
++func (p *GenericOAuthProvider) ValidateMainProfileConfiguration() error {
++	c := p.config
++	if c.Id != 1 || c.Slug != "pingxingxian" || c.ClientId != mainProfileClient || !c.Enabled ||
++		c.UserIdField != "sub" || c.UsernameField != "preferred_username" ||
++		c.DisplayNameField != "name" || c.EmailField != "email" ||
++		c.UserInfoEndpoint != mainProfileIssuer+"/me" ||
++		c.TokenEndpoint != mainProfileIssuer+"/token" ||
++		c.AuthorizationEndpoint != mainProfileIssuer+"/auth" || c.AuthStyle != AuthStyleInHeader ||
++		!CustomPKCEEnabled(c.Slug) {
++		return ErrMainProfileConfig
++	}
++	return nil
++}
++
++// This parser is invoked only on the authenticated, exact Main UserInfo response.
++// bool decoding deliberately rejects the strings "true" and "false".
++func (p *GenericOAuthProvider) parseMainProfile(body []byte) (*OAuthUser, error) {
++	if err := p.ValidateMainProfileConfiguration(); err != nil {
++		return nil, err
++	}
++	var claims struct {
++		Issuer        string `json:"iss"`
++		Audience      string `json:"aud"`
++		Subject       string `json:"sub"`
++		Username      string `json:"preferred_username"`
++		Name          string `json:"name"`
++		Email         string `json:"email"`
++		EmailVerified bool   `json:"email_verified"`
++	}
++	if common.Unmarshal(body, &claims) != nil || claims.Issuer != mainProfileIssuer ||
++		claims.Audience != mainProfileClient || !claims.EmailVerified {
++		return nil, ErrMainProfileUnverified
++	}
++	user := &OAuthUser{ProviderUserID: claims.Subject, Username: claims.Username,
++		DisplayName: claims.Name, Email: strings.ToLower(claims.Email),
++		Extra: map[string]any{"provider": p.config.Slug, "main_profile_verified": true}}
++	if err := ValidateMainProfile(user); err != nil {
++		return nil, err
++	}
++	return user, nil
++}
++
++func ValidateMainProfile(user *OAuthUser) error {
++	if user == nil || user.Extra["main_profile_verified"] != true ||
++		strings.TrimSpace(user.ProviderUserID) == "" || len(user.ProviderUserID) > 128 ||
++		strings.TrimSpace(user.Username) == "" || utf8.RuneCountInString(user.Username) > model.UserNameMaxLength ||
++		strings.TrimSpace(user.DisplayName) == "" || utf8.RuneCountInString(user.DisplayName) > 20 ||
++		user.Email == "" || utf8.RuneCountInString(user.Email) > 50 || user.Email != strings.TrimSpace(user.Email) {
++		return ErrMainProfileUnverified
++	}
++	address, err := mail.ParseAddress(user.Email)
++	if err != nil || address.Address != user.Email {
++		return ErrMainProfileUnverified
++	}
++	return nil
++}
+--- /dev/null
++++ b/oauth/main_profile_test.go
+@@ -0,0 +1,133 @@
++package oauth
++
++import (
++	"context"
++	"io"
++	"net/http"
++	"strings"
++	"testing"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/model"
++)
++
++func profileTestProvider(t *testing.T) *GenericOAuthProvider {
++	t.Helper()
++	t.Setenv("MAIN_OAUTH_PROFILE_SYNC_ENABLED", "true")
++	t.Setenv("CUSTOM_OAUTH_PKCE_PROVIDERS", "pingxingxian")
++	return NewGenericOAuthProvider(&model.CustomOAuthProvider{Id: 1, Slug: "pingxingxian", Enabled: true,
++		ClientId: mainProfileClient, AuthStyle: AuthStyleInHeader, UserIdField: "sub", UsernameField: "preferred_username",
++		DisplayNameField: "name", EmailField: "email", AuthorizationEndpoint: mainProfileIssuer + "/auth",
++		TokenEndpoint: mainProfileIssuer + "/token", UserInfoEndpoint: mainProfileIssuer + "/me"})
++}
++
++func profileTestClaims() map[string]any {
++	return map[string]any{"iss": mainProfileIssuer, "aud": mainProfileClient, "sub": "53",
++		"preferred_username": "main-name", "name": "Main display", "email": "SYNTHETIC@example.invalid", "email_verified": true}
++}
++
++func TestMainProfileClaimsStrictAndPrivate(t *testing.T) {
++	p := profileTestProvider(t)
++	claims := profileTestClaims()
++	body, _ := common.Marshal(claims)
++	user, err := p.parseMainProfile(body)
++	if err != nil || user.ProviderUserID != "53" || user.Email != "synthetic@example.invalid" {
++		t.Fatal("valid profile rejected")
++	}
++	for _, mutation := range []struct {
++		key   string
++		value any
++	}{
++		{"email_verified", "true"}, {"email_verified", false}, {"email_verified", nil},
++		{"iss", "https://other.invalid"}, {"aud", "parallellines-openwebui"}, {"aud", []string{mainProfileClient}},
++		{"sub", 53}, {"sub", ""}, {"preferred_username", ""}, {"preferred_username", strings.Repeat("a", 21)},
++		{"name", strings.Repeat("a", 21)}, {"email", "not-an-email"}, {"email", "Name <x@example.invalid>"},
++		{"email", strings.Repeat("a", 51) + "@example.invalid"},
++	} {
++		claims := profileTestClaims()
++		claims[mutation.key] = mutation.value
++		body, _ := common.Marshal(claims)
++		if _, err := p.parseMainProfile(body); err != ErrMainProfileUnverified {
++			t.Fatalf("invalid %s was not safely rejected", mutation.key)
++		}
++	}
++}
++
++func TestMainProfileConfigurationCannotFallback(t *testing.T) {
++	p := profileTestProvider(t)
++	if !p.MainProfileSyncRequired() || p.ValidateMainProfileConfiguration() != nil {
++		t.Fatal("valid config rejected")
++	}
++	for _, change := range []func(*model.CustomOAuthProvider){
++		func(c *model.CustomOAuthProvider) { c.Id = 2 }, func(c *model.CustomOAuthProvider) { c.Slug = "other" },
++		func(c *model.CustomOAuthProvider) { c.ClientId = "other" }, func(c *model.CustomOAuthProvider) { c.UserInfoEndpoint += "/" },
++		func(c *model.CustomOAuthProvider) { c.UsernameField = "email" }, func(c *model.CustomOAuthProvider) { c.EmailField = "other" },
++		func(c *model.CustomOAuthProvider) { c.AuthStyle = AuthStyleInParams }, func(c *model.CustomOAuthProvider) { c.Enabled = false },
++	} {
++		copyConfig := *p.config
++		change(&copyConfig)
++		other := NewGenericOAuthProvider(&copyConfig)
++		if !other.MainProfileSyncRequired() || other.ValidateMainProfileConfiguration() != ErrMainProfileConfig {
++			t.Fatal("mutated Main config fell back")
++		}
++	}
++	other := NewGenericOAuthProvider(&model.CustomOAuthProvider{Id: 2, Slug: "other", ClientId: "other"})
++	if other.MainProfileSyncRequired() {
++		t.Fatal("unrelated provider altered")
++	}
++	t.Setenv("CUSTOM_OAUTH_PKCE_PROVIDERS", "")
++	if p.ValidateMainProfileConfiguration() != ErrMainProfileConfig {
++		t.Fatal("PKCE disabled was allowed")
++	}
++}
++
++func TestMainProfileUsernameUnicodeCharacterLimit(t *testing.T) {
++	p := profileTestProvider(t)
++	for _, count := range []int{7, 20, 21} {
++		claims := profileTestClaims()
++		claims["preferred_username"] = strings.Repeat("名", count)
++		body, err := common.Marshal(claims)
++		if err != nil {
++			t.Fatal(err)
++		}
++		user, err := p.parseMainProfile(body)
++		if count <= model.UserNameMaxLength {
++			if err != nil || user.Username != claims["preferred_username"] {
++				t.Fatalf("valid %d-character Chinese username was rejected or altered", count)
++			}
++		} else if err != ErrMainProfileUnverified {
++			t.Fatal("21-character Chinese username was not rejected")
++		}
++	}
++}
++
++type profileRoundTrip func(*http.Request) (*http.Response, error)
++
++func (fn profileRoundTrip) RoundTrip(r *http.Request) (*http.Response, error) { return fn(r) }
++
++func TestMainProfileUserInfoUsesExactEndpointRejectsRedirectAndOversize(t *testing.T) {
++	p := profileTestProvider(t)
++	original := http.DefaultTransport
++	t.Cleanup(func() { http.DefaultTransport = original })
++	for _, testCase := range []struct {
++		status int
++		body   string
++		okay   bool
++	}{
++		{200, func() string { b, _ := common.Marshal(profileTestClaims()); return string(b) }(), true},
++		{302, "", false}, {200, strings.Repeat("x", 16385), false},
++	} {
++		calls := 0
++		http.DefaultTransport = profileRoundTrip(func(r *http.Request) (*http.Response, error) {
++			calls++
++			if r.URL.String() != mainProfileIssuer+"/me" || r.Header.Get("Authorization") != "Bearer synthetic" {
++				t.Fatal("wrong protected endpoint")
++			}
++			return &http.Response{StatusCode: testCase.status, Body: io.NopCloser(strings.NewReader(testCase.body)), Header: http.Header{"Location": []string{"https://other.invalid"}}, Request: r}, nil
++		})
++		_, err := p.GetUserInfo(context.Background(), &OAuthToken{AccessToken: "synthetic"})
++		if (err == nil) != testCase.okay || calls != 1 {
++			t.Fatal("userinfo acceptance/redirect policy mismatch")
++		}
++	}
++}

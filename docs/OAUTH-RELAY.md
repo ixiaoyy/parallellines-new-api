@@ -122,7 +122,10 @@ production OAuth handoff and a container running this new binary remain deployme
 checks, not claims of this local build.
 
 The pinned upstream default price tables contain no entries for these three
-models. An operator must configure verified upstream pricing in native options
-before any authorized paid test. This patch does not guess prices, change the
-New API quota-unit multiplier or grant initial balance. Missing native pricing is
-allowed to reject a paid request.
+models. The pkce.3 release adds an explicitly enabled standard billing policy
+for direct official OpenAI Chat/Responses, with native policy metadata for price
+display. It does not need global legacy ratio maps and must not silently fall
+back to them when disabled. See [STANDARD-BILLING-RELEASE.md](STANDARD-BILLING-RELEASE.md)
+and the patched source billing contract. The policy does not change the quota
+denomination or grant balance, and public standard rates are not a guarantee of
+actual upstream invoice costs. No paid test is authorized by this document.

@@ -11,6 +11,11 @@ opt-in, fixed-issuer Chat OAuth adapter using existing native user bindings and
 independent server-only credentials through the original billing pipeline. The
 patch grants no administrator roles, accounts, quota or subscription.
 
+The pkce.3 modification adds an opt-in standard OpenAI billing policy for three
+explicit models, including checked upstream usage, cache-write and long-context
+accounting, and policy details in the original pricing interface. The quota
+schedule is a site policy, not a guarantee of the operator's actual invoice.
+
 The fixed upstream archive plus the combined patch named in `upstream.lock.json` describe the
 modified source. `scripts/package-source.sh` assembles the full corresponding
 source, dependency lockfiles, build scripts, patch, and license into a release

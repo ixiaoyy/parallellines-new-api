@@ -75,6 +75,14 @@ an independent internal credential per user. See [OAUTH-RELAY.md](OAUTH-RELAY.md
 for its fixed claims, migration, routes, zero-quota model discovery and limits.
 Do not pass an SSO access token to stock relay routes or give users a shared key.
 
+Version pkce.3 adds `OPENAI_STANDARD_BILLING_ENABLED=true` for the reviewed three
+models on direct official OpenAI Chat Completions/Responses. It consumes actual
+upstream usage and exposes matching policy metadata in the native price details.
+It does not assign balances or prove actual invoice parity. See
+[STANDARD-BILLING-RELEASE.md](STANDARD-BILLING-RELEASE.md). No global legacy ratio
+maps are needed for this policy. Missing/invalid usage is an explicit failure,
+not a successful zero-cost request.
+
 ## Upgrade and rollback
 
 1. Release source and reviewed patch from Git. Check source and patch hashes;
@@ -98,6 +106,11 @@ any non-NULL internal-purpose row (even disabled/soft-deleted) blocks rollback.
 This read-only guard never deletes credentials or restores data. Never blindly
 restore a pre-upgrade database because post-backup writes would be lost. Preserve
 root recovery and all volumes; do not prune images or affect other services.
+
+After activating pkce.3, the provided billing release helper stays on pkce.3
+even on activation failure. It retains the policy flag and may disable the Chat
+relay, but never restores pkce.2 or an old database automatically. Existing
+internal credentials and any newer ledger writes must remain protected.
 
 ## Nginx
 

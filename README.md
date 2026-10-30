@@ -1,6 +1,6 @@
 # ParallelLines Api
 
-Pinned New API source plus opt-in PKCE login and trusted Chat OAuth relay patches
+Pinned New API source plus opt-in PKCE login, trusted Chat OAuth relay, and standard billing patches
 used by the ParallelLines identity provider. The upstream UI is retained. Source is
 **v0.13.2**, commit `bee339d279ccecbf8c8a89e14ddbbd902f78bd5d`; see
 `upstream.lock.json` and [NOTICE.md](NOTICE.md). License: [AGPL v3](LICENSE).
@@ -14,7 +14,7 @@ Bun 1.4.4:
 bash scripts/prepare-source.sh
 bash scripts/build-local.sh
 bash scripts/package-source.sh
-docker build -f Dockerfile.runtime -t parallellines-newapi:v0.13.2-pkce.2 .
+docker build -f Dockerfile.runtime -t parallellines-newapi:v0.13.2-pkce.3 .
 ```
 
 The preparation checks the upstream archive and patch SHA-256 before applying the
@@ -32,7 +32,7 @@ A pinned-container alternative uses the prepared source as its build context:
 
 ```sh
 docker build -f "$PWD/Dockerfile" \
-  -t parallellines-newapi:v0.13.2-pkce.2 \
+  -t parallellines-newapi:v0.13.2-pkce.3 \
   .build/new-api-bee339d279ccecbf8c8a89e14ddbbd902f78bd5d
 ```
 
@@ -41,9 +41,10 @@ This container build path has not yet been executed by this packaging task. A
 version mismatch must be resolved by reviewing an official builder digest; do
 not bypass the assertion or substitute an unverified image. Source/versions are
 pinned; bit-for-bit binary reproducibility across build machines is not claimed.
-This backend-only pkce.2 release reuses the validated frontend assets; its frontend
-build stamp remains pkce.1 while the server version is pkce.2. The build recipes
-retain that same stamp.
+The pkce.3 release rebuilds the native pricing details and server; do not reuse
+pkce.1 or pkce.2 frontend assets. This upstream frontend displays the version
+returned by server status rather than embedding the Vite version variable.
+Verify the released index and asset hashes when checking for stale frontend files.
 
 ## Focused validation
 
@@ -53,6 +54,7 @@ From the prepared source directory, run the patch's affected tests:
 go test ./pkg/oauthpkce
 go test ./model ./middleware ./controller ./router -count=1
 bun test ./web/src/helpers/api.pkce.test.js
+bun test ./web/src/helpers/openai-standard-pricing.test.js
 ```
 
 The initial PKCE release passed store, TLS-mock controller, route-registration,
@@ -61,6 +63,15 @@ deployed as pkce.1. The pkce.2 relay build passed the affected Go packages and
 deployment guard tests. Its activation is a separate deployment step. This
 repository preparation does not make model calls or claim real per-user billing
 validation.
+
+The pkce.3 billing policy and native display share reviewed standard-rate metadata.
+It applies only to the exact three models on direct official OpenAI Chat
+Completions/Responses. Actual cache-write usage and long-context conditions are
+handled explicitly; missing or invalid usage is an error, not an estimated or
+successful zero-cost response. See the patched source's
+`docs/OPENAI-STANDARD-BILLING.md` and `docs/OPENAI-STANDARD-PRICING-DISPLAY.md`, plus
+[the deployment procedure](docs/STANDARD-BILLING-RELEASE.md). No balances are
+assigned and no claim of exact upstream invoice parity is made.
 
 ## What the patch does
 

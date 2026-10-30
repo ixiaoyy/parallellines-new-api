@@ -1,8 +1,9 @@
 # Standard billing release procedure
 
-The pkce.3 release is a backend-only billing compatibility update for the three
+The pkce.3 release is a billing compatibility update for the three
 explicitly selected OpenAI models. It preserves the pinned upstream UI and the
-pkce.2 identity/token guards. The site's quota policy uses the reviewed OpenAI
+pkce.2 identity/token guards, adding the policy to the existing native pricing
+details. The site's quota policy uses the reviewed OpenAI
 public standard schedule, not a guarantee of the operator's eventual invoice.
 
 ## Freeze and build
@@ -14,7 +15,8 @@ application patch and focused tests are frozen:
    PKCE, personal credential hiding, and billing changes. Verify application to a
    fresh copy of the SHA-checked upstream archive and reverse-check it.
 2. Update `upstream.lock.json`, build/version stamps and patch checksums together.
-   Keep the unchanged frontend assets/build stamp at pkce.1. Build Linux amd64
+   Rebuild the updated native pricing frontend for pkce.3 and record its asset
+   hashes (the UI reads its version from server status). Build Linux amd64
    with Go 1.26.1, CGO off and the existing `greenteagc` setting.
 3. Produce the gzip binary, hashes, focused test evidence, and corresponding-source
    archive from verified frozen inputs. No runtime configuration, database, log,
@@ -53,6 +55,13 @@ helper checks the mounted database path, builds the frozen official runtime
 overlay, runs a network-isolated smoke container, then stops only New API for a
 consistent private database backup and service recreation. It makes no model
 request and never restores the database.
+
+The policy applies to Chat Completions and Responses for the exact three models
+on a direct official OpenAI channel. It does not cover Compact, Batch, Realtime,
+or other routes. Turning the flag off fails closed for that selected scope; it
+does not restore the old static-ratio fallback. Other channels/models keep their
+existing billing path. Do not write global ratio maps merely to populate UI
+prices: the native details use policy metadata from the same source as billing.
 
 ## Failure and verification
 

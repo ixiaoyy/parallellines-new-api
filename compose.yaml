@@ -12,6 +12,7 @@ services:
       GENERATE_DEFAULT_TOKEN: "false"
       CUSTOM_OAUTH_PKCE_PROVIDERS: pingxingxian
       CHAT_OAUTH_RELAY_ENABLED: "true"
+      OPENAI_STANDARD_BILLING_ENABLED: "true"
       CHANNEL_TEST_FREQUENCY: "0"
     volumes:
       - type: bind

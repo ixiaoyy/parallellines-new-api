@@ -1,0 +1,596 @@
+diff --git a/controller/oauth.go b/controller/oauth.go
+--- a/controller/oauth.go
++++ b/controller/oauth.go
+@@ -361,11 +361,7 @@
+ 	return "user has been deleted"
+ }
+ 
+-type OAuthRegistrationDisabledError struct{}
+-
+-func (e *OAuthRegistrationDisabledError) Error() string {
+-	return "registration is disabled"
+-}
++type OAuthRegistrationDisabledError = oauth.OAuthRegistrationDisabledError
+ 
+ // handleOAuthError handles OAuth errors and returns translated message
+ func handleOAuthError(c *gin.Context, err error) {
+diff --git a/controller/oauth_main_profile.go b/controller/oauth_main_profile.go
+--- a/controller/oauth_main_profile.go
++++ b/controller/oauth_main_profile.go
+@@ -1,112 +1,15 @@
+ package controller
+ 
+ import (
+-	"errors"
+-	"strings"
+-
+-	"github.com/QuantumNous/new-api/common"
+ 	"github.com/QuantumNous/new-api/model"
+ 	"github.com/QuantumNous/new-api/oauth"
+ 	"gorm.io/gorm"
+-	"gorm.io/gorm/clause"
+-	gormlogger "gorm.io/gorm/logger"
+ )
+ 
+-type MainProfileConflictError struct{}
++type MainProfileConflictError = oauth.MainProfileConflictError
+ 
+-func (*MainProfileConflictError) Error() string {
+-	return "Main account profile conflicts with an existing account. Contact an administrator."
+-}
+-
+-var errMainProfileUnavailable = errors.New("Main account profile could not be synchronized. Please retry or contact an administrator.")
+-
+-func mainProfileCollision(tx *gorm.DB, userID int, profile *oauth.OAuthUser) error {
+-	var count int64
+-	if err := tx.Unscoped().Model(&model.User{}).Where("id <> ? AND (username = ? OR LOWER(email) = ?)",
+-		userID, profile.Username, strings.ToLower(profile.Email)).Count(&count).Error; err != nil {
+-		return errMainProfileUnavailable
+-	}
+-	if count != 0 {
+-		return &MainProfileConflictError{}
+-	}
+-	return nil
+-}
+-
+-// The stable provider+subject binding is the sole account lookup key. Neither
+-// username nor email may merge accounts, change role, or rewrite a password.
++// 保留原生回调入口；注册事务由 oauth 包供登录和可信 Chat 共同使用。
+ func findOrCreateMainProfileUser(db *gorm.DB, provider *oauth.GenericOAuthProvider,
+ 	profile *oauth.OAuthUser, inviterID int) (*model.User, bool, error) {
+-	if err := provider.ValidateMainProfileConfiguration(); err != nil {
+-		return nil, false, err
+-	}
+-	if err := oauth.ValidateMainProfile(profile); err != nil {
+-		return nil, false, err
+-	}
+-	var user model.User
+-	created := false
+-	// Database errors can include query parameters. Never log private profile values.
+-	err := db.Session(&gorm.Session{Logger: db.Logger.LogMode(gormlogger.Silent)}).Transaction(func(tx *gorm.DB) error {
+-		var liveProvider model.CustomOAuthProvider
+-		// Serializes Main-profile writers on databases with row locks. SQLite's
+-		// write serialization rejects a racing write, which fails the login closed.
+-		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&liveProvider, provider.GetProviderId()).Error; err != nil {
+-			return errMainProfileUnavailable
+-		}
+-		if err := oauth.NewGenericOAuthProvider(&liveProvider).ValidateMainProfileConfiguration(); err != nil {
+-			return err
+-		}
+-		var binding model.UserOAuthBinding
+-		err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("provider_id = ? AND provider_user_id = ?",
+-			provider.GetProviderId(), profile.ProviderUserID).First(&binding).Error
+-		if err == nil {
+-			if tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&user, binding.UserId).Error != nil ||
+-				user.Status != common.UserStatusEnabled {
+-				return errMainProfileUnavailable
+-			}
+-			if err := mainProfileCollision(tx, user.Id, profile); err != nil {
+-				return err
+-			}
+-			if err := tx.Model(&user).Updates(map[string]any{"username": profile.Username,
+-				"display_name": profile.DisplayName, "email": profile.Email}).Error; err != nil {
+-				return errMainProfileUnavailable
+-			}
+-			user.Username, user.DisplayName, user.Email = profile.Username, profile.DisplayName, profile.Email
+-			return nil
+-		}
+-		if !errors.Is(err, gorm.ErrRecordNotFound) {
+-			return errMainProfileUnavailable
+-		}
+-		if !common.RegisterEnabled {
+-			return &OAuthRegistrationDisabledError{}
+-		}
+-		if err := mainProfileCollision(tx, 0, profile); err != nil {
+-			return err
+-		}
+-		user = model.User{Username: profile.Username, DisplayName: profile.DisplayName, Email: profile.Email,
+-			Role: common.RoleCommonUser, Status: common.UserStatusEnabled}
+-		if user.InsertWithTx(tx, inviterID) != nil {
+-			return errMainProfileUnavailable
+-		}
+-		binding = model.UserOAuthBinding{UserId: user.Id, ProviderId: provider.GetProviderId(), ProviderUserId: profile.ProviderUserID}
+-		if model.CreateUserOAuthBindingWithTx(tx, &binding) != nil {
+-			return errMainProfileUnavailable
+-		}
+-		created = true
+-		return nil
+-	})
+-	if err != nil {
+-		// Commit/driver errors can contain private SQL values; preserve only our
+-		// explicitly safe errors, never forward the raw database message.
+-		var conflict *MainProfileConflictError
+-		var registration *OAuthRegistrationDisabledError
+-		if errors.As(err, &conflict) || errors.As(err, &registration) ||
+-			errors.Is(err, oauth.ErrMainProfileConfig) || errors.Is(err, errMainProfileUnavailable) {
+-			return nil, false, err
+-		}
+-		return nil, false, errMainProfileUnavailable
+-	}
+-	if err := model.InvalidateUserCache(user.Id); err != nil {
+-		return nil, false, errMainProfileUnavailable
+-	}
+-	return &user, created, nil
++	return oauth.FindOrCreateMainProfileUser(db, provider, profile, inviterID)
+ }
+diff --git a/middleware/auth.go b/middleware/auth.go
+--- a/middleware/auth.go
++++ b/middleware/auth.go
+@@ -35,14 +35,14 @@
+ 
+ func authHelper(c *gin.Context, minRole int) {
+ 	session := sessions.Default(c)
++	if err := checkCookieUserExists(c); err != nil {
++		rejectCookieIdentity(c, err)
++		return
++	}
+ 	username := session.Get("username")
+ 	role := session.Get("role")
+ 	id := session.Get("id")
+ 	status := session.Get("status")
+-	if err := checkCookieUserExists(c); err != nil {
+-		rejectCookieIdentity(c, err)
+-		return
+-	}
+ 	useAccessToken := false
+ 	if username == nil {
+ 		// Check access token
+diff --git a/middleware/oauth_relay.go b/middleware/oauth_relay.go
+--- a/middleware/oauth_relay.go
++++ b/middleware/oauth_relay.go
+@@ -12,6 +12,7 @@
+ 
+ 	"github.com/QuantumNous/new-api/common"
+ 	"github.com/QuantumNous/new-api/model"
++	"github.com/QuantumNous/new-api/oauth"
+ 	"github.com/gin-gonic/gin"
+ )
+ 
+@@ -32,11 +33,12 @@
+ }
+ 
+ type chatOAuthClaims struct {
+-	Issuer     string `json:"iss"`
+-	Audience   string `json:"aud"`
+-	Subject    string `json:"sub"`
+-	Binding    string `json:"pl_binding"`
+-	AuthExpiry int64  `json:"pl_auth_exp"`
++	Issuer     string           `json:"iss"`
++	Audience   string           `json:"aud"`
++	Subject    string           `json:"sub"`
++	Binding    string           `json:"pl_binding"`
++	AuthExpiry int64            `json:"pl_auth_exp"`
++	Profile    *oauth.OAuthUser  `json:"-"`
+ }
+ 
+ type chatOAuthIdentity struct{ userID, tokenID int }
+@@ -72,6 +74,13 @@
+ 		claims.Binding == "" || len(claims.Binding) > 512 || strings.TrimSpace(claims.Binding) != claims.Binding ||
+ 		claims.AuthExpiry <= time.Now().Unix() {
+ 		return nil, errChatOAuthInvalid
++	}
++	if oauth.MainAccountSyncEnabled() {
++		// 新开户和提权资料只取同一次已核验的 UserInfo；旧会话缺新声明时在 Chat 内重授权。
++		claims.Profile, err = oauth.ParseChatMainProfile(body)
++		if err != nil {
++			return nil, errChatOAuthInvalid
++		}
+ 	}
+ 	return &claims, nil
+ }
+@@ -118,9 +127,25 @@
+ 			chatOAuthAbort(c, status, err.Error())
+ 			return
+ 		}
+-		user, err := model.ResolveOAuthRelayUser(1, "pingxingxian", claims.Subject)
+-		if err != nil {
+-			chatOAuthAbort(c, 403, "An enabled existing main-site account binding is required")
++		var user *model.User
++		if oauth.MainAccountSyncEnabled() {
++			var created bool
++			user, created, err = oauth.FindOrCreateChatMainUser(model.DB, claims.Profile)
++			if err == nil && created {
++				user.FinalizeOAuthUserCreation(0)
++			}
++		} else {
++			user, err = model.ResolveOAuthRelayUser(1, "pingxingxian", claims.Subject)
++		}
++		if err != nil {
++			status, message := 403, "An enabled existing main-site account binding is required"
++			if oauth.MainAccountSyncEnabled() {
++				message = "Main account synchronization was denied; contact an administrator"
++				if errors.Is(err, oauth.ErrMainAccountUnavailable) || errors.Is(err, model.ErrDatabase) {
++					status, message = 503, "Main account synchronization is temporarily unavailable"
++				}
++			}
++			chatOAuthAbort(c, status, message)
+ 			return
+ 		}
+ 		token, err := model.GetOrCreateOAuthRelayToken(user.Id)
+diff --git a/middleware/session_user.go b/middleware/session_user.go
+--- a/middleware/session_user.go
++++ b/middleware/session_user.go
+@@ -7,6 +7,7 @@
+ 	"github.com/QuantumNous/new-api/common"
+ 	"github.com/QuantumNous/new-api/i18n"
+ 	"github.com/QuantumNous/new-api/model"
++	"github.com/QuantumNous/new-api/oauth"
+ 	"github.com/gin-contrib/sessions"
+ 	"github.com/gin-gonic/gin"
+ 	"gorm.io/gorm"
+@@ -15,8 +16,8 @@
+ var errCookieIdentityInvalid = errors.New("invalid login session")
+ var errCookieIdentityDatabase = errors.New("login session lookup unavailable")
+ 
+-// Check only account existence. All existing cookie authorization claims keep
+-// their native meaning; anonymous and OAuth state-only cookies need no DB read.
++// 默认只核账号存在；启用统一同步后，仅主站绑定账号改用当前数据库角色，防止旧 cookie 保留已撤销的管理员权限。
++// 匿名和 OAuth state-only cookie 不查询数据库，本地独立恢复账号保持原授权语义。
+ func checkCookieUserExists(c *gin.Context) error {
+ 	session := sessions.Default(c)
+ 	rawID := session.Get("id")
+@@ -27,7 +28,21 @@
+ 	if !ok || id <= 0 {
+ 		return errCookieIdentityInvalid
+ 	}
+-	err := model.CheckSessionUserExists(id)
++	var err error
++	if oauth.MainAccountSyncEnabled() {
++		var user *model.MainAccountSessionUser
++		user, err = model.GetMainAccountSessionUser(id)
++		if err == nil && user.MainBound {
++			if user.Status != common.UserStatusEnabled || !common.IsValidateRole(user.Role) || user.Role < common.RoleCommonUser {
++				return errCookieIdentityInvalid
++			}
++			// 本次请求直接使用新角色；无需写 cookie，重放旧 cookie 仍会重新核库。
++			session.Set("role", user.Role)
++			session.Set("status", user.Status)
++		}
++	} else {
++		err = model.CheckSessionUserExists(id)
++	}
+ 	if errors.Is(err, gorm.ErrRecordNotFound) {
+ 		return errCookieIdentityInvalid
+ 	}
+diff --git a/model/session_auth.go b/model/session_auth.go
+--- a/model/session_auth.go
++++ b/model/session_auth.go
+@@ -12,3 +12,23 @@
+ 	var user User
+ 	return DB.Select("id").First(&user, id).Error
+ }
++
++// MainAccountSessionUser 只携带当前授权所需字段，不暴露账号资料或凭据。
++type MainAccountSessionUser struct {
++	Id        int
++	Role      int
++	Status    int
++	MainBound bool
++}
++
++// GetMainAccountSessionUser 一次查询确认账号存在并识别主站绑定；只在统一账号同步启用时使用。
++// 保留软删除过滤，不刷新本地独立账号的旧 cookie 权限语义。
++func GetMainAccountSessionUser(id int) (*MainAccountSessionUser, error) {
++	if id <= 0 {
++		return nil, gorm.ErrRecordNotFound
++	}
++	var user MainAccountSessionUser
++	err := DB.Model(&User{}).Select("users.id, users.role, users.status, EXISTS (SELECT 1 FROM user_oauth_bindings WHERE user_oauth_bindings.user_id = users.id AND user_oauth_bindings.provider_id = ?) AS main_bound", 1).
++		Where("users.id = ?", id).Take(&user).Error
++	return &user, err
++}
+diff --git a/oauth/main_account.go b/oauth/main_account.go
+new file mode 100644
+--- /dev/null
++++ b/oauth/main_account.go
+@@ -0,0 +1,179 @@
++package oauth
++
++import (
++	"errors"
++	"strings"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/model"
++	"gorm.io/gorm"
++	"gorm.io/gorm/clause"
++	gormlogger "gorm.io/gorm/logger"
++)
++
++type MainProfileConflictError struct{}
++
++func (*MainProfileConflictError) Error() string {
++	return "Main account profile conflicts with an existing account. Contact an administrator."
++}
++
++type OAuthRegistrationDisabledError struct{}
++
++func (*OAuthRegistrationDisabledError) Error() string { return "registration is disabled" }
++
++var ErrMainAccountUnavailable = errors.New("Main account profile could not be synchronized. Please retry or contact an administrator.")
++
++func mainProfileCollision(tx *gorm.DB, userID int, profile *OAuthUser) error {
++	var count int64
++	if err := tx.Unscoped().Model(&model.User{}).Where("id <> ? AND (username = ? OR LOWER(email) = ?)",
++		userID, profile.Username, strings.ToLower(profile.Email)).Count(&count).Error; err != nil {
++		return ErrMainAccountUnavailable
++	}
++	if count != 0 {
++		return &MainProfileConflictError{}
++	}
++	return nil
++}
++
++// FindOrCreateMainProfileUser 按固定 provider+sub 原子创建或同步主站账号。
++// inviterID 仅沿用原生 OAuth 的邀请上下文；Chat 固定为 0。余额、密码、分组与超级管理员保持原值。
++// 开启统一账号同步后，主站 admin 映射管理员，其余合法角色映射普通用户。
++func FindOrCreateMainProfileUser(db *gorm.DB, provider *GenericOAuthProvider,
++	profile *OAuthUser, inviterID int) (*model.User, bool, error) {
++	if err := provider.ValidateMainProfileConfiguration(); err != nil {
++		return nil, false, err
++	}
++	if err := ValidateMainProfile(profile); err != nil {
++		return nil, false, err
++	}
++	var user model.User
++	created := false
++	var profileConflict error
++	// Database errors can include query parameters. Never log private profile values.
++	err := db.Session(&gorm.Session{Logger: db.Logger.LogMode(gormlogger.Silent)}).Transaction(func(tx *gorm.DB) error {
++		var liveProvider model.CustomOAuthProvider
++		// Serializes Main-profile writers on databases with row locks. SQLite's
++		// write serialization rejects a racing write, which fails the login closed.
++		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&liveProvider, provider.GetProviderId()).Error; err != nil {
++			return ErrMainAccountUnavailable
++		}
++		if err := NewGenericOAuthProvider(&liveProvider).ValidateMainProfileConfiguration(); err != nil {
++			return err
++		}
++		var bindings []model.UserOAuthBinding
++		if err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).Where("provider_id = ? AND provider_user_id = ?",
++			provider.GetProviderId(), profile.ProviderUserID).Limit(2).Find(&bindings).Error; err != nil {
++			return ErrMainAccountUnavailable
++		}
++		// sub 必须精确匹配；拒绝大小写不敏感数据库返回的近似记录及重复绑定。
++		if len(bindings) > 1 || (len(bindings) == 1 && bindings[0].ProviderUserId != profile.ProviderUserID) {
++			return model.ErrOAuthRelayIdentityDenied
++		}
++		if len(bindings) == 1 {
++			binding := bindings[0]
++			err := tx.Clauses(clause.Locking{Strength: "UPDATE"}).First(&user, binding.UserId).Error
++			if errors.Is(err, gorm.ErrRecordNotFound) || (err == nil && user.Status != common.UserStatusEnabled) {
++				return model.ErrOAuthRelayIdentityDenied
++			}
++			if err != nil {
++				return ErrMainAccountUnavailable
++			}
++			if MainAccountSyncEnabled() && user.Role != common.RoleCommonUser && user.Role != common.RoleAdminUser && user.Role != common.RoleRootUser {
++				return model.ErrOAuthRelayIdentityDenied
++			}
++			role := mainAccountRole(&user, profile)
++			updates := map[string]any{}
++			if role != user.Role {
++				updates["role"] = role
++			}
++			if err := mainProfileCollision(tx, user.Id, profile); err != nil {
++				var conflict *MainProfileConflictError
++				if !errors.As(err, &conflict) {
++					return err
++				}
++				// 资料冲突仍明确失败，但不能阻止已核主站撤权；只提交角色变化，不改冲突资料。
++				profileConflict = err
++				// 冲突登录不新增权限；已验证的降权仍提交，避免旧管理员权限残留。
++				if role > user.Role {
++					delete(updates, "role")
++				}
++			} else {
++				if user.Username != profile.Username {
++					updates["username"] = profile.Username
++				}
++				if user.DisplayName != profile.DisplayName {
++					updates["display_name"] = profile.DisplayName
++				}
++				if user.Email != profile.Email {
++					updates["email"] = profile.Email
++				}
++			}
++			if len(updates) != 0 {
++				if tx.Model(&user).Updates(updates).Error != nil {
++					return ErrMainAccountUnavailable
++				}
++			}
++			return nil
++		}
++		if !common.RegisterEnabled {
++			return &OAuthRegistrationDisabledError{}
++		}
++		if err := mainProfileCollision(tx, 0, profile); err != nil {
++			return err
++		}
++		user = model.User{Username: profile.Username, DisplayName: profile.DisplayName, Email: profile.Email,
++			Role: mainAccountRole(nil, profile), Status: common.UserStatusEnabled}
++		if user.InsertWithTx(tx, inviterID) != nil {
++			return ErrMainAccountUnavailable
++		}
++		binding := model.UserOAuthBinding{UserId: user.Id, ProviderId: provider.GetProviderId(), ProviderUserId: profile.ProviderUserID}
++		if model.CreateUserOAuthBindingWithTx(tx, &binding) != nil {
++			return ErrMainAccountUnavailable
++		}
++		created = true
++		return nil
++	})
++	if err != nil {
++		// Commit/driver errors can contain private SQL values; preserve only our
++		// explicitly safe errors, never forward the raw database message.
++		var conflict *MainProfileConflictError
++		var registration *OAuthRegistrationDisabledError
++		if errors.As(err, &conflict) || errors.As(err, &registration) ||
++			errors.Is(err, ErrMainProfileConfig) || errors.Is(err, ErrMainAccountUnavailable) || errors.Is(err, model.ErrOAuthRelayIdentityDenied) {
++			return nil, false, err
++		}
++		return nil, false, ErrMainAccountUnavailable
++	}
++	// 每次成功提交均尝试原有失效；上次提交后 Redis 失败时，重复请求可恢复缓存。
++	if err := model.InvalidateUserCache(user.Id); err != nil {
++		return nil, false, ErrMainAccountUnavailable
++	}
++	if profileConflict != nil {
++		return nil, false, profileConflict
++	}
++	return &user, created, nil
++}
++
++// mainAccountRole 仅使用已校验的主站角色；恢复超级管理员不参加自动升降级。
++func mainAccountRole(user *model.User, profile *OAuthUser) int {
++	if user != nil && (user.Role == common.RoleRootUser || !MainAccountSyncEnabled()) {
++		return user.Role
++	}
++	if MainAccountSyncEnabled() && profile.Extra["main_role"] == "admin" {
++		return common.RoleAdminUser
++	}
++	return common.RoleCommonUser
++}
++
++// FindOrCreateChatMainUser 为受信 Chat 首次请求复用原生事务开户；不接受调用方指定用户或邀请人。
++// 已禁用、已删除或绑定冲突均由同一事务拒绝，注册关闭时只允许已有启用账号同步。
++func FindOrCreateChatMainUser(db *gorm.DB, profile *OAuthUser) (*model.User, bool, error) {
++	if !MainAccountSyncEnabled() {
++		return nil, false, ErrMainProfileConfig
++	}
++	var provider model.CustomOAuthProvider
++	if db.First(&provider, 1).Error != nil {
++		return nil, false, ErrMainAccountUnavailable
++	}
++	return FindOrCreateMainProfileUser(db, NewGenericOAuthProvider(&provider), profile, 0)
++}
+diff --git a/oauth/main_profile.go b/oauth/main_profile.go
+--- a/oauth/main_profile.go
++++ b/oauth/main_profile.go
+@@ -1,6 +1,7 @@
+ package oauth
+ 
+ import (
++	"encoding/json"
+ 	"errors"
+ 	"net/mail"
+ 	"os"
+@@ -13,14 +14,20 @@
+ 
+ const mainProfileIssuer = "https://pingxingxian.space/auth/oidc"
+ const mainProfileClient = "parallellines-newapi"
++const mainChatClient = "parallellines-openwebui"
+ 
+ var ErrMainProfileConfig = errors.New("Main profile synchronization configuration is invalid")
+ var ErrMainProfileUnverified = errors.New("Main profile is incomplete or its email is not verified")
+ 
++// MainAccountSyncEnabled 仅为新版统一开户与角色同步启用；关闭时保持原有登录与转发行为。
++func MainAccountSyncEnabled() bool {
++	return os.Getenv("MAIN_OAUTH_ACCOUNT_SYNC_ENABLED") == "true"
++}
++
+ // An intended Main provider with changed identifiers must fail closed, not fall
+ // back to the generic provider's permissive registration path.
+ func (p *GenericOAuthProvider) MainProfileSyncRequired() bool {
+-	return os.Getenv("MAIN_OAUTH_PROFILE_SYNC_ENABLED") == "true" &&
++	return (os.Getenv("MAIN_OAUTH_PROFILE_SYNC_ENABLED") == "true" || MainAccountSyncEnabled()) &&
+ 		(p.config.Id == 1 || p.config.Slug == "pingxingxian" || p.config.ClientId == mainProfileClient)
+ }
+ 
+@@ -44,22 +51,43 @@
+ 	if err := p.ValidateMainProfileConfiguration(); err != nil {
+ 		return nil, err
+ 	}
++	return parseTrustedMainProfile(body, mainProfileClient)
++}
++
++// ParseChatMainProfile 解析同一次受信 UserInfo 响应中的开户资料；只接受 Chat audience，
++// 主站会话有效期仍由 relay 校验，不能用 API 登录令牌代替 Chat 令牌。
++func ParseChatMainProfile(body []byte) (*OAuthUser, error) {
++	if !MainAccountSyncEnabled() {
++		return nil, ErrMainProfileConfig
++	}
++	return parseTrustedMainProfile(body, mainChatClient)
++}
++
++func parseTrustedMainProfile(body []byte, audience string) (*OAuthUser, error) {
+ 	var claims struct {
+-		Issuer        string `json:"iss"`
+-		Audience      string `json:"aud"`
+-		Subject       string `json:"sub"`
+-		Username      string `json:"preferred_username"`
+-		Name          string `json:"name"`
+-		Email         string `json:"email"`
+-		EmailVerified bool   `json:"email_verified"`
++		Issuer        string          `json:"iss"`
++		Audience      string          `json:"aud"`
++		Subject       string          `json:"sub"`
++		Username      string          `json:"preferred_username"`
++		Name          string          `json:"name"`
++		Email         string          `json:"email"`
++		EmailVerified bool            `json:"email_verified"`
++		Role          json.RawMessage `json:"pl_role"`
+ 	}
+ 	if common.Unmarshal(body, &claims) != nil || claims.Issuer != mainProfileIssuer ||
+-		claims.Audience != mainProfileClient || !claims.EmailVerified {
++		claims.Audience != audience || !claims.EmailVerified {
+ 		return nil, ErrMainProfileUnverified
+ 	}
+ 	user := &OAuthUser{ProviderUserID: claims.Subject, Username: claims.Username,
+ 		DisplayName: claims.Name, Email: strings.ToLower(claims.Email),
+-		Extra: map[string]any{"provider": p.config.Slug, "main_profile_verified": true}}
++		Extra: map[string]any{"provider": "pingxingxian", "main_profile_verified": true}}
++	if MainAccountSyncEnabled() {
++		var role string
++		if common.Unmarshal(claims.Role, &role) != nil || !validMainRole(role) {
++			return nil, ErrMainProfileUnverified
++		}
++		user.Extra["main_role"] = role
++	}
+ 	if err := ValidateMainProfile(user); err != nil {
+ 		return nil, err
+ 	}
+@@ -68,7 +96,7 @@
+ 
+ func ValidateMainProfile(user *OAuthUser) error {
+ 	if user == nil || user.Extra["main_profile_verified"] != true ||
+-		strings.TrimSpace(user.ProviderUserID) == "" || len(user.ProviderUserID) > 128 ||
++		strings.TrimSpace(user.ProviderUserID) == "" || strings.TrimSpace(user.ProviderUserID) != user.ProviderUserID || len(user.ProviderUserID) > 128 ||
+ 		strings.TrimSpace(user.Username) == "" || utf8.RuneCountInString(user.Username) > model.UserNameMaxLength ||
+ 		strings.TrimSpace(user.DisplayName) == "" || utf8.RuneCountInString(user.DisplayName) > 20 ||
+ 		user.Email == "" || utf8.RuneCountInString(user.Email) > 50 || user.Email != strings.TrimSpace(user.Email) {
+@@ -78,5 +106,15 @@
+ 	if err != nil || address.Address != user.Email {
+ 		return ErrMainProfileUnverified
+ 	}
++	if MainAccountSyncEnabled() {
++		role, ok := user.Extra["main_role"].(string)
++		if !ok || !validMainRole(role) {
++			return ErrMainProfileUnverified
++		}
++	}
+ 	return nil
+ }
++
++func validMainRole(role string) bool {
++	return role == "user" || role == "moderator" || role == "admin"
++}

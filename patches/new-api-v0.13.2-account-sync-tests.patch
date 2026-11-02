@@ -1,0 +1,274 @@
+diff --git a/controller/account_sync_test.go b/controller/account_sync_test.go
+new file mode 100644
+--- /dev/null
++++ b/controller/account_sync_test.go
+@@ -0,0 +1,110 @@
++package controller
++
++import (
++	"errors"
++	"sync"
++	"testing"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/model"
++	"github.com/QuantumNous/new-api/oauth"
++)
++
++func TestMainAccountChatProvisionRoleMappingAndPreservedQuota(t *testing.T) {
++	for _, tc := range []struct { role string; want int }{
++		{"user", common.RoleCommonUser}, {"moderator", common.RoleCommonUser}, {"admin", common.RoleAdminUser},
++	} {
++		t.Run(tc.role, func(t *testing.T) {
++			db, p := profileDatabase(t)
++			t.Setenv("MAIN_OAUTH_ACCOUNT_SYNC_ENABLED", "true")
++			oldQuota := common.QuotaForNewUser
++			common.QuotaForNewUser = 345
++			t.Cleanup(func() { common.QuotaForNewUser = oldQuota })
++			profile := testMainProfile()
++			profile.Extra["main_role"] = tc.role
++			user, created, err := oauth.FindOrCreateChatMainUser(db, profile)
++			if err != nil || !created || user.Role != tc.want || user.Quota != 345 || user.Group != "default" {
++				t.Fatal("Chat account creation did not retain native registration policy")
++			}
++			id := user.Id
++			if err := db.Model(user).Updates(map[string]any{"quota": 123, "used_quota": 45, "password": "synthetic-retained-password", "group": "retained-group"}).Error; err != nil { t.Fatal(err) }
++			// 原生 API 登录和 Chat 请求复用同一个 sub；不能另建账号或重新送注册额度。
++			for _, role := range []string{"admin", "moderator", "user"} {
++				profile.Extra["main_role"] = role
++				after, created, err := findOrCreateMainProfileUser(db, p, profile, 0)
++				want := common.RoleCommonUser
++				if role == "admin" { want = common.RoleAdminUser }
++				if err != nil || created || after.Id != id || after.Role != want || after.Quota != 123 || after.UsedQuota != 45 || after.Password != "synthetic-retained-password" || after.Group != "retained-group" { t.Fatal("role sync changed identity or protected values") }
++			}
++			var users, bindings int64
++			db.Model(&model.User{}).Count(&users)
++			db.Model(&model.UserOAuthBinding{}).Count(&bindings)
++			if users != 1 || bindings != 1 { t.Fatal("duplicate account or binding") }
++		})
++	}
++}
++
++func TestMainAccountRootAndAccountRestrictions(t *testing.T) {
++	for _, state := range []string{"root", "disabled", "soft-deleted", "hard-deleted", "registration-off", "provider-disabled"} {
++		t.Run(state, func(t *testing.T) {
++			db, _ := profileDatabase(t)
++			t.Setenv("MAIN_OAUTH_ACCOUNT_SYNC_ENABLED", "true")
++			profile := testMainProfile()
++			profile.Extra["main_role"] = "user"
++			user := insertProfileUser(t, db, 2, "53", "old-name", "old@example.invalid")
++			switch state {
++			case "disabled": db.Model(&user).Update("status", common.UserStatusDisabled)
++			case "soft-deleted": db.Delete(&user)
++			case "hard-deleted": db.Unscoped().Delete(&user)
++			case "registration-off": common.RegisterEnabled = false
++			case "provider-disabled": db.Model(&model.CustomOAuthProvider{}).Where("id = ?", 1).Update("enabled", false)
++			}
++			after, created, err := oauth.FindOrCreateChatMainUser(db, profile)
++			if state == "root" || state == "registration-off" {
++				if err != nil || created || after.Id != 2 || after.Role != common.RoleRootUser { t.Fatal("existing root account changed") }
++			} else if err == nil || created { t.Fatal("inactive identity recreated") }
++			if state == "registration-off" {
++				profile.ProviderUserID, profile.Username, profile.Email = "new-sub", "new-name", "new@example.invalid"
++				if _, _, err := oauth.FindOrCreateChatMainUser(db, profile); err == nil { t.Fatal("registration policy bypassed") }
++			}
++		})
++	}
++}
++
++func TestMainAccountProfileConflictCannotPreventRoleDemotion(t *testing.T) {
++	db, _ := profileDatabase(t)
++	t.Setenv("MAIN_OAUTH_ACCOUNT_SYNC_ENABLED", "true")
++	before := insertProfileUser(t, db, 2, "53", "old-name", "old@example.invalid")
++	db.Model(&before).Update("role", common.RoleAdminUser)
++	profile := testMainProfile()
++	profile.Extra["main_role"] = "user"
++	insertProfileUser(t, db, 3, "54", profile.Username, "other@example.invalid")
++	_, _, err := oauth.FindOrCreateChatMainUser(db, profile)
++	var conflict *oauth.MainProfileConflictError
++	if !errors.As(err, &conflict) { t.Fatal("profile conflict hidden") }
++	var after model.User
++	db.First(&after, 2)
++	if after.Role != common.RoleCommonUser || after.Username != before.Username || after.Email != before.Email || after.Quota != before.Quota { t.Fatal("demotion or conflict preservation failed") }
++}
++
++func TestMainAccountConcurrentFirstAccessHasOneIdentity(t *testing.T) {
++	db, _ := profileDatabase(t)
++	t.Setenv("MAIN_OAUTH_ACCOUNT_SYNC_ENABLED", "true")
++	connection, _ := db.DB()
++	connection.SetMaxOpenConns(1)
++	var workers sync.WaitGroup
++	for i := 0; i < 2; i++ {
++		workers.Add(1)
++		go func() {
++			defer workers.Done()
++			profile := testMainProfile()
++			profile.Extra["main_role"] = "user"
++			if _, _, err := oauth.FindOrCreateChatMainUser(db, profile); err != nil { t.Error(err) }
++		}()
++	}
++	workers.Wait()
++	var users, bindings int64
++	db.Model(&model.User{}).Count(&users)
++	db.Model(&model.UserOAuthBinding{}).Count(&bindings)
++	if users != 1 || bindings != 1 { t.Fatal("concurrent first access created duplicate identity") }
++}
+diff --git a/middleware/account_sync_test.go b/middleware/account_sync_test.go
+new file mode 100644
+--- /dev/null
++++ b/middleware/account_sync_test.go
+@@ -0,0 +1,55 @@
++package middleware
++
++import (
++	"context"
++	"net/http"
++	"strings"
++	"testing"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/model"
++)
++
++func TestChatMainAccountNeedsFreshProfileClaims(t *testing.T) {
++	t.Setenv("MAIN_OAUTH_ACCOUNT_SYNC_ENABLED", "true")
++	for _, kind := range []string{"valid", "missing-role", "missing-email", "wrong-role"} {
++		t.Run(kind, func(t *testing.T) {
++			claims := fixtureChatClaims("fixture-a")
++			claims["preferred_username"], claims["name"] = "main-name", "Main display"
++			claims["email"], claims["email_verified"], claims["pl_role"] = "synthetic@example.invalid", true, "admin"
++			switch kind {
++			case "missing-role": delete(claims, "pl_role")
++			case "missing-email": delete(claims, "email")
++			case "wrong-role": claims["pl_role"] = "root"
++			}
++			mockChatUserInfo(t, func(*http.Request) (int, any) { return 200, claims })
++			result, err := verifyChatOAuthToken(context.Background(), "synthetic-token")
++			if kind == "valid" {
++				if err != nil || result.Profile.Extra["main_role"] != "admin" { t.Fatal("trusted role not passed to account layer") }
++			} else if err != errChatOAuthInvalid { t.Fatal("incomplete session did not require Chat reauthorization") }
++		})
++	}
++}
++
++func TestMainAccountCookieUsesCurrentBoundRoleButKeepsLocalRecovery(t *testing.T) {
++	r := sessionRevocationFixture(t)
++	t.Setenv("MAIN_OAUTH_ACCOUNT_SYNC_ENABLED", "true")
++	if err := model.DB.AutoMigrate(&model.UserOAuthBinding{}); err != nil { t.Fatal(err) }
++	if err := model.DB.Create(&model.UserOAuthBinding{UserId: 2, ProviderId: 1, ProviderUserId: "synthetic-sub"}).Error; err != nil { t.Fatal(err) }
++	login := sessionRevocationCookie(t, r, map[string]any{"id": 2, "username": "synthetic-user", "role": common.RoleAdminUser, "status": common.UserStatusEnabled, "group": "default"})
++	// 即使重放旧管理员 cookie，也只能使用已同步到数据库的当前普通角色。
++	w := sessionRevocationRequest(r, "/admin", login, "", "2")
++	if w.Code != http.StatusOK || strings.Contains(w.Body.String(), `"handler":true`) { t.Fatal("old cookie retained revoked administrator access") }
++	if err := model.DB.Model(&model.User{}).Where("id = ?", 2).Update("role", common.RoleAdminUser).Error; err != nil { t.Fatal(err) }
++	w = sessionRevocationRequest(r, "/admin", login, "", "2")
++	if !strings.Contains(w.Body.String(), `"handler":true`) { t.Fatal("current administrator role was not read") }
++	if err := model.DB.Model(&model.User{}).Where("id = ?", 2).Update("status", common.UserStatusDisabled).Error; err != nil { t.Fatal(err) }
++	if w = sessionRevocationRequest(r, "/user", login, "", "2"); w.Code != http.StatusUnauthorized { t.Fatal("disabled Main-bound account remained usable") }
++	t.Run("local-recovery-unchanged", func(t *testing.T) {
++		local := sessionRevocationFixture(t)
++		if err := model.DB.AutoMigrate(&model.UserOAuthBinding{}); err != nil { t.Fatal(err) }
++		root := sessionRevocationCookie(t, local, sessionRevocationRootClaims())
++		if err := model.DB.Model(&model.User{}).Where("id = ?", 1).Update("role", common.RoleCommonUser).Error; err != nil { t.Fatal(err) }
++		if result := sessionRevocationRequest(local, "/root", root, "", "1"); !strings.Contains(result.Body.String(), `"handler":true`) { t.Fatal("local recovery cookie semantics changed") }
++	})
++}
+diff --git a/oauth/account_sync_test.go b/oauth/account_sync_test.go
+new file mode 100644
+--- /dev/null
++++ b/oauth/account_sync_test.go
+@@ -0,0 +1,35 @@
++package oauth
++
++import (
++	"testing"
++
++	"github.com/QuantumNous/new-api/common"
++)
++
++func TestMainAccountClaimsRequireTrustedRoleAndSeparateAudiences(t *testing.T) {
++	p := profileTestProvider(t)
++	t.Setenv("MAIN_OAUTH_ACCOUNT_SYNC_ENABLED", "true")
++	for _, role := range []string{"user", "moderator", "admin"} {
++		claims := profileTestClaims()
++		claims["pl_role"] = role
++		body, _ := common.Marshal(claims)
++		profile, err := p.parseMainProfile(body)
++		if err != nil || profile.Extra["main_role"] != role { t.Fatal("valid Main role rejected") }
++		if _, err := ParseChatMainProfile(body); err == nil { t.Fatal("API audience accepted as Chat") }
++		claims["aud"] = mainChatClient
++		body, _ = common.Marshal(claims)
++		if _, err := ParseChatMainProfile(body); err != nil { t.Fatal(err) }
++		if _, err := p.parseMainProfile(body); err == nil { t.Fatal("Chat audience accepted as API login") }
++	}
++	for _, role := range []any{nil, "", "root", "Admin", 10, true, []string{"admin"}} {
++		claims := profileTestClaims()
++		claims["pl_role"] = role
++		body, _ := common.Marshal(claims)
++		if _, err := p.parseMainProfile(body); err != ErrMainProfileUnverified { t.Fatal("invalid role accepted") }
++	}
++	claims := profileTestClaims()
++	body, _ := common.Marshal(claims)
++	if _, err := p.parseMainProfile(body); err != ErrMainProfileUnverified { t.Fatal("missing role accepted") }
++	t.Setenv("MAIN_OAUTH_ACCOUNT_SYNC_ENABLED", "false")
++	if _, err := p.parseMainProfile(body); err != nil { t.Fatal("legacy profile behavior changed") }
++}
+diff --git a/router/oauth_relay_integration_test.go b/router/oauth_relay_integration_test.go
+--- a/router/oauth_relay_integration_test.go
++++ b/router/oauth_relay_integration_test.go
+@@ -14,6 +14,7 @@
+ 	"github.com/QuantumNous/new-api/constant"
+ 	"github.com/QuantumNous/new-api/i18n"
+ 	"github.com/QuantumNous/new-api/model"
++	"github.com/QuantumNous/new-api/oauth"
+ 	"github.com/QuantumNous/new-api/setting/ratio_setting"
+ 	"github.com/gin-gonic/gin"
+ 	"gorm.io/gorm/logger"
+@@ -217,4 +218,47 @@
+ 	if userinfoCalls == 0 || forbiddenCalls != 0 {
+ 		t.Fatalf("unexpected request counts: UserInfo=%d blocked-other=%d", userinfoCalls, forbiddenCalls)
+ 	}
++
++	t.Run("first Chat request provisions native account and keeps model billing", func(t *testing.T) {
++		t.Setenv("MAIN_OAUTH_ACCOUNT_SYNC_ENABLED", "true")
++		t.Setenv("CUSTOM_OAUTH_PKCE_PROVIDERS", "pingxingxian")
++		oldRegistration, oldQuota := common.RegisterEnabled, common.QuotaForNewUser
++		common.RegisterEnabled, common.QuotaForNewUser = true, 0
++		t.Cleanup(func() { common.RegisterEnabled, common.QuotaForNewUser = oldRegistration, oldQuota })
++		if err := model.DB.Model(&model.CustomOAuthProvider{}).Where("id = ?", 1).Updates(map[string]any{
++			"client_id": "parallellines-newapi", "auth_style": oauth.AuthStyleInHeader,
++			"username_field": "preferred_username", "display_name_field": "name", "email_field": "email",
++			"authorization_endpoint": "https://pingxingxian.space/auth/oidc/auth",
++			"token_endpoint": "https://pingxingxian.space/auth/oidc/token",
++		}).Error; err != nil { t.Fatal(err) }
++		role := "admin"
++		previous := http.DefaultTransport
++		t.Cleanup(func() { http.DefaultTransport = previous })
++		http.DefaultTransport = oauthRelayIntegrationTransport(func(r *http.Request) (*http.Response, error) {
++			if r.URL.String() != model.OAuthRelayUserInfoURL || r.Header.Get("Authorization") != "Bearer oauth-fixture-new" {
++				return nil, fmt.Errorf("all unexpected fixture traffic is blocked")
++			}
++			body, _ := common.Marshal(map[string]any{"iss": "https://pingxingxian.space/auth/oidc", "aud": "parallellines-openwebui",
++				"sub": "fixture-new", "pl_binding": "synthetic-binding", "pl_auth_exp": time.Now().Unix() + 300,
++				"preferred_username": "new-main-user", "name": "New display", "email": "new@example.invalid", "email_verified": true, "pl_role": role})
++			return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(string(body))), Request: r}, nil
++		})
++		for i := 0; i < 2; i++ {
++			res := request("GET", "/oauth-relay/v1/models", "fixture-new", "")
++			if res.Code != 200 || !strings.Contains(res.Body.String(), "gpt-6-luna") || !strings.Contains(res.Body.String(), "gpt-6.1-sol") { t.Fatal("new user cannot discover native group models") }
++		}
++		var binding model.UserOAuthBinding
++		if err := model.DB.Where("provider_id = ? AND provider_user_id = ?", 1, "fixture-new").First(&binding).Error; err != nil { t.Fatal(err) }
++		var user model.User
++		if err := model.DB.First(&user, binding.UserId).Error; err != nil || user.Role != common.RoleAdminUser || user.Quota != 0 || user.UsedQuota != 0 { t.Fatal("new native account fields incorrect") }
++		role = "moderator"
++		if res := request("GET", "/oauth-relay/v1/models", "fixture-new", ""); res.Code != 200 { t.Fatal("ordinary role discovery denied") }
++		if err := model.DB.First(&user, binding.UserId).Error; err != nil || user.Role != common.RoleCommonUser { t.Fatal("current Main role did not revoke administrator") }
++		if res := request("POST", "/oauth-relay/v1/responses", "fixture-new", `{"model":"gpt-6-luna","input":"synthetic"}`); res.Code != 403 || !strings.Contains(res.Body.String(), "insufficient_user_quota") { t.Fatal("new account bypassed native balance checks") }
++		if err := model.RevokeOAuthRelayToken(user.Id); err != nil { t.Fatal(err) }
++		if res := request("GET", "/oauth-relay/v1/models", "fixture-new", ""); res.Code != 403 { t.Fatal("revoked credential renewed") }
++		var count int64
++		model.DB.Model(&model.Token{}).Where("user_id = ? AND internal_purpose = ?", user.Id, model.OAuthRelayTokenPurpose).Count(&count)
++		if count != 1 { t.Fatal("first access duplicated internal credentials") }
++	})
+ }

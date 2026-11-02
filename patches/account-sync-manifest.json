@@ -1,0 +1,46 @@
+{
+  "base_version": "v0.13.2-pkce.6",
+  "application_version": "v0.13.2-pkce.7",
+  "files": [
+    {
+      "path": "controller/oauth.go",
+      "base_sha256": "9034805c141f704099fa035eea9900c5db378e6de241b8d9d7fb847981a02b72",
+      "result_sha256": "e0d25e9e9055e015ce5b7e3a36ec9f8c721bad8effdc76d291a69561fe283835"
+    },
+    {
+      "path": "controller/oauth_main_profile.go",
+      "base_sha256": "2b8c6b7ca80adf98817d89f384ea270ac5931f4fc5d31c1b2c6229afe68f37d8",
+      "result_sha256": "27b2dc383794fe9c81734459fe3f8d3285206ddea11147e0cc1e388b524a13b6"
+    },
+    {
+      "path": "middleware/auth.go",
+      "base_sha256": "f5bec30f69e91e4acd6ec03bd00e5c58726ad6cfe3215acdf911c9d60b8d9188",
+      "result_sha256": "7dbc74dc32295ecbea8322b1c5493bc458960d64e97d6e41cf14e69dcae41a88"
+    },
+    {
+      "path": "middleware/oauth_relay.go",
+      "base_sha256": "da81a55f2646956005439e58710690995e6c4b67e51c5e174d0254114272cf71",
+      "result_sha256": "576cb48af61e15810ca408a73481b85515b5ada081f39a137b5eabea7e6d0fdc"
+    },
+    {
+      "path": "middleware/session_user.go",
+      "base_sha256": "89b218c95ed258060a53dc1d9fa2f8f13320e9f08df15bb5d8e3d66c0cd7166c",
+      "result_sha256": "202d51fd5e71b6fb2d290a274c3d70c5f211d1ec197d894f24a50a6d4b788161"
+    },
+    {
+      "path": "model/session_auth.go",
+      "base_sha256": "fcd3c1767f1b08e73afe64c996493f3de2530fc788450949e80684456f4adec1",
+      "result_sha256": "27f7524d4c8b6d874c546583d87bcdd9273352cc07d5a732e66fe456d95c0cdc"
+    },
+    {
+      "path": "oauth/main_account.go",
+      "base_sha256": null,
+      "result_sha256": "32681f93007e2a69c6712a9cd8b6cfbfbc656c6f2c1343de210b762bd707c9c5"
+    },
+    {
+      "path": "oauth/main_profile.go",
+      "base_sha256": "24efd778b92259d1f6d87849b2237cacb73820de8e57f4853e99d581f59f45ea",
+      "result_sha256": "a345f8e76cd97d0a1c6e1bdeb3dd4312d42d1f443a1934bf13234e42590482e1"
+    }
+  ]
+}

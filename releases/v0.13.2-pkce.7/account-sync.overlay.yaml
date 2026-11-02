@@ -1,0 +1,7 @@
+# 仅在新版 Main/issuer 已提供可信 pl_role、Chat 已请求 email 后，经批准合入现有服务。
+services:
+  newapi:
+    image: ${API_ACCOUNT_SYNC_IMAGE:?Set the reviewed v0.13.2-pkce.7 image}
+    environment:
+      MAIN_OAUTH_PROFILE_SYNC_ENABLED: "true"
+      MAIN_OAUTH_ACCOUNT_SYNC_ENABLED: "true"

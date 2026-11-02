@@ -1,0 +1,14 @@
+{
+  "application_version": "v0.13.2-pkce.7",
+  "file": "dist/pkce7/new-api-v0.13.2-pkce.7-corresponding-source.tar.gz",
+  "size": 2981775,
+  "sha256": "48bbae0323019717d1653a3332b3ed2718359e64df07a5aae20f86f3f51c37b7",
+  "source_files": 1085,
+  "archive_files": 1109,
+  "manifest_sha256": "6c83282ad798bad11c5763000ccd3e5697d4ee963fd0b69877de87b5f6ddc3a7",
+  "production_patch_sha256": "bfba8db2bae67098dcaaabfd6ba155f1ee1e1b6ea2959b6161eb69fadb78a713",
+  "verification_patch_sha256": "e2607bc9bb691600c5e988bb11415c09ee7a84535ea4a5e828b72f80ffee7134",
+  "frontend_included": false,
+  "compiled": false,
+  "tests_run_during_packaging": false
+}

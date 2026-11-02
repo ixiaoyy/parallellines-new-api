@@ -4,6 +4,17 @@
 代替上线验收。本机按用户决定不下载 Go；已复用发布服务器现有 Go 1.26.1 完成编译及相关用例，
 Go 用例运行在断网命名空间和临时内存数据库中，没有访问真实模型或业务库。
 
+## 2026-11-02 发布记录
+
+本版网关与配套 Chat 隔离镜像已部署，免费门已启用。用户通过平行线账号重新授权后确认
+正常使用；该次验收账号的四条 Chat 调用记录均为 `openrouter/free`，站内扣费均为零。
+发布前后的 API 定价选项、原三个 Chat 模型、默认项和全局后台任务配置核对保持不变。
+没有发起付费模型实测；真实零余额账号及新普通用户未专门验收，相关路径已由隔离用例覆盖。
+
+[完整对应源码](https://github.com/ixiaoyy/parallellines-new-api/releases/download/v0.13.2-pkce.8/new-api-v0.13.2-pkce.8-corresponding-source.tar.gz)
+已公开，匿名下载和归档摘要已核对；固定应用代码提交、原前端资产及构建信息见
+`source-archive.json`。运行回执和私有恢复点不进入源码归档或 Git。
+
 ## 新增行为与不变项
 
 - 独立门 `CHAT_OPENROUTER_FREE_ENABLED=true` 才向 Chat 列出并允许调用 `openrouter/free`。

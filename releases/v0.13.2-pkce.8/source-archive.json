@@ -1,0 +1,19 @@
+{
+  "application_version": "v0.13.2-pkce.8",
+  "integration_repository": "https://github.com/ixiaoyy/parallellines-new-api",
+  "integration_commit": "ade96b09ee114649f2f44a8db8b2d1859aa70947",
+  "upstream_commit": "bee339d279ccecbf8c8a89e14ddbbd902f78bd5d",
+  "frontend_original_embed_files": 125,
+  "frontend_modified": false,
+  "verification_source_included": true,
+  "compiled_binary_sha256": "65758b856c65355513480d9a62e8b8b21d8f4f49bc0498d2a1c1c3e7016cb5aa",
+  "runtime_secrets_or_databases_included": false,
+  "file": "new-api-v0.13.2-pkce.8-corresponding-source.tar.gz",
+  "sha256": "be8e6c2769702999b5dc8ace105a62204e6612356f9a67fefec65572f3302c96",
+  "bytes": 14341528,
+  "url": "https://github.com/ixiaoyy/parallellines-new-api/releases/download/v0.13.2-pkce.8/new-api-v0.13.2-pkce.8-corresponding-source.tar.gz",
+  "public_anonymous_download_verified": true,
+  "deployed_on": "2026-11-02",
+  "server_go_build_and_focused_checks_passed": true,
+  "user_reported_chat_ok": true
+}

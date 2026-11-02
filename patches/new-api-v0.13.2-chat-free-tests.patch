@@ -1,0 +1,514 @@
+diff --git a/relay/channel/openai/chat_free_stream_test.go b/relay/channel/openai/chat_free_stream_test.go
+new file mode 100644
+--- /dev/null
++++ b/relay/channel/openai/chat_free_stream_test.go
+@@ -0,0 +1,64 @@
++package openai
++
++import (
++	"io"
++	"net/http"
++	"net/http/httptest"
++	"strings"
++	"testing"
++
++	"github.com/QuantumNous/new-api/constant"
++	"github.com/QuantumNous/new-api/dto"
++	relaycommon "github.com/QuantumNous/new-api/relay/common"
++	"github.com/QuantumNous/new-api/service"
++	"github.com/QuantumNous/new-api/types"
++	"github.com/gin-gonic/gin"
++	"github.com/stretchr/testify/require"
++)
++
++type chatFreeReadError struct{}
++
++func (chatFreeReadError) Read([]byte) (int, error) { return 0, io.ErrUnexpectedEOF }
++
++func TestChatFreeStreamNeverSynthesizesSuccessAfterFailure(t *testing.T) {
++	// 直接执行原生扫描器时补齐应用启动才设置的超时，不修改生产默认值。
++	oldStreamingTimeout := constant.StreamingTimeout
++	constant.StreamingTimeout = 30
++	t.Cleanup(func() { constant.StreamingTimeout = oldStreamingTimeout })
++	chatPrefix := "data: {\"choices\":[{\"index\":0,\"delta\":{\"content\":\"partial\"}}]}\n\ndata: {\"choices\":[{\"index\":0,\"delta\":{},\"finish_reason\":\"stop\"}]}\n\n"
++	responsesPrefix := "data: {\"type\":\"response.output_text.delta\",\"delta\":\"partial\"}\n\n"
++	responsesTerminal := "data: {\"type\":\"response.completed\",\"response\":{\"id\":\"synthetic\",\"output\":[],\"usage\":{\"input_tokens\":1,\"output_tokens\":1,\"total_tokens\":2,\"cost\":0}}}\n\n"
++	for _, tc := range []struct {
++		name      string
++		prefix    string
++		readError bool
++		handler   func(*gin.Context, *relaycommon.RelayInfo, *http.Response) (*dto.Usage, *types.NewAPIError)
++	}{
++		{"chat read error after finish", chatPrefix, true, OaiStreamHandler},
++		{"chat EOF without DONE", chatPrefix, false, OaiStreamHandler},
++		{"responses conversion read error after terminal", responsesPrefix + responsesTerminal, true, OaiResponsesToChatStreamHandler},
++		{"responses conversion EOF without terminal", responsesPrefix, false, OaiResponsesToChatStreamHandler},
++		{"native responses read error after terminal", responsesPrefix + responsesTerminal, true, OaiResponsesStreamHandler},
++		{"native responses EOF without terminal", responsesPrefix, false, OaiResponsesStreamHandler},
++	} {
++		t.Run(tc.name, func(t *testing.T) {
++			w := httptest.NewRecorder()
++			c, _ := gin.CreateTestContext(w)
++			c.Request = httptest.NewRequest("POST", "/v1/chat/completions", nil)
++			info := &relaycommon.RelayInfo{ChatOAuthFreeModel: true, OriginModelName: constant.ChatFreeModel, IsStream: true, RelayFormat: types.RelayFormatOpenAI, ShouldIncludeUsage: true,
++				ChannelMeta: &relaycommon.ChannelMeta{UpstreamModelName: constant.ChatFreeModel, ChannelType: constant.ChannelTypeOpenRouter}}
++			var body io.Reader = strings.NewReader(tc.prefix)
++			if tc.readError {
++				body = io.MultiReader(body, chatFreeReadError{})
++			}
++			resp := &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"text/event-stream"}}, Body: io.NopCloser(body)}
++			_, err := tc.handler(c, info, resp)
++			require.NotNil(t, err)
++			require.Equal(t, service.ChatFreeUsageErrorCode, err.GetErrorCode())
++			require.True(t, types.IsSkipRetryError(err))
++			require.NotContains(t, w.Body.String(), "[DONE]")
++			require.NotContains(t, w.Body.String(), `"finish_reason":"stop"`)
++			require.NotContains(t, w.Body.String(), `"type":"response.completed"`)
++		})
++	}
++}
+diff --git a/router/chat_free_integration_test.go b/router/chat_free_integration_test.go
+new file mode 100644
+--- /dev/null
++++ b/router/chat_free_integration_test.go
+@@ -0,0 +1,264 @@
++package router
++
++import (
++	"fmt"
++	"io"
++	"net/http"
++	"net/http/httptest"
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/constant"
++	"github.com/QuantumNous/new-api/i18n"
++	"github.com/QuantumNous/new-api/middleware"
++	"github.com/QuantumNous/new-api/model"
++	"github.com/QuantumNous/new-api/service"
++	"github.com/QuantumNous/new-api/setting/billing_setting"
++	"github.com/QuantumNous/new-api/setting/config"
++	"github.com/QuantumNous/new-api/setting/model_setting"
++	"github.com/QuantumNous/new-api/setting/operation_setting"
++	"github.com/QuantumNous/new-api/setting/ratio_setting"
++	"github.com/gin-gonic/gin"
++	"github.com/stretchr/testify/require"
++	"gorm.io/gorm/logger"
++)
++
++// The only HTTP transports are local functions. No sockets, actual identities or paid models are used.
++func TestChatFreeNativeRelayIntegration(t *testing.T) {
++	gin.SetMode(gin.TestMode)
++	require.NoError(t, i18n.Init())
++	oldDB, oldPath, oldMaster := model.DB, common.SQLitePath, common.IsMasterNode
++	oldRedis, oldBatch, oldMemory := common.RedisEnabled, common.BatchUpdateEnabled, common.MemoryCacheEnabled
++	oldCount, oldTransport, oldLog := constant.CountToken, http.DefaultTransport, common.LogConsumeEnabled
++	oldStreamingTimeout := constant.StreamingTimeout
++	oldErrorLog, oldBan, oldRetry := constant.ErrorLogEnabled, common.AutomaticDisableChannelEnabled, common.RetryTimes
++	oldPrices, oldRatios := ratio_setting.ModelPrice2JSONString(), ratio_setting.ModelRatio2JSONString()
++	oldPreConsume := operation_setting.GetQuotaSetting().EnableFreeModelPreConsume
++	oldGrok := *model_setting.GetGrokSettings()
++	oldPassThrough := model_setting.GetGlobalSettings().PassThroughRequestEnabled
++	billing := config.GlobalConfig.Get("billing_setting").(*billing_setting.BillingSetting)
++	oldBillingModes := billing.BillingMode
++	billing.BillingMode = map[string]string{}
++	t.Setenv("SQL_DSN", "local")
++	t.Setenv("SQL_MAX_OPEN_CONNS", "1")
++	t.Setenv("CHAT_OAUTH_RELAY_ENABLED", "true")
++	t.Setenv("CHAT_OPENROUTER_FREE_ENABLED", "true")
++	t.Setenv("MAIN_OAUTH_ACCOUNT_SYNC_ENABLED", "false")
++	t.Setenv("OPENAI_STANDARD_BILLING_ENABLED", "true")
++	common.SQLitePath = "file:chat-free-native-integration?mode=memory&cache=shared"
++	common.IsMasterNode, common.RedisEnabled, common.BatchUpdateEnabled, common.MemoryCacheEnabled = false, false, false, false
++	constant.CountToken, common.LogConsumeEnabled = false, false
++	// 路由测试不执行主程序启动；原生 SSE 扫描器仍需非零启动配置。
++	constant.StreamingTimeout = 30
++	constant.ErrorLogEnabled, common.AutomaticDisableChannelEnabled, common.RetryTimes = false, false, 0
++	operation_setting.GetQuotaSetting().EnableFreeModelPreConsume = true
++	model_setting.GetGrokSettings().ViolationDeductionEnabled = false
++	require.NoError(t, model.InitDB())
++	model.DB.Logger = logger.Default.LogMode(logger.Silent)
++	t.Cleanup(func() {
++		sqlDB, _ := model.DB.DB()
++		_ = sqlDB.Close()
++		model.DB, common.SQLitePath, common.IsMasterNode = oldDB, oldPath, oldMaster
++		common.RedisEnabled, common.BatchUpdateEnabled, common.MemoryCacheEnabled = oldRedis, oldBatch, oldMemory
++		constant.CountToken, http.DefaultTransport, common.LogConsumeEnabled = oldCount, oldTransport, oldLog
++		constant.StreamingTimeout = oldStreamingTimeout
++		constant.ErrorLogEnabled, common.AutomaticDisableChannelEnabled, common.RetryTimes = oldErrorLog, oldBan, oldRetry
++		operation_setting.GetQuotaSetting().EnableFreeModelPreConsume = oldPreConsume
++		*model_setting.GetGrokSettings() = oldGrok
++		model_setting.GetGlobalSettings().PassThroughRequestEnabled = oldPassThrough
++		billing.BillingMode = oldBillingModes
++		_ = ratio_setting.UpdateModelPriceByJSONString(oldPrices)
++		_ = ratio_setting.UpdateModelRatioByJSONString(oldRatios)
++	})
++	require.NoError(t, model.DB.AutoMigrate(&model.User{}, &model.Token{}, &model.CustomOAuthProvider{}, &model.UserOAuthBinding{}, &model.Channel{}, &model.Ability{}))
++	user := model.User{Id: 801, Username: "synthetic-chat-free", AffCode: "synthetic-chat-free", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, Group: "default", Quota: 0, Setting: `{"billing_preference":"wallet_only"}`}
++	require.NoError(t, model.DB.Create(&user).Error)
++	require.NoError(t, model.DB.Create(&model.CustomOAuthProvider{Id: 1, Name: "synthetic", Slug: "pingxingxian", Enabled: true, UserIdField: "sub", UserInfoEndpoint: model.OAuthRelayUserInfoURL}).Error)
++	require.NoError(t, model.DB.Create(&model.UserOAuthBinding{UserId: user.Id, ProviderId: 1, ProviderUserId: "synthetic-sub"}).Error)
++	base := "https://openrouter.ai/api"
++	freeChannel := model.Channel{Id: 901, Type: constant.ChannelTypeOpenRouter, Name: "synthetic-free", Key: "synthetic-upstream-key", Status: common.ChannelStatusEnabled, BaseURL: &base, Models: constant.ChatFreeModel, Group: "default"}
++	require.NoError(t, freeChannel.Insert())
++	paidBase := "https://api.openai.com"
++	paidChannel := model.Channel{Id: 902, Type: constant.ChannelTypeOpenAI, Name: "synthetic-never-called", Key: "synthetic-unused-key", Status: common.ChannelStatusEnabled, BaseURL: &paidBase, Models: model.OAuthRelayModelLimits, Group: "default"}
++	require.NoError(t, paidChannel.Insert())
++	require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(`{}`))
++	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"openrouter/free":0}`))
++	internal, err := model.GetOrCreateOAuthRelayToken(user.Id)
++	require.NoError(t, err)
++	oldKey, oldLimits := internal.Key, internal.ModelLimits
++
++	http.DefaultTransport = oauthRelayIntegrationTransport(func(r *http.Request) (*http.Response, error) {
++		if r.URL.String() != model.OAuthRelayUserInfoURL || r.Header.Get("Authorization") != "Bearer synthetic-oauth" {
++			return nil, fmt.Errorf("fixture blocked unexpected identity traffic")
++		}
++		body, _ := common.Marshal(map[string]any{"iss": "https://pingxingxian.space/auth/oidc", "aud": "parallellines-openwebui", "sub": "synthetic-sub", "pl_binding": "synthetic-session", "pl_auth_exp": time.Now().Unix() + 300})
++		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(string(body))), Request: r}, nil
++	})
++	if service.GetHttpClient() == nil {
++		service.InitHttpClient()
++	}
++	client := service.GetHttpClient()
++	oldClient := *client
++	t.Cleanup(func() { *client = oldClient })
++	upstreamCalls, returnPositiveCost := 0, false
++	returnViolation, ordinaryCall := false, false
++	changePriceInFlight := false
++	changeTieredInFlight := false
++	client.Transport = oauthRelayIntegrationTransport(func(r *http.Request) (*http.Response, error) {
++		if r.URL.Host != "openrouter.ai" || r.Header.Get("Authorization") != "Bearer synthetic-upstream-key" {
++			return nil, fmt.Errorf("fixture blocked nonfree traffic")
++		}
++		if !ordinaryCall {
++			deadline, bounded := r.Context().Deadline()
++			require.True(t, bounded)
++			require.LessOrEqual(t, time.Until(deadline), 60*time.Second)
++		}
++		raw, readErr := io.ReadAll(r.Body)
++		require.NoError(t, readErr)
++		var request map[string]any
++		require.NoError(t, common.Unmarshal(raw, &request))
++		require.Equal(t, constant.ChatFreeModel, request["model"])
++		upstreamCalls++
++		if changeTieredInFlight {
++			billing.BillingMode[constant.ChatFreeModel] = billing_setting.BillingModeTieredExpr
++		}
++		if returnViolation {
++			if changePriceInFlight {
++				require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(`{"openrouter/free":0.2}`))
++			}
++			return &http.Response{StatusCode: 400, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(`{"error":{"type":"invalid_request_error","code":"content_policy_violation","message":"Content violates usage guidelines"}}`)), Request: r}, nil
++		}
++		cost := "0"
++		if returnPositiveCost {
++			cost = "0.01"
++		}
++		body := `{"id":"synthetic-chat","object":"chat.completion","choices":[{"index":0,"message":{"role":"assistant","content":"OK"},"finish_reason":"stop"}],"usage":{"prompt_tokens":1,"completion_tokens":1,"total_tokens":2,"cost":` + cost + `}}`
++		contentType := "application/json"
++		if r.URL.Path == "/api/v1/responses" {
++			body = `{"id":"synthetic-response","object":"response","status":"completed","output":[{"type":"message","role":"assistant","content":[{"type":"output_text","text":"OK"}]}],"usage":{"input_tokens":1,"output_tokens":1,"total_tokens":2,"cost":` + cost + `}}`
++		}
++		if request["stream"] == true {
++			contentType = "text/event-stream"
++			if r.URL.Path == "/api/v1/responses" {
++				body = "data: {\"type\":\"response.output_text.delta\",\"sequence_number\":0,\"delta\":\"OK\"}\n\ndata: {\"type\":\"response.completed\",\"sequence_number\":1,\"response\":" + body + "}\n\n"
++			} else {
++				body = "data: {\"id\":\"synthetic-chat\",\"choices\":[{\"index\":0,\"delta\":{\"role\":\"assistant\"}}]}\n\ndata: {\"id\":\"synthetic-chat\",\"choices\":[{\"index\":0,\"delta\":{\"content\":\"OK\"},\"finish_reason\":\"stop\"}]}\n\ndata: {\"id\":\"synthetic-chat\",\"choices\":[],\"usage\":{\"prompt_tokens\":1,\"completion_tokens\":1,\"total_tokens\":2,\"cost\":" + cost + "}}\n\ndata: [DONE]\n\n"
++			}
++		}
++		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {contentType}}, Body: io.NopCloser(strings.NewReader(body)), Request: r}, nil
++	})
++	engine := gin.New()
++	SetRelayRouter(engine)
++	engine.POST("/ordinary", middleware.TokenAuth(), func(c *gin.Context) { c.Status(299) })
++	request := func(path, body, bearer string) *httptest.ResponseRecorder {
++		req := httptest.NewRequest("POST", path, strings.NewReader(body))
++		req.Header.Set("Content-Type", "application/json")
++		req.Header.Set("Authorization", "Bearer "+bearer)
++		res := httptest.NewRecorder()
++		engine.ServeHTTP(res, req)
++		return res
++	}
++	for _, protocol := range []string{"chat/completions", "responses"} {
++		for _, stream := range []bool{false, true} {
++			body := fmt.Sprintf(`{"model":"openrouter/free","messages":[{"role":"user","content":"hi"}],"input":"hi","stream":%t,"max_tokens":16,"max_output_tokens":16}`, stream)
++			before := upstreamCalls
++			res := request("/oauth-relay/v1/"+protocol, body, "synthetic-oauth")
++			require.Equal(t, 200, res.Code, res.Body.String())
++			require.Contains(t, res.Body.String(), "OK")
++			require.Equal(t, before+1, upstreamCalls)
++			returnPositiveCost = true
++			res = request("/oauth-relay/v1/"+protocol, body, "synthetic-oauth")
++			require.Contains(t, res.Body.String(), string(service.ChatFreeUsageErrorCode))
++			returnPositiveCost = false
++		}
++	}
++	// 管理员在已发出请求期间启用阶梯模式，不追溯改变该次零价结算；下一请求必须重新拒绝。
++	{
++		before := upstreamCalls
++		changeTieredInFlight = true
++		res := request("/oauth-relay/v1/responses", `{"model":"openrouter/free","input":"hi"}`, "synthetic-oauth")
++		require.Equal(t, 200, res.Code, res.Body.String())
++		require.Contains(t, res.Body.String(), "OK")
++		require.Equal(t, before+1, upstreamCalls)
++		stored, err := model.GetUserById(user.Id, false)
++		require.NoError(t, err)
++		require.Zero(t, stored.Quota)
++		require.Zero(t, stored.UsedQuota)
++		changeTieredInFlight = false
++		res = request("/oauth-relay/v1/responses", `{"model":"openrouter/free","input":"hi"}`, "synthetic-oauth")
++		require.Contains(t, res.Body.String(), "tiered_billing_not_free")
++		require.Equal(t, before+1, upstreamCalls)
++		delete(billing.BillingMode, constant.ChatFreeModel)
++	}
++	before := upstreamCalls
++	t.Setenv("CHAT_OPENROUTER_FREE_ENABLED", "false")
++	res := request("/oauth-relay/v1/responses", `{"model":"openrouter/free","input":"hi"}`, "synthetic-oauth")
++	require.Equal(t, 403, res.Code)
++	t.Setenv("CHAT_OPENROUTER_FREE_ENABLED", "true")
++	for _, paid := range strings.Split(model.OAuthRelayModelLimits, ",") {
++		for _, protocol := range []string{"chat/completions", "responses"} {
++			body := fmt.Sprintf(`{"model":%q,"messages":[{"role":"user","content":"hi"}],"input":"hi"}`, paid)
++			res := request("/oauth-relay/v1/"+protocol, body, "synthetic-oauth")
++			require.Equal(t, 403, res.Code, res.Body.String())
++			require.Contains(t, res.Body.String(), "insufficient_user_quota")
++		}
++	}
++	for _, override := range []string{`{"model":"paid-model"}`, `{"models":["paid-model"]}`, `{"plugins":[{"id":"web"}]}`, `{"tools":[{"type":"web_search_preview"}]}`} {
++		require.NoError(t, model.DB.Model(&model.Channel{}).Where("id = ?", freeChannel.Id).Update("param_override", override).Error)
++		res := request("/oauth-relay/v1/responses", `{"model":"openrouter/free","input":"hi"}`, "synthetic-oauth")
++		require.Contains(t, res.Body.String(), string(service.ChatFreePolicyErrorCode))
++	}
++	require.NoError(t, model.DB.Model(&model.Channel{}).Where("id = ?", freeChannel.Id).Update("param_override", "").Error)
++	model_setting.GetGlobalSettings().PassThroughRequestEnabled = true
++	res = request("/oauth-relay/v1/responses", `{"model":"openrouter/free","input":"hi","models":["paid-model"]}`, "synthetic-oauth")
++	require.Contains(t, res.Body.String(), string(service.ChatFreePolicyErrorCode))
++	model_setting.GetGlobalSettings().PassThroughRequestEnabled = false
++	model_setting.GetGrokSettings().ViolationDeductionEnabled = true
++	model_setting.GetGrokSettings().ViolationDeductionAmount = 0.05
++	returnViolation = true
++	changePriceInFlight = true
++	res = request("/oauth-relay/v1/responses", `{"model":"openrouter/free","input":"hi"}`, "synthetic-oauth")
++	require.Contains(t, res.Body.String(), "Content violates usage guidelines")
++	require.Equal(t, before+1, upstreamCalls)
++	storedAfterFree, err := model.GetUserById(user.Id, false)
++	require.NoError(t, err)
++	require.Zero(t, storedAfterFree.Quota, "validated free Chat rejection does not deduct the existing extra fee")
++	changePriceInFlight = false
++	res = request("/oauth-relay/v1/responses", `{"model":"openrouter/free","input":"hi"}`, "synthetic-oauth")
++	require.Contains(t, res.Body.String(), "nonzero_fixed_price", "the next request uses the administrator's new price")
++	require.Equal(t, before+1, upstreamCalls)
++	require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(`{}`))
++	// 未通过最终守卫的同名请求不获得例外状态；预检不会伪造真实出站证明。
++	require.NoError(t, model.DB.Model(&model.Channel{}).Where("id = ?", freeChannel.Id).Update("param_override", `{"model":"paid-model"}`).Error)
++	res = request("/oauth-relay/v1/responses", `{"model":"openrouter/free","input":"hi"}`, "synthetic-oauth")
++	require.Contains(t, res.Body.String(), string(service.ChatFreePolicyErrorCode))
++	require.Equal(t, before+1, upstreamCalls)
++	require.NoError(t, model.DB.Model(&model.Channel{}).Where("id = ?", freeChannel.Id).Update("param_override", "").Error)
++	// 同一个零价模型的普通 API 不获得新例外；仅使用合成 token 和余额验证原有违规扣费。
++	ordinary := model.Token{UserId: user.Id, Key: strings.Repeat("a", 48), Name: "synthetic-native", Status: common.TokenStatusEnabled, ExpiredTime: -1, UnlimitedQuota: true}
++	require.NoError(t, model.DB.Create(&ordinary).Error)
++	require.NoError(t, model.DB.Model(&model.User{}).Where("id = ?", user.Id).Update("quota", 100000).Error)
++	ordinaryCall = true
++	res = request("/v1/chat/completions", `{"model":"openrouter/free","messages":[{"role":"user","content":"hi"}]}`, ordinary.Key)
++	require.Contains(t, res.Body.String(), "Content violates usage guidelines")
++	storedAfterNative, err := model.GetUserById(user.Id, false)
++	require.NoError(t, err)
++	require.Less(t, storedAfterNative.Quota, 100000, "ordinary API retains its existing extra fee")
++	ordinaryCall, returnViolation = false, false
++	require.NoError(t, model.DB.Model(&model.User{}).Where("id = ?", user.Id).Updates(map[string]any{"quota": 0, "used_quota": 0}).Error)
++	current, err := model.GetOrCreateOAuthRelayToken(user.Id)
++	require.NoError(t, err)
++	require.Equal(t, oldKey, current.Key)
++	require.Equal(t, oldLimits, current.ModelLimits)
++	require.Equal(t, model.OAuthRelayModelLimits, current.ModelLimits)
++	require.Equal(t, 401, request("/ordinary", `{}`, current.Key).Code)
++	require.NoError(t, model.RevokeOAuthRelayToken(user.Id))
++	require.Equal(t, 403, request("/oauth-relay/v1/responses", `{"model":"openrouter/free","input":"hi"}`, "synthetic-oauth").Code)
++	stored, err := model.GetUserById(user.Id, false)
++	require.NoError(t, err)
++	require.Zero(t, stored.Quota)
++	require.Zero(t, stored.UsedQuota)
++	require.True(t, operation_setting.GetQuotaSetting().EnableFreeModelPreConsume)
++}
+diff --git a/router/oauth_relay_integration_test.go b/router/oauth_relay_integration_test.go
+--- a/router/oauth_relay_integration_test.go
++++ b/router/oauth_relay_integration_test.go
+@@ -55,7 +55,8 @@
+ 		constant.CountToken, http.DefaultTransport = oldCount, oldTransport
+ 		_ = ratio_setting.UpdateModelPriceByJSONString(oldPrices)
+ 	})
+-	if err := model.DB.AutoMigrate(&model.User{}, &model.Token{}, &model.CustomOAuthProvider{}, &model.UserOAuthBinding{}, &model.Channel{}, &model.Ability{}); err != nil {
++	// 新开户的原生默认计费先查订阅；测试库也应具备该表，不能把缺表错误误作余额校验结果。
++	if err := model.DB.AutoMigrate(&model.User{}, &model.Token{}, &model.CustomOAuthProvider{}, &model.UserOAuthBinding{}, &model.Channel{}, &model.Ability{}, &model.UserSubscription{}); err != nil {
+ 		t.Fatal(err)
+ 	}
+ 	provider := model.CustomOAuthProvider{Id: 1, Name: "fixture", Slug: "pingxingxian", Enabled: true, UserIdField: "sub", UserInfoEndpoint: model.OAuthRelayUserInfoURL}
+diff --git a/service/chat_free_test.go b/service/chat_free_test.go
+new file mode 100644
+--- /dev/null
++++ b/service/chat_free_test.go
+@@ -0,0 +1,158 @@
++package service
++
++import (
++	"io"
++	"net/http/httptest"
++	"strings"
++	"testing"
++
++	"github.com/QuantumNous/new-api/constant"
++	relaycommon "github.com/QuantumNous/new-api/relay/common"
++	"github.com/QuantumNous/new-api/setting/billing_setting"
++	"github.com/QuantumNous/new-api/setting/config"
++	"github.com/QuantumNous/new-api/setting/model_setting"
++	"github.com/QuantumNous/new-api/setting/ratio_setting"
++	"github.com/QuantumNous/new-api/types"
++	"github.com/gin-gonic/gin"
++	"github.com/stretchr/testify/require"
++)
++
++func chatFreeFixture(t *testing.T) *relaycommon.RelayInfo {
++	t.Helper()
++	oldPrices, oldRatios := ratio_setting.ModelPrice2JSONString(), ratio_setting.ModelRatio2JSONString()
++	settings := model_setting.GetGrokSettings()
++	oldGrok := *settings
++	billing := config.GlobalConfig.Get("billing_setting").(*billing_setting.BillingSetting)
++	oldModes := billing.BillingMode
++	billing.BillingMode = map[string]string{}
++	settings.ViolationDeductionEnabled = false
++	require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(`{}`))
++	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"openrouter/free":0}`))
++	t.Cleanup(func() {
++		*settings = oldGrok
++		billing.BillingMode = oldModes
++		_ = ratio_setting.UpdateModelPriceByJSONString(oldPrices)
++		_ = ratio_setting.UpdateModelRatioByJSONString(oldRatios)
++	})
++	return &relaycommon.RelayInfo{
++		ChatOAuthFreeModel: true,
++		OriginModelName:    constant.ChatFreeModel,
++		ChannelMeta:        &relaycommon.ChannelMeta{ChannelType: constant.ChannelTypeOpenRouter, ChannelBaseUrl: "https://openrouter.ai/api", UpstreamModelName: constant.ChatFreeModel, ApiKey: "synthetic-key"},
++		PriceData:          types.PriceData{FreeModel: true, GroupRatioInfo: types.GroupRatioInfo{GroupRatio: 1}},
++	}
++}
++
++func TestChatFreeEffectivePricing(t *testing.T) {
++	info := chatFreeFixture(t)
++	require.NoError(t, ValidateChatFreePricing(info, 1))
++	require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(`{"openrouter/free":0.1}`))
++	require.Error(t, ValidateChatFreePricing(info, 0), "group zero must not hide a nonzero effective fixed price")
++	require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(`{"openrouter/free":0}`))
++	require.NoError(t, ratio_setting.UpdateModelRatioByJSONString(`{"openrouter/free":10}`))
++	require.NoError(t, ValidateChatFreePricing(info, 1), "effective zero fixed price has normal precedence")
++	config.GlobalConfig.Get("billing_setting").(*billing_setting.BillingSetting).BillingMode[constant.ChatFreeModel] = billing_setting.BillingModeTieredExpr
++	require.Error(t, ValidateChatFreePricing(info, 1))
++	delete(config.GlobalConfig.Get("billing_setting").(*billing_setting.BillingSetting).BillingMode, constant.ChatFreeModel)
++	settings := model_setting.GetGrokSettings()
++	settings.ViolationDeductionEnabled, settings.ViolationDeductionAmount = true, 0.05
++	require.NoError(t, ValidateChatFreePricing(info, 1), "approved free Chat scope does not disable ordinary fee settings")
++	require.False(t, IsValidatedChatFreeRequest(info), "pricing alone does not grant a fee exception")
++	req := httptest.NewRequest("POST", "https://openrouter.ai/api/v1/responses", strings.NewReader(`{"model":"openrouter/free","input":"hi"}`))
++	req.Header.Set("Authorization", "Bearer synthetic-key")
++	require.NoError(t, ValidateChatFreeHTTPRequest(info, req))
++	require.True(t, IsValidatedChatFreeRequest(info))
++	require.NoError(t, ratio_setting.UpdateModelPriceByJSONString(`{"openrouter/free":0.2}`))
++	require.True(t, IsValidatedChatFreeRequest(info), "configuration changes do not revoke the completed outgoing qualification")
++	next := *info
++	require.Error(t, ValidateChatFreeHTTPRequest(&next, httptest.NewRequest("POST", "https://openrouter.ai/api/v1/responses", strings.NewReader(`{"model":"openrouter/free"}`))))
++	require.False(t, IsValidatedChatFreeRequest(&next))
++	info.IsModelMapped = true
++	require.False(t, IsValidatedChatFreeRequest(info))
++	info.ChatOAuthFreeModel = false
++	require.NoError(t, ValidateChatFreePricing(info, 1), "unrelated callers retain their original path")
++}
++
++func TestChatFreeFinalRequestGuard(t *testing.T) {
++	info := chatFreeFixture(t)
++	for _, tc := range []struct {
++		name, body string
++		reject     bool
++	}{
++		{"chat", `{"model":"openrouter/free","messages":[{"role":"user","content":"hi"}]}`, false},
++		{"responses and client function", `{"model":"openrouter/free","input":"hi","tools":[{"type":"function","name":"client_function"}]}`, false},
++		{"changed model", `{"model":"paid-model"}`, true},
++		{"paid fallback", `{"model":"openrouter/free","models":["openrouter/free","paid-model"]}`, true},
++		{"paid plugin", `{"model":"openrouter/free","plugins":[{"id":"web"}]}`, true},
++		{"server tool", `{"model":"openrouter/free","tools":[{"type":"web_search_preview"}]}`, true},
++		{"audio output", `{"model":"openrouter/free","modalities":["text","audio"]}`, true},
++	} {
++		t.Run(tc.name, func(t *testing.T) {
++			req := httptest.NewRequest("POST", "https://openrouter.ai/api/v1/responses", strings.NewReader(tc.body))
++			req.Header.Set("Authorization", "Bearer synthetic-key")
++			err := ValidateChatFreeHTTPRequest(info, req)
++			if tc.reject {
++				require.Error(t, err)
++				return
++			}
++			require.NoError(t, err)
++			body, err := io.ReadAll(req.Body)
++			require.NoError(t, err)
++			require.Equal(t, tc.body, string(body), "guard must not rewrite the approved payload")
++		})
++	}
++	for _, url := range []string{"http://openrouter.ai/api/v1/responses", "https://other.invalid/api/v1/responses", "https://openrouter.ai/api/v1/responses?model=paid"} {
++		req := httptest.NewRequest("POST", url, strings.NewReader(`{"model":"openrouter/free"}`))
++		require.Error(t, ValidateChatFreeHTTPRequest(info, req))
++	}
++	req := httptest.NewRequest("POST", "https://openrouter.ai/api/v1/responses", strings.NewReader(`{"model":"openrouter/free"}`))
++	req.Host = "other.invalid"
++	require.Error(t, ValidateChatFreeHTTPRequest(info, req))
++	info.IsModelMapped = true
++	require.Error(t, ValidateChatFreePricing(info, 1))
++	info.IsModelMapped = false
++	info.ChannelType = constant.ChannelTypeOpenAI
++	require.Error(t, ValidateChatFreePricing(info, 1), "retry cannot escape into another channel type")
++}
++
++// 新一次渠道尝试必须重新取得资格，不能复用上一尝试的免费费用快照。
++func TestChatFreeQualificationClearedOnChannelAttempt(t *testing.T) {
++	info := chatFreeFixture(t)
++	req := httptest.NewRequest("POST", "https://openrouter.ai/api/v1/responses", strings.NewReader(`{"model":"openrouter/free","input":"hi"}`))
++	req.Header.Set("Authorization", "Bearer synthetic-key")
++	require.NoError(t, ValidateChatFreeHTTPRequest(info, req))
++	require.True(t, IsValidatedChatFreeRequest(info))
++	c, _ := gin.CreateTestContext(httptest.NewRecorder())
++	info.InitChannelMeta(c)
++	require.False(t, info.ChatFreeRequestValidated)
++	require.Nil(t, info.ChatFreeRequestPrice)
++	require.Zero(t, info.ChatFreeRequestChannel)
++	require.False(t, IsValidatedChatFreeRequest(info))
++}
++
++func TestChatFreeRawUsageIsNotZeroed(t *testing.T) {
++	info := chatFreeFixture(t)
++	for _, body := range []string{
++		`{"usage":{"cost":0}}`,
++		`{"type":"response.completed","response":{"usage":{"cost":"0.000"},"output":[{"type":"message"}]}}`,
++		`{"type":"response.output_item.added","item":{"type":"function_call"}}`,
++		`{"usage":{"input_tokens":1}}`,
++	} {
++		require.Nil(t, ValidateChatFreeUpstreamResponse(info, []byte(body)), body)
++	}
++	for _, body := range []string{
++		`{"usage":{"cost":0.01}}`,
++		`{"type":"response.completed","response":{"usage":{"cost":1e-100}}}`,
++		`{"usage":{"cost":null}}`,
++		`{"usage":{"cost":"NaN"}}`,
++		`{"type":"response.output_item.done","item":{"type":"web_search_call"}}`,
++		`{"error":{"message":"upstream rejected the request"}}`,
++	} {
++		err := ValidateChatFreeUpstreamResponse(info, []byte(body))
++		require.NotNil(t, err, body)
++		require.Equal(t, ChatFreeUsageErrorCode, err.GetErrorCode())
++		require.False(t, types.IsChannelError(err))
++		require.True(t, types.IsSkipRetryError(err))
++	}
++	info.ChatOAuthFreeModel = false
++	require.Nil(t, ValidateChatFreeUpstreamResponse(info, []byte(`{"usage":{"cost":2}}`)))
++}

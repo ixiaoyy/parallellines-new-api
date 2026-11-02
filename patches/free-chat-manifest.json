@@ -1,0 +1,175 @@
+{
+  "base_version": "v0.13.2-pkce.7",
+  "application_version": "v0.13.2-pkce.8",
+  "files": [
+    {
+      "path": "constant/chat_free.go",
+      "base_sha256": null,
+      "result_sha256": "6eae2e86d03261f75df4891b9b88d0039e60871ba2918127a9582f2f47a945c3"
+    },
+    {
+      "path": "controller/chat_free_error.go",
+      "base_sha256": null,
+      "result_sha256": "ae0de10ff96b56b23207f9dd4a23a4d63957752e1c8d94ff663c1e5f8d368669"
+    },
+    {
+      "path": "controller/oauth_relay.go",
+      "base_sha256": "aa85a48ba3f6da8a0ea7147e9a3d9f30759c59c86365c94ab729bcde2fb8c6c1",
+      "result_sha256": "4fa54f7b2110a418e1037bb59c2962835b2b5cb834be696f16882d39e3121f3a"
+    },
+    {
+      "path": "controller/relay.go",
+      "base_sha256": "009f3c1f6c8f6d84922343ffb5925a2a81db3ec7202093fdd6f87fa93e3a6270",
+      "result_sha256": "b396ab322252ced455f18008a1d45e1a1a93d6769658d7d9e54d7c30f1133fcf"
+    },
+    {
+      "path": "middleware/oauth_relay.go",
+      "base_sha256": "576cb48af61e15810ca408a73481b85515b5ada081f39a137b5eabea7e6d0fdc",
+      "result_sha256": "da95b583a9bd06826e3d0d1efbd05bee35c7a6b2f299dc6c1067a79a55ee6e33"
+    },
+    {
+      "path": "model/oauth_relay.go",
+      "base_sha256": "a5469fd3483f35a92ba819cacda807b965b8727577f7c22a7fbdb75df81ea91f",
+      "result_sha256": "a8e2f351ad1fca37ed692803048efbeb57bb91369b3ab5468cdbcb618b4f4298"
+    },
+    {
+      "path": "relay/channel/api_request.go",
+      "base_sha256": "4a521154bab9c4178adbf7cdc614773b24441c857cf5635ed92be411c8082904",
+      "result_sha256": "30b17462ffc732bf879f045b3dcc6b34795c76a3711536708490c7ff73294bb7"
+    },
+    {
+      "path": "relay/channel/openai/chat_via_responses.go",
+      "base_sha256": "543cb67a4936e39a8e69ad4b4e8c81569f6c282ca6d7071b9ea052262edf56bf",
+      "result_sha256": "a53cd34e73b95966c1c3d0f5efe31440d8ddb29b90a1bab4ccac9bebe5d10f6a"
+    },
+    {
+      "path": "relay/channel/openai/relay-openai.go",
+      "base_sha256": "1bc48c6dfe53400d87260bfa9c514f87148443e0d41a2d4f2c826ddd2d5dfc8f",
+      "result_sha256": "8d7bfc33d88d5973c0d0df46414298d375ac575e4f62d5e1b29cbb1a7e3a7969"
+    },
+    {
+      "path": "relay/channel/openai/relay_responses.go",
+      "base_sha256": "6d8883fbae9a5a0b34d66a36babb0547847a967331c265926d7d1ec92f8e7fc0",
+      "result_sha256": "480a4dadf829a31755f5fad4659e8ae80db15365c8aacc80b978eadbf26a8199"
+    },
+    {
+      "path": "relay/common/relay_info.go",
+      "base_sha256": "1fb441f28d7671b01eb9340d5776c6b42d23268ea0ffa0353d6af22038466c1b",
+      "result_sha256": "75c682001d1dd26c3f74645e477ff809f0358f017fb67ccca32312043f951bdb"
+    },
+    {
+      "path": "relay/helper/price.go",
+      "base_sha256": "40e3b5f60081e6b66cc5ccc71f0e1486cf94d28b73a77fde5b672e52ee2f215f",
+      "result_sha256": "1f353a2b77f1832e22aa8552ddc1d578d14f5a7668777f4583a182909f2f7998"
+    },
+    {
+      "path": "service/chat_free.go",
+      "base_sha256": null,
+      "result_sha256": "c68dae203a93a766186dc7b5b0f580dbcba801b12fba6cc2a10dc8da4dcff9da"
+    },
+    {
+      "path": "service/text_quota.go",
+      "base_sha256": "9322e6b186bc4a48779d545c9a466033f27facb6ccdbacd6b3f793fa19dd6d38",
+      "result_sha256": "3af6810e1b72095c169f01bc55402ed22786f00559bfe77eb9a65574f9c40884"
+    },
+    {
+      "path": "service/violation_fee.go",
+      "base_sha256": "1335632e1ab870b8f0e0454fc54d8e77995fedb3b14e257dfddf8f67936a764e",
+      "result_sha256": "6d19b9325c091f3b052467944582abf23fb18712a8ffc04532e70a7eb3006e07"
+    }
+  ],
+  "verification_files": [
+    {
+      "path": "relay/channel/openai/chat_free_stream_test.go",
+      "sha256": "5982231791b2248d1b6d0f1cec5956fe3ca488e25955af79773bd0d9bc9e33bd",
+      "added": true
+    },
+    {
+      "path": "router/chat_free_integration_test.go",
+      "sha256": "bf53ba18defd147a91718562d8347eeb4e9d0a649f6c37db57bb1f205b724b65",
+      "added": true
+    },
+    {
+      "path": "router/oauth_relay_integration_test.go",
+      "sha256": "5d2eda134e32995f796b7af66f6a42178e424094e3473cf4072f94fbef29e681",
+      "added": false
+    },
+    {
+      "path": "service/chat_free_test.go",
+      "sha256": "2a4ddc6acd7aa7632b92bc87ace5f606bd0e68b485ff0120a8c458831f861061",
+      "added": true
+    }
+  ],
+  "preserved_files": [
+    {
+      "path": "dto/openai_response.go",
+      "sha256": "bf2bdf43726982330d3088a4058ab053bbaaa832450a6176d925e1d7bc8f296d"
+    },
+    {
+      "path": "go.mod",
+      "sha256": "befda82d9376ba545d71cbeac8ef10a45383f052484829c917b276d779b5f804"
+    },
+    {
+      "path": "go.sum",
+      "sha256": "ee1729a9671feaf1a226948b83c0b7b832be73097d447947436a6e0d9110789c"
+    },
+    {
+      "path": "middleware/auth.go",
+      "sha256": "7dbc74dc32295ecbea8322b1c5493bc458960d64e97d6e41cf14e69dcae41a88"
+    },
+    {
+      "path": "middleware/session_user.go",
+      "sha256": "202d51fd5e71b6fb2d290a274c3d70c5f211d1ec197d894f24a50a6d4b788161"
+    },
+    {
+      "path": "model/main.go",
+      "sha256": "1aa1e3d3b15f39ccfd9c957f0a661802fcc186fd0e396511ae9b01ced28ed137"
+    },
+    {
+      "path": "model/session_auth.go",
+      "sha256": "27f7524d4c8b6d874c546583d87bcdd9273352cc07d5a732e66fe456d95c0cdc"
+    },
+    {
+      "path": "model/token.go",
+      "sha256": "f3fba1bdd963ae28b1c354e5e824664491db15cfb76b5eec6b52ad28dc092399"
+    },
+    {
+      "path": "oauth/main_account.go",
+      "sha256": "32681f93007e2a69c6712a9cd8b6cfbfbc656c6f2c1343de210b762bd707c9c5"
+    },
+    {
+      "path": "router/relay-router.go",
+      "sha256": "b4421e5eded2c2b3985555ab63e0295ce48aaabcfeaa07847c93679758c68d7b"
+    },
+    {
+      "path": "service/billing.go",
+      "sha256": "1c38895a55098dc100b7bc653274173ad76e1f473392227ebca0008960375ade"
+    },
+    {
+      "path": "service/http_client.go",
+      "sha256": "4429bb54738699e05ca40b5f8c1f715e840107061f962886f4c6dc76282cba31"
+    },
+    {
+      "path": "service/openai_standard_billing.go",
+      "sha256": "7808d70df3ecb463b36bcec8e42763a2a9b7f837f6ad28b08d31bac8e5710b60"
+    },
+    {
+      "path": "service/openai_standard_cache_ttl.go",
+      "sha256": "96a9ef91b6f68ee428f18e9d6aa4b1388481b1e71393644407e9c43594e1dfb3"
+    },
+    {
+      "path": "service/openai_standard_usage.go",
+      "sha256": "5678b5bf411a2715a0b3f32469bd0ef24237ce15d834a7517cb36a1e04227838"
+    },
+    {
+      "path": "setting/model_setting/grok.go",
+      "sha256": "eab982ed083c5b61055dc568e78a151fd35e8c45b2b335cb52b34a5a6aabb1ec"
+    },
+    {
+      "path": "setting/operation_setting/quota_setting.go",
+      "sha256": "30c3f7f2f9746961bde95b72b4b4157a95df0cac7ca81f28b00fcca164040ba6"
+    }
+  ],
+  "persistent_model_limits_line": "const OAuthRelayModelLimits = \"gpt-6-luna,gpt-6.1-terra,gpt-6.1-sol\"",
+  "credential_implementation_sha256": "bce63d64d8e5ffcd0a6c4aaaf4e1f207646cc952dfcf8a782d64221cc7d731ec"
+}

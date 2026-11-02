@@ -7,12 +7,18 @@ used by the ParallelLines identity provider. The upstream UI is retained. Source
 
 ## Current release
 
-The latest release recipe is **v0.13.2-pkce.6**. Start with its
-[release instructions](releases/v0.13.2-pkce.6/README.md) and
-[complete ordered patch lock](releases/v0.13.2-pkce.6/upstream.lock.json).
-It retains the pkce.3 billing/relay implementation, pkce.4 bound-profile
-synchronization, and pkce.5 deleted-account session rejection, and adds validated
-request-TTL classification for Responses cache writes without a duration split.
+The latest release recipe is **v0.13.2-pkce.8**. Start with its
+[release instructions](releases/v0.13.2-pkce.8/README.md)
+and [complete ordered patch lock](releases/v0.13.2-pkce.8/upstream.lock.json).
+It retains pkce.6 billing and the [pkce.7 account-sync baseline](releases/v0.13.2-pkce.7/README.md),
+adding only the opt-in `openrouter/free` Chat entry. The account-sync switch defaults off; existing
+root users, quotas and billing are retained. Role revocation is synchronized on
+the next verified Chat request or native OAuth login, not pushed immediately.
+`CHAT_OPENROUTER_FREE_ENABLED` also defaults off. The companion Chat task-isolation
+overlay must be ready before activation; existing paid models, stored credentials
+and ordinary API channels retain their behavior. The deployment host's existing
+Go 1.26.1 completed compilation and focused, network-isolated tests; no local
+toolchain was downloaded. These checks do not replace real Chat acceptance.
 Actual activation is recorded in the server's private deployment receipt. The root lock and
 the base-build commands below intentionally describe the reusable pkce.3 base;
 do not use that base image to replace the current live release.
@@ -102,9 +108,12 @@ retain their original behavior when not explicitly opted in. No ID-token
 authentication or automatic administrator elevation is introduced.
 
 `CHAT_OAUTH_RELAY_ENABLED=true` enables the three dedicated Chat relay routes.
-They verify the fixed issuer's current Chat-client UserInfo and exact existing
-native binding, then use an independent server-only restricted credential through
-native user billing. No account or balance is created by the adapter. Free model
+They verify the fixed issuer's current Chat-client UserInfo and exact native
+binding, then use an independent server-only restricted credential through
+native user billing. By default no account is created by the adapter. The pkce.7
+account-sync flag additionally provisions a missing native binding from verified
+Main profile/role claims, retaining native registration policy. No existing balance
+is changed. Free model
 listing works at zero quota. See [the trust contract, migration and revocation
 rules](docs/OAUTH-RELAY.md).
 

@@ -1,0 +1,5 @@
+services:
+  newapi:
+    environment:
+      # 先部署代码并保持关闭；Chat 消费者配置和后台任务隔离就绪后，另获授权再启用。
+      CHAT_OPENROUTER_FREE_ENABLED: "false"

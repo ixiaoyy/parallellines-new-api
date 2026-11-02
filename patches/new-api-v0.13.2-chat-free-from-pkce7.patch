@@ -1,0 +1,848 @@
+diff --git a/constant/chat_free.go b/constant/chat_free.go
+new file mode 100644
+--- /dev/null
++++ b/constant/chat_free.go
+@@ -0,0 +1,6 @@
++package constant
++
++// Chat 免费模型仅扩展本次已核验 OAuth 请求，不改变持久内部凭据的模型限制。
++const ChatFreeModel = "openrouter/free"
++
++const ContextKeyChatOAuthFreeModel ContextKey = "verified_chat_oauth_free_model"
+diff --git a/controller/chat_free_error.go b/controller/chat_free_error.go
+new file mode 100644
+--- /dev/null
++++ b/controller/chat_free_error.go
+@@ -0,0 +1,32 @@
++package controller
++
++import (
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/constant"
++	"github.com/QuantumNous/new-api/relay/helper"
++	"github.com/QuantumNous/new-api/types"
++	"github.com/gin-gonic/gin"
++)
++
++// writeChatFreeStreamError 仅为新免费入口的已开始 SSE 写入显式失败，不追加普通 HTTP JSON。
++// 原三模型继续使用原来的错误、退款和审计边界。
++func writeChatFreeStreamError(c *gin.Context, format types.RelayFormat, err *types.NewAPIError) bool {
++	if err == nil ||
++		!common.GetContextKeyBool(c, constant.ContextKeyChatOAuthFreeModel) || !c.Writer.Written() || !c.GetBool(string(constant.ContextKeyIsStream)) {
++		return false
++	}
++	if format == types.RelayFormatOpenAIResponses {
++		next := 0
++		if value, ok := c.Get("openai_standard_last_sequence"); ok {
++			if n, valid := value.(int); valid && n >= 0 && n < 1000000000 {
++				next = n + 1
++			}
++		}
++		c.Render(-1, common.CustomEvent{Data: "event: error\n"})
++		_ = helper.ObjectData(c, gin.H{"type": "error", "code": string(err.GetErrorCode()), "message": err.ToOpenAIError().Message, "param": nil, "sequence_number": next})
++	} else {
++		_ = helper.ObjectData(c, gin.H{"error": err.ToOpenAIError()})
++		helper.Done(c)
++	}
++	return true
++}
+diff --git a/controller/oauth_relay.go b/controller/oauth_relay.go
+--- a/controller/oauth_relay.go
++++ b/controller/oauth_relay.go
+@@ -3,6 +3,7 @@
+ import (
+ 	"errors"
+ 	"net/http"
++	"os"
+ 	"strconv"
+ 	"strings"
+ 
+@@ -22,8 +23,12 @@
+ 	for _, name := range model.GetGroupEnabledModels(group) {
+ 		enabled[name] = true
+ 	}
+-	models := make([]dto.OpenAIModels, 0, 3)
+-	for _, name := range strings.Split(model.OAuthRelayModelLimits, ",") {
++	models := make([]dto.OpenAIModels, 0, 4)
++	for _, name := range strings.Split(model.OAuthRelayChatModelLimits, ",") {
++		// 激活顺序由独立默认关闭的门控制；普通 API 和原三模型不依赖此门。
++		if name == constant.ChatFreeModel && os.Getenv("CHAT_OPENROUTER_FREE_ENABLED") != "true" {
++			continue
++		}
+ 		if enabled[name] {
+ 			models = append(models, dto.OpenAIModels{Id: name, Object: "model", OwnedBy: "custom"})
+ 		}
+diff --git a/controller/relay.go b/controller/relay.go
+--- a/controller/relay.go
++++ b/controller/relay.go
+@@ -89,7 +89,7 @@
+ 		if newAPIError != nil {
+ 			logger.LogError(c, fmt.Sprintf("relay error: %s", newAPIError.Error()))
+ 			newAPIError.SetMessage(common.MessageWithRequestId(newAPIError.Error(), requestId))
+-			if writeOpenAIStandardStreamError(c, relayFormat, newAPIError) {
++			if writeChatFreeStreamError(c, relayFormat, newAPIError) || writeOpenAIStandardStreamError(c, relayFormat, newAPIError) {
+ 				return
+ 			}
+ 			switch relayFormat {
+diff --git a/middleware/oauth_relay.go b/middleware/oauth_relay.go
+--- a/middleware/oauth_relay.go
++++ b/middleware/oauth_relay.go
+@@ -11,6 +11,7 @@
+ 	"time"
+ 
+ 	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/constant"
+ 	"github.com/QuantumNous/new-api/model"
+ 	"github.com/QuantumNous/new-api/oauth"
+ 	"github.com/gin-gonic/gin"
+@@ -196,8 +197,31 @@
+ 			chatOAuthAbort(c, 400, "A JSON model request is required")
+ 			return
+ 		}
+-		for _, allowed := range strings.Split(model.OAuthRelayModelLimits, ",") {
++		for _, allowed := range strings.Split(model.OAuthRelayChatModelLimits, ",") {
+ 			if request.Model == allowed {
++				if request.Model == constant.ChatFreeModel {
++					if os.Getenv("CHAT_OPENROUTER_FREE_ENABLED") != "true" {
++						chatOAuthAbort(c, 403, "Chat free model is disabled")
++						return
++					}
++					// 仅在 UserInfo、原生内部凭据及 TokenAuth 均成功后扩展本次请求，不写 token 或缓存。
++					value, _ := c.Get(chatOAuthIdentityKey)
++					identity, verified := value.(chatOAuthIdentity)
++					if !verified || identity.userID != c.GetInt("id") || identity.tokenID != c.GetInt("token_id") {
++						chatOAuthAbort(c, 401, "Verified Chat authorization is required")
++						return
++					}
++					limits := make(map[string]bool)
++					for _, name := range strings.Split(model.OAuthRelayChatModelLimits, ",") {
++						limits[name] = true
++					}
++					common.SetContextKey(c, constant.ContextKeyTokenModelLimit, limits)
++					common.SetContextKey(c, constant.ContextKeyChatOAuthFreeModel, true)
++					// 整个新增免费请求共享六十秒上限，重试不能延长在途时间。
++					ctx, cancel := context.WithTimeout(c.Request.Context(), 60*time.Second)
++					defer cancel()
++					c.Request = c.Request.WithContext(ctx)
++				}
+ 				c.Next()
+ 				return
+ 			}
+diff --git a/model/oauth_relay.go b/model/oauth_relay.go
+--- a/model/oauth_relay.go
++++ b/model/oauth_relay.go
+@@ -6,6 +6,7 @@
+ 	"strings"
+ 
+ 	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/constant"
+ 	"gorm.io/gorm"
+ 	"gorm.io/gorm/clause"
+ 	"gorm.io/gorm/logger"
+@@ -13,6 +14,9 @@
+ 
+ const OAuthRelayTokenPurpose = "chat-oauth-v1"
+ const OAuthRelayModelLimits = "gpt-6-luna,gpt-6.1-terra,gpt-6.1-sol"
++
++// 新模型只扩展 Chat 请求权限，持久凭据仍使用上面的旧三模型契约。
++const OAuthRelayChatModelLimits = OAuthRelayModelLimits + "," + constant.ChatFreeModel
+ const OAuthRelayUserInfoURL = "https://pingxingxian.space/auth/oidc/me"
+ 
+ var (
+diff --git a/relay/channel/api_request.go b/relay/channel/api_request.go
+--- a/relay/channel/api_request.go
++++ b/relay/channel/api_request.go
+@@ -299,6 +299,9 @@
+ 	if err != nil {
+ 		return nil, fmt.Errorf("new request failed: %w", err)
+ 	}
++	if info.ChatOAuthFreeModel {
++		req = req.WithContext(c.Request.Context())
++	}
+ 	headers := req.Header
+ 	err = a.SetupRequestHeader(c, &headers, info)
+ 	if err != nil {
+@@ -311,6 +314,10 @@
+ 		return nil, err
+ 	}
+ 	applyHeaderOverrideToRequest(req, headerOverride)
++	// 最终出站守卫覆盖 Chat、Responses、转换及原始透传，重试换渠道后也重新核验。
++	if err := service.ValidateChatFreeHTTPRequest(info, req); err != nil {
++		return nil, err
++	}
+ 	resp, err := doRequest(c, req, info)
+ 	if err != nil {
+ 		return nil, fmt.Errorf("do request failed: %w", err)
+@@ -344,6 +351,10 @@
+ 		return nil, err
+ 	}
+ 	applyHeaderOverrideToRequest(req, headerOverride)
++	// 最终出站守卫覆盖 Chat、Responses、转换及原始透传，重试换渠道后也重新核验。
++	if err := service.ValidateChatFreeHTTPRequest(info, req); err != nil {
++		return nil, err
++	}
+ 	resp, err := doRequest(c, req, info)
+ 	if err != nil {
+ 		return nil, fmt.Errorf("do request failed: %w", err)
+@@ -495,6 +506,16 @@
+ 		client = service.GetHttpClient()
+ 	}
+ 
++	if info.ChatOAuthFreeModel {
++		// 新免费能力只连接核验过的官方目的地；不影响共享客户端和原三模型。
++		scopedClient := *client
++		scopedClient.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
++		if scopedClient.Timeout <= 0 || scopedClient.Timeout > 60*time.Second {
++			scopedClient.Timeout = 60 * time.Second
++		}
++		client = &scopedClient
++	}
++
+ 	var stopPinger context.CancelFunc
+ 	if info.IsStream {
+ 		helper.SetEventStreamHeaders(c)
+diff --git a/relay/channel/openai/chat_via_responses.go b/relay/channel/openai/chat_via_responses.go
+--- a/relay/channel/openai/chat_via_responses.go
++++ b/relay/channel/openai/chat_via_responses.go
+@@ -55,6 +55,9 @@
+ 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+ 	}
+ 
++	if freeErr := service.ValidateChatFreeUpstreamResponse(info, body); freeErr != nil {
++		return nil, freeErr
++	}
+ 	if oaiError := responsesResp.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
+ 		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
+ 	}
+@@ -109,6 +112,7 @@
+ 		sentStop    bool
+ 		sawToolCall bool
+ 		streamErr   *types.NewAPIError
++		chatFreeTerminal bool
+ 	)
+ 
+ 	toolCallIndexByID := make(map[string]int)
+@@ -297,6 +301,9 @@
+ 	}
+ 
+ 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
++		if freeErr := service.ValidateChatFreeUpstreamResponse(info, common.StringToByteSlice(data)); freeErr != nil {
++			streamErr = freeErr
++		}
+ 		if streamErr != nil {
+ 			sr.Stop(streamErr)
+ 			return
+@@ -443,6 +450,14 @@
+ 		case "response.function_call_arguments.done":
+ 
+ 		case "response.completed":
++			if info.ChatOAuthFreeModel {
++				if streamResp.Response == nil {
++					streamErr = service.ChatFreeUsageError("missing_terminal_response")
++					sr.Stop(streamErr)
++					return
++				}
++				chatFreeTerminal = true
++			}
+ 			if streamResp.Response != nil {
+ 				if streamResp.Response.Model != "" {
+ 					model = streamResp.Response.Model
+@@ -479,7 +494,7 @@
+ 				sr.Stop(streamErr)
+ 				return
+ 			}
+-			if !sentStop {
++			if !sentStop && !info.ChatOAuthFreeModel {
+ 				if info.RelayFormat == types.RelayFormatClaude && info.ClaudeConvertInfo != nil {
+ 					info.ClaudeConvertInfo.Usage = usage
+ 				}
+@@ -515,6 +530,9 @@
+ 		return nil, streamErr
+ 	}
+ 
++	if freeErr := service.ValidateChatFreeStreamEnd(info, chatFreeTerminal, false); freeErr != nil {
++		return nil, freeErr
++	}
+ 	if usage.TotalTokens == 0 {
+ 		usage = service.ResponseText2Usage(c, usageText.String(), info.UpstreamModelName, info.GetEstimatePromptTokens())
+ 	}
+diff --git a/relay/channel/openai/relay-openai.go b/relay/channel/openai/relay-openai.go
+--- a/relay/channel/openai/relay-openai.go
++++ b/relay/channel/openai/relay-openai.go
+@@ -124,6 +124,9 @@
+ 	standardEnabled := service.OpenAIStandardBillingEnabled(info)
+ 	var verifiedUsage *dto.OpenAIStandardUsage
+ 	var standardStreamOutputErr error
++	var chatFreeStreamErr *types.NewAPIError
++	var chatFreeTerminal bool
++	var chatFreeTail []string
+ 	standardOutputSeen := false
+ 	var lastStreamData string
+ 	var secondLastStreamData string // 存储倒数第二个stream data，用于音频模型
+@@ -132,6 +135,18 @@
+ 	isAudioModel := strings.Contains(strings.ToLower(model), "audio")
+ 
+ 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
++		if freeErr := service.ValidateChatFreeUpstreamResponse(info, common.StringToByteSlice(data)); freeErr != nil {
++			chatFreeStreamErr = freeErr
++			sr.Stop(freeErr)
++			return
++		}
++		if info.ChatOAuthFreeModel && chatFreeTerminal {
++			// 真实终帧之后的 usage 仍须检查，但在整个流正常结束前不发送成功终止。
++			chatFreeTail = append(chatFreeTail, data)
++			lastStreamData = data
++			streamItems = append(streamItems, data)
++			return
++		}
+ 		if lastStreamData != "" {
+ 			outgoing := lastStreamData
+ 			if standardEnabled && !info.ShouldIncludeUsage {
+@@ -149,6 +164,19 @@
+ 			}
+ 		}
+ 		if len(data) > 0 {
++			if info.ChatOAuthFreeModel {
++				var frame dto.ChatCompletionsStreamResponse
++				_ = common.UnmarshalJsonStr(data, &frame)
++				for _, choice := range frame.Choices {
++					if choice.FinishReason != nil && *choice.FinishReason != "" {
++						chatFreeTerminal = true
++						break
++					}
++				}
++				if chatFreeTerminal {
++					chatFreeTail = append(chatFreeTail, data)
++				}
++			}
+ 			// 对音频模型，保存倒数第二个stream data
+ 			if isAudioModel && lastStreamData != "" {
+ 				secondLastStreamData = lastStreamData
+@@ -158,6 +186,13 @@
+ 			streamItems = append(streamItems, data)
+ 		}
+ 	})
++
++	if chatFreeStreamErr != nil {
++		return nil, chatFreeStreamErr
++	}
++	if freeErr := service.ValidateChatFreeStreamEnd(info, chatFreeTerminal, true); freeErr != nil {
++		return nil, freeErr
++	}
+ 
+ 	// 对音频模型，从倒数第二个stream data中提取usage信息
+ 	if standardEnabled {
+@@ -222,7 +257,7 @@
+ 	}
+ 
+ 	if info.RelayFormat == types.RelayFormatOpenAI {
+-		if shouldSendLastResp {
++		if shouldSendLastResp && !info.ChatOAuthFreeModel {
+ 			outgoing := lastStreamData
+ 			if standardEnabled && !info.ShouldIncludeUsage {
+ 				var err error
+@@ -250,6 +285,13 @@
+ 
+ 	applyUsagePostProcessing(info, usage, common.StringToByteSlice(lastStreamData))
+ 
++	if info.ChatOAuthFreeModel {
++		for _, frame := range chatFreeTail {
++			if err := sendStreamData(c, info, frame, info.ChannelSetting.ForceFormat, info.ChannelSetting.ThinkingToContent); err != nil {
++				return nil, service.ChatFreeUsageError("write_terminal_stream_failed")
++			}
++		}
++	}
+ 	HandleFinalResponse(c, info, lastStreamData, responseId, createAt, model, systemFingerprint, usage, containStreamUsage)
+ 
+ 	return usage, nil
+@@ -287,6 +329,9 @@
+ 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
+ 	}
+ 
++	if freeErr := service.ValidateChatFreeUpstreamResponse(info, responseBody); freeErr != nil {
++		return nil, freeErr
++	}
+ 	if oaiError := simpleResponse.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
+ 		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
+ 	}
+diff --git a/relay/channel/openai/relay_responses.go b/relay/channel/openai/relay_responses.go
+--- a/relay/channel/openai/relay_responses.go
++++ b/relay/channel/openai/relay_responses.go
+@@ -29,6 +29,9 @@
+ 	err = common.Unmarshal(responseBody, &responsesResponse)
+ 	if err != nil {
+ 		return nil, types.NewOpenAIError(err, types.ErrorCodeBadResponseBody, http.StatusInternalServerError)
++	}
++	if freeErr := service.ValidateChatFreeUpstreamResponse(info, responseBody); freeErr != nil {
++		return nil, freeErr
+ 	}
+ 	if oaiError := responsesResponse.GetOpenAIError(); oaiError != nil && oaiError.Type != "" {
+ 		return nil, types.WithOpenAIError(*oaiError, resp.StatusCode)
+@@ -96,9 +99,16 @@
+ 	var standardUsageErr error
+ 	var standardTerminal dto.ResponsesStreamResponse
+ 	var standardTerminalData string
++	var chatFreeStreamErr *types.NewAPIError
++	var chatFreeTerminal bool
+ 
+ 	helper.StreamScannerHandler(c, resp, info, func(data string, sr *helper.StreamResult) {
+-		if standardEnabled {
++		if freeErr := service.ValidateChatFreeUpstreamResponse(info, common.StringToByteSlice(data)); freeErr != nil {
++			chatFreeStreamErr = freeErr
++			sr.Stop(freeErr)
++			return
++		}
++		if standardEnabled || info.ChatOAuthFreeModel {
+ 			captureStandardResponsesSequence(c, common.StringToByteSlice(data))
+ 		}
+ 
+@@ -114,6 +124,15 @@
+ 			sr.Error(err)
+ 			return
+ 		}
++		if info.ChatOAuthFreeModel && (streamResponse.Type == "response.completed" || streamResponse.Type == "response.incomplete") {
++			if streamResponse.Response == nil {
++				chatFreeStreamErr = service.ChatFreeUsageError("missing_terminal_response")
++				sr.Stop(chatFreeStreamErr)
++				return
++			}
++			chatFreeTerminal = true
++			standardTerminal, standardTerminalData = streamResponse, data
++		}
+ 		if standardEnabled && (streamResponse.Type == "response.completed" || streamResponse.Type == "response.incomplete") {
+ 			candidate, parseErr := standardUsageFromResponsesEvent(common.StringToByteSlice(data), c.GetString("openai_standard_cache_write_ttl"))
+ 			if parseErr == nil && verifiedUsage != nil && *verifiedUsage != *candidate {
+@@ -139,12 +158,12 @@
+ 		}
+ 		// Do not signal successful completion before a later conflicting terminal
+ 		// frame can be rejected. Identical terminal frames are forwarded once.
+-		if !standardEnabled || (streamResponse.Type != "response.completed" && streamResponse.Type != "response.incomplete") {
++		if (!standardEnabled && !info.ChatOAuthFreeModel) || (streamResponse.Type != "response.completed" && streamResponse.Type != "response.incomplete") {
+ 			sendResponsesStreamData(c, streamResponse, data)
+ 		}
+ 		switch streamResponse.Type {
+ 		case "response.completed", "response.incomplete":
+-			if streamResponse.Type == "response.incomplete" && !standardEnabled {
++			if streamResponse.Type == "response.incomplete" && !standardEnabled && !info.ChatOAuthFreeModel {
+ 				break
+ 			}
+ 			if streamResponse.Response != nil {
+@@ -185,6 +204,15 @@
+ 			}
+ 		}
+ 	})
++	if info.ChatOAuthFreeModel {
++		if chatFreeStreamErr != nil {
++			return nil, chatFreeStreamErr
++		}
++		if freeErr := service.ValidateChatFreeStreamEnd(info, chatFreeTerminal, false); freeErr != nil {
++			return nil, freeErr
++		}
++		sendResponsesStreamData(c, standardTerminal, standardTerminalData)
++	}
+ 	if standardEnabled {
+ 		if standardUsageErr != nil {
+ 			return nil, service.OpenAIStandardUsageError(standardUsageErr.Error())
+diff --git a/relay/common/relay_info.go b/relay/common/relay_info.go
+--- a/relay/common/relay_info.go
++++ b/relay/common/relay_info.go
+@@ -85,6 +85,11 @@
+ }
+ 
+ type RelayInfo struct {
++	// 只由完成 Chat OAuth 和原生 TokenAuth 的中间件赋值；不接受客户端字段。
++	ChatOAuthFreeModel bool
++	ChatFreeRequestValidated bool
++	ChatFreeRequestPrice *types.PriceData
++	ChatFreeRequestChannel int
+ 	OpenAIStandardPolicy  string
+ 	OpenAIStandardChannel int
+ 	TokenId               int
+@@ -183,6 +188,10 @@
+ }
+ 
+ func (info *RelayInfo) InitChannelMeta(c *gin.Context) {
++	// 每次实际尝试重新取得免费出站资格，禁止上一渠道的成功校验传递到失败重试。
++	info.ChatFreeRequestValidated = false
++	info.ChatFreeRequestPrice = nil
++	info.ChatFreeRequestChannel = 0
+ 	channelType := common.GetContextKeyInt(c, constant.ContextKeyChannelType)
+ 	paramOverride := common.GetContextKeyStringMap(c, constant.ContextKeyChannelParamOverride)
+ 	headerOverride := common.GetContextKeyStringMap(c, constant.ContextKeyChannelHeaderOverride)
+@@ -456,6 +465,7 @@
+ 	}
+ 	info := &RelayInfo{
+ 		Request: request,
++		ChatOAuthFreeModel: common.GetContextKeyBool(c, constant.ContextKeyChatOAuthFreeModel),
+ 
+ 		RequestId:  reqId,
+ 		UserId:     common.GetContextKeyInt(c, constant.ContextKeyUserId),
+diff --git a/relay/helper/price.go b/relay/helper/price.go
+--- a/relay/helper/price.go
++++ b/relay/helper/price.go
+@@ -70,6 +70,15 @@
+ 	modelPrice, usePrice := ratio_setting.GetModelPrice(info.OriginModelName, false)
+ 
+ 	groupRatioInfo := HandleGroupRatio(c, info)
++	if info.ChatOAuthFreeModel {
++		// 只为新 Chat 免费入口验证当前真实定价；保持首渠道与重试的原有 ChannelMeta 判别。
++		priceInfo := *info
++		priceInfo.Request = nil
++		priceInfo.InitChannelMeta(c)
++		if err := service.ValidateChatFreePricing(&priceInfo, groupRatioInfo.GroupRatio); err != nil {
++			return types.PriceData{}, err
++		}
++	}
+ 	if service.OpenAIStandardModel(info.OriginModelName) {
+ 		// Keep the original nil ChannelMeta: getChannel uses it to distinguish
+ 		// the already-selected first channel from a subsequent retry.
+@@ -161,6 +170,8 @@
+ 		}
+ 	}
+ 
++	// 已核验的零价 Chat 新模型复用现有免预扣分支，不改变全局免费预扣开关。
++	freeModel = freeModel || info.ChatOAuthFreeModel
+ 	priceData := types.PriceData{
+ 		FreeModel:            freeModel,
+ 		ModelPrice:           modelPrice,
+diff --git a/service/chat_free.go b/service/chat_free.go
+new file mode 100644
+--- /dev/null
++++ b/service/chat_free.go
+@@ -0,0 +1,292 @@
++package service
++
++import (
++	"bytes"
++	"encoding/json"
++	"fmt"
++	"io"
++	"math"
++	"net/http"
++	"strings"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/constant"
++	"github.com/QuantumNous/new-api/dto"
++	relaycommon "github.com/QuantumNous/new-api/relay/common"
++	"github.com/QuantumNous/new-api/setting/billing_setting"
++	"github.com/QuantumNous/new-api/setting/ratio_setting"
++	"github.com/QuantumNous/new-api/types"
++	"github.com/shopspring/decimal"
++)
++
++const ChatFreePolicyErrorCode types.ErrorCode = "chat_free_policy_rejected"
++const ChatFreeUsageErrorCode types.ErrorCode = "chat_free_usage_unsettled"
++
++// ChatFreePolicyError 拒绝无法保证免费的新入口；不作为渠道故障重试或禁用渠道。
++func ChatFreePolicyError(reason string) *types.NewAPIError {
++	return types.NewErrorWithStatusCode(fmt.Errorf("Chat free model is unavailable (%s)", reason), ChatFreePolicyErrorCode, http.StatusBadRequest, types.ErrOptionWithSkipRetry())
++}
++
++// ChatFreeUsageError 报告真实费用或响应异常，不把非零账单改成零，不重试已发生的调用。
++func ChatFreeUsageError(reason string) *types.NewAPIError {
++	return types.NewErrorWithStatusCode(fmt.Errorf("Chat free response could not be accepted (%s)", reason), ChatFreeUsageErrorCode, http.StatusBadGateway, types.ErrOptionWithSkipRetry())
++}
++
++// ValidateChatFreePricing 仅校验已核验 Chat 的精确免费模型；普通 API 和原三模型不受影响。
++// groupRatio 为本请求实际分组倍率。必须在预扣前和每次上游发送前分别检查。
++func ValidateChatFreePricing(info *relaycommon.RelayInfo, groupRatio float64) error {
++	if info == nil || !info.ChatOAuthFreeModel {
++		return nil
++	}
++	if info.ChannelMeta == nil || info.OriginModelName != constant.ChatFreeModel ||
++		info.ChannelType != constant.ChannelTypeOpenRouter || strings.TrimRight(info.ChannelBaseUrl, "/") != "https://openrouter.ai/api" ||
++		info.IsModelMapped || info.UpstreamModelName != constant.ChatFreeModel {
++		return ChatFreePolicyError("channel_or_model_changed")
++	}
++	if math.IsNaN(groupRatio) || math.IsInf(groupRatio, 0) || groupRatio < 0 {
++		return ChatFreePolicyError("invalid_group_ratio")
++	}
++	// 分组倍率为零或阶梯表达式初值为零不能替代模型本身的零定价。
++	if billing_setting.GetBillingMode(info.OriginModelName) == billing_setting.BillingModeTieredExpr {
++		return ChatFreePolicyError("tiered_billing_not_free")
++	}
++	if price, usePrice := ratio_setting.GetModelPrice(info.OriginModelName, false); usePrice {
++		if price != 0 {
++			return ChatFreePolicyError("nonzero_fixed_price")
++		}
++	} else if ratio, found, _ := ratio_setting.GetModelRatio(info.OriginModelName); !found || ratio != 0 {
++		return ChatFreePolicyError("zero_model_price_required")
++	}
++	return nil
++}
++
++// ValidateChatFreeHTTPRequest 在所有映射、参数覆盖、透传与请求头覆盖之后检查真正出站内容。
++// 仅新免费能力重读有界请求体并原样放回；允许普通客户端 function 工具，不允许收费服务端工具/插件。
++func ValidateChatFreeHTTPRequest(info *relaycommon.RelayInfo, req *http.Request) error {
++	if info == nil || !info.ChatOAuthFreeModel {
++		return nil
++	}
++	info.ChatFreeRequestValidated = false
++	info.ChatFreeRequestPrice = nil
++	info.ChatFreeRequestChannel = 0
++	if err := ValidateChatFreePricing(info, info.PriceData.GroupRatioInfo.GroupRatio); err != nil {
++		return err
++	}
++	if !info.PriceData.FreeModel || info.PriceData.QuotaToPreConsume != 0 ||
++		(info.PriceData.UsePrice && info.PriceData.ModelPrice != 0) || (!info.PriceData.UsePrice && info.PriceData.ModelRatio != 0) {
++		return ChatFreePolicyError("invalid_zero_price_snapshot")
++	}
++	if req == nil || req.URL == nil || req.Method != http.MethodPost || req.URL.Scheme != "https" ||
++		req.URL.Host != "openrouter.ai" || (req.Host != "" && req.Host != "openrouter.ai") ||
++		req.URL.User != nil || req.URL.RawQuery != "" || req.URL.Fragment != "" ||
++		(req.URL.Path != "/api/v1/chat/completions" && req.URL.Path != "/api/v1/responses") {
++		return ChatFreePolicyError("invalid_final_endpoint")
++	}
++	if info.ApiKey == "" || len(req.Header.Values("Authorization")) != 1 || req.Header.Get("Authorization") != "Bearer "+info.ApiKey {
++		return ChatFreePolicyError("invalid_final_authorization")
++	}
++	limit := int64(constant.MaxRequestBodyMB) * 1024 * 1024
++	if limit <= 0 {
++		limit = 128 * 1024 * 1024
++	}
++	if req.Body == nil {
++		return ChatFreePolicyError("missing_request_body")
++	}
++	body, err := io.ReadAll(io.LimitReader(req.Body, limit+1))
++	_ = req.Body.Close()
++	if err != nil || int64(len(body)) > limit {
++		return ChatFreePolicyError("request_body_unavailable_or_too_large")
++	}
++	if err := validateChatFreeBody(body); err != nil {
++		return err
++	}
++	req.Body = io.NopCloser(bytes.NewReader(body))
++	req.ContentLength = int64(len(body))
++	// 本次真实出站资格冻结，后续管理员改价只约束新请求，不追溯改变在途请求的合同。
++	price := info.PriceData
++	if price.OtherRatios != nil {
++		price.OtherRatios = make(map[string]float64, len(info.PriceData.OtherRatios))
++		for key, value := range info.PriceData.OtherRatios {
++			price.OtherRatios[key] = value
++		}
++	}
++	info.ChatFreeRequestPrice = &price
++	info.ChatFreeRequestChannel = info.ChannelId
++	info.ChatFreeRequestValidated = true
++	return nil
++}
++
++// IsValidatedChatFreeRequest 仅认可本次已通过最终出站守卫的零价资格快照，不重查可变全局价。
++// 价格预检、客户端模型名或旧重试留下的状态不能单独获得附加违规费例外。
++func IsValidatedChatFreeRequest(info *relaycommon.RelayInfo) bool {
++	if info == nil || !info.ChatOAuthFreeModel || !info.ChatFreeRequestValidated || info.ChatFreeRequestPrice == nil ||
++		info.ChannelMeta == nil || info.ChannelId != info.ChatFreeRequestChannel || info.OriginModelName != constant.ChatFreeModel ||
++		info.ChannelType != constant.ChannelTypeOpenRouter || strings.TrimRight(info.ChannelBaseUrl, "/") != "https://openrouter.ai/api" ||
++		info.IsModelMapped || info.UpstreamModelName != constant.ChatFreeModel {
++		return false
++	}
++	price := info.ChatFreeRequestPrice
++	return price.FreeModel && price.QuotaToPreConsume == 0 &&
++		((price.UsePrice && price.ModelPrice == 0) || (!price.UsePrice && price.ModelRatio == 0))
++}
++
++// validateChatFreeBody 校验最终 JSON 的模型、回退及附加能力；不修改客户端参数。
++func validateChatFreeBody(body []byte) error {
++	var request map[string]json.RawMessage
++	if common.Unmarshal(body, &request) != nil || request == nil {
++		return ChatFreePolicyError("invalid_request_json")
++	}
++	var model string
++	if common.Unmarshal(request["model"], &model) != nil || model != constant.ChatFreeModel {
++		return ChatFreePolicyError("final_model_changed")
++	}
++	if raw, exists := request["models"]; exists {
++		var fallbacks []string
++		if common.Unmarshal(raw, &fallbacks) != nil {
++			return ChatFreePolicyError("invalid_fallback_models")
++		}
++		for _, fallback := range fallbacks {
++			if fallback != constant.ChatFreeModel {
++				return ChatFreePolicyError("unapproved_fallback_model")
++			}
++		}
++	}
++	for _, field := range []string{"plugins", "web_search_options", "search_parameters", "web_search", "enable_search", "audio", "extra_body"} {
++		if field == "extra_body" && string(bytes.TrimSpace(request[field])) == "{}" {
++			continue
++		}
++		if raw, exists := request[field]; exists && string(bytes.TrimSpace(raw)) != "null" && string(bytes.TrimSpace(raw)) != "false" && string(bytes.TrimSpace(raw)) != "[]" {
++			return ChatFreePolicyError("unapproved_addon_" + field)
++		}
++	}
++	if raw, exists := request["modalities"]; exists {
++		var modalities []string
++		if common.Unmarshal(raw, &modalities) != nil {
++			return ChatFreePolicyError("invalid_modalities")
++		}
++		for _, modality := range modalities {
++			if modality != "text" {
++				return ChatFreePolicyError("nontext_output_not_free")
++			}
++		}
++	}
++	return validateChatFreeTools(request["tools"], false)
++}
++
++// validateChatFreeTools 允许由客户端执行的 function 工具；服务端工具不属于免费合同。
++func validateChatFreeTools(raw json.RawMessage, response bool) error {
++	if len(raw) == 0 || string(bytes.TrimSpace(raw)) == "null" {
++		return nil
++	}
++	var tools []struct {
++		Type string `json:"type"`
++	}
++	if common.Unmarshal(raw, &tools) == nil {
++		for _, tool := range tools {
++			if tool.Type != "function" {
++				if response {
++					return ChatFreeUsageError("server_tool_returned")
++				}
++				return ChatFreePolicyError("server_tools_not_free")
++			}
++		}
++		return nil
++	}
++	if response {
++		return ChatFreeUsageError("invalid_response_tools")
++	}
++	return ChatFreePolicyError("invalid_tools")
++}
++
++// ValidateChatFreeUpstreamResponse 在写回非流响应或每个 SSE 帧之前检查可用的真实费用证据。
++// cost 缺失不伪造为零；显式非零/无效 cost、上游失败或服务端工具均明确失败。
++func ValidateChatFreeUpstreamResponse(info *relaycommon.RelayInfo, body []byte) *types.NewAPIError {
++	if info == nil || !info.ChatOAuthFreeModel {
++		return nil
++	}
++	var envelope map[string]json.RawMessage
++	if common.Unmarshal(body, &envelope) != nil || envelope == nil {
++		return ChatFreeUsageError("invalid_upstream_json")
++	}
++	var event string
++	_ = common.Unmarshal(envelope["type"], &event)
++	if raw, exists := envelope["response"]; exists && string(bytes.TrimSpace(raw)) != "null" {
++		if common.Unmarshal(raw, &envelope) != nil || envelope == nil {
++			return ChatFreeUsageError("invalid_response_envelope")
++		}
++	}
++	if raw, exists := envelope["error"]; exists && string(bytes.TrimSpace(raw)) != "null" {
++		// 保留上游违规拒绝原因，继续交由原有规范化、拒绝和错误审计边界处理。
++		var value any
++		if common.Unmarshal(raw, &value) == nil {
++			if upstream := dto.GetOpenAIError(value); upstream != nil && upstream.Message != "" {
++				return ChatFreeUsageError("upstream_error: " + upstream.Message)
++			}
++		}
++		return ChatFreeUsageError("upstream_error")
++	}
++	if event == "error" || event == "response.failed" || event == "response.error" {
++		return ChatFreeUsageError("upstream_failed")
++	}
++	if raw, exists := envelope["usage"]; exists && string(bytes.TrimSpace(raw)) != "null" {
++		var usage map[string]json.RawMessage
++		if common.Unmarshal(raw, &usage) != nil {
++			return ChatFreeUsageError("invalid_upstream_usage")
++		}
++		if cost, exists := usage["cost"]; exists {
++			value := strings.TrimSpace(string(cost))
++			if len(value) > 0 && value[0] == '"' {
++				if common.Unmarshal(cost, &value) != nil {
++					return ChatFreeUsageError("invalid_upstream_cost")
++				}
++			}
++			amount, err := decimal.NewFromString(value)
++			if err != nil || !amount.IsZero() {
++				return ChatFreeUsageError("nonzero_or_invalid_upstream_cost")
++			}
++		}
++	}
++	if err := validateChatFreeTools(envelope["tools"], true); err != nil {
++		return ChatFreeUsageError("server_tool_returned")
++	}
++	var output []struct {
++		Type string `json:"type"`
++	}
++	if raw, exists := envelope["output"]; exists {
++		if common.Unmarshal(raw, &output) != nil {
++			return ChatFreeUsageError("invalid_response_output")
++		}
++	}
++	if raw, exists := envelope["item"]; exists {
++		var item struct {
++			Type string `json:"type"`
++		}
++		if common.Unmarshal(raw, &item) != nil {
++			return ChatFreeUsageError("invalid_response_item")
++		}
++		output = append(output, item)
++	}
++	for _, item := range output {
++		if item.Type != "message" && item.Type != "reasoning" && item.Type != "function_call" {
++			return ChatFreeUsageError("unapproved_response_item")
++		}
++	}
++	return nil
++}
++
++// ValidateChatFreeStreamEnd 要求真实协议终止证据并检查 scanner 的结束原因；不能用估算补成功。
++// chatCompletions 为 true 时另要求 [DONE]；Responses 允许合法终帧后的正常 EOF。
++func ValidateChatFreeStreamEnd(info *relaycommon.RelayInfo, terminal, chatCompletions bool) *types.NewAPIError {
++	if info == nil || !info.ChatOAuthFreeModel {
++		return nil
++	}
++	status := info.StreamStatus
++	if !terminal || status == nil || status.HasErrors() || status.EndError != nil {
++		return ChatFreeUsageError("missing_or_invalid_terminal_stream")
++	}
++	if status.EndReason != relaycommon.StreamEndReasonDone &&
++		(chatCompletions || status.EndReason != relaycommon.StreamEndReasonEOF) {
++		return ChatFreeUsageError("abnormal_stream_end")
++	}
++	return nil
++}
+diff --git a/service/text_quota.go b/service/text_quota.go
+--- a/service/text_quota.go
++++ b/service/text_quota.go
+@@ -350,7 +350,7 @@
+ 
+ 	var tieredResult *billingexpr.TieredResult
+ 	tieredBillingApplied := false
+-	if originUsage != nil && relayInfo.OpenAIStandardPolicy == "" {
++	if originUsage != nil && relayInfo.OpenAIStandardPolicy == "" && !IsValidatedChatFreeRequest(relayInfo) {
+ 		var tieredUsedVars map[string]bool
+ 		if snap := relayInfo.TieredBillingSnapshot; snap != nil {
+ 			tieredUsedVars = billingexpr.UsedVars(snap.ExprString)
+@@ -377,6 +377,16 @@
+ 	}
+ 	if summary.ImageGenerationCallPrice > 0 {
+ 		extraContent = append(extraContent, fmt.Sprintf("Image Generation Call 花费 %s", decimal.NewFromFloat(summary.ImageGenerationCallPrice).Mul(decimal.NewFromFloat(summary.GroupRatio)).Mul(decimal.NewFromFloat(common.QuotaPerUnit)).String()))
++	}
++
++	if relayInfo.ChatOAuthFreeModel {
++		// 在用量统计和余额写入前核对本次资格及真实附加费用，绝不强行归零账单。
++		if !IsValidatedChatFreeRequest(relayInfo) {
++			return ChatFreeUsageError("missing_free_request_snapshot")
++		}
++		if !relayInfo.PriceData.FreeModel || summary.Quota != 0 || !summary.ToolCallSurchargeQuota.IsZero() {
++			return ChatFreeUsageError("nonzero_settlement")
++		}
+ 	}
+ 
+ 	if summary.TotalTokens == 0 {
+diff --git a/service/violation_fee.go b/service/violation_fee.go
+--- a/service/violation_fee.go
++++ b/service/violation_fee.go
+@@ -122,6 +122,11 @@
+ 	if feeQuota <= 0 {
+ 		return false
+ 	}
++	if IsValidatedChatFreeRequest(relayInfo) {
++		// 用户批准的唯一例外：已核验且真实出站仍为零价 Chat 免费请求；违规拒绝和错误审计照常。
++		logger.LogInfo(ctx, fmt.Sprintf("chat_free_violation_fee_exempt user_id=%d channel_id=%d model=%s code=%s", relayInfo.UserId, relayInfo.ChannelId, relayInfo.OriginModelName, apiErr.GetErrorCode()))
++		return false
++	}
+ 
+ 	if err := PostConsumeQuota(relayInfo, feeQuota, 0, true); err != nil {
+ 		logger.LogError(ctx, fmt.Sprintf("failed to charge violation fee: %s", err.Error()))

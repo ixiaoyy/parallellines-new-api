@@ -1,0 +1,12 @@
+diff --git a/main.go b/main.go
+--- a/main.go
++++ b/main.go
+@@ -34,7 +34,7 @@
+ 	_ "net/http/pprof"
+ )
+ 
+-//go:embed web/dist
++//go:embed all:web/dist
+ var buildFS embed.FS
+ 
+ //go:embed web/dist/index.html

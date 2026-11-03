@@ -1,0 +1,93 @@
+{
+  "base_frontend_manifest": "patches/frontend-performance-manifest.json",
+  "base_frontend_manifest_sha256": "2ec12982443f8539cadf8fb6977dd8225d795066b9644b43cc14a473ba29cc2a",
+  "application_version": "v0.13.2-pkce.8-local-relay-timing",
+  "published": false,
+  "production_patch": {
+    "file": "patches/new-api-v0.13.2-pkce8-relay-timing-performance.patch",
+    "sha256": "13819c0e2ee3b46e63d08a2ae27aa425857408edbc9361e250a956ffbada9ca6"
+  },
+  "files": [
+    {
+      "path": "common/oauth_relay_timing.go",
+      "base_sha256": null,
+      "result_sha256": "dae86f1ebf089992e7bad93e60e3dbac0f0fb3b39356c0a96722a3230ea04d62"
+    },
+    {
+      "path": "middleware/oauth_relay_timing.go",
+      "base_sha256": null,
+      "result_sha256": "6625f18cb4996395503862aa22704a00c5749e4f515249ddac37d2ae80156ffa"
+    },
+    {
+      "path": "middleware/oauth_relay.go",
+      "base_sha256": "da95b583a9bd06826e3d0d1efbd05bee35c7a6b2f299dc6c1067a79a55ee6e33",
+      "result_sha256": "e924e39183f0e9d19d948ab05bcc5ca68786f295a8b680b59551ab791f275f2e"
+    },
+    {
+      "path": "middleware/logger.go",
+      "base_sha256": "168e080bd2ed1f0c595054ce9e2bc03be193117b428905109a0422f2d0b5572d",
+      "result_sha256": "e80bbd0365cfcbfe8961df14348c9444fdb5387be292951e712fefd32a9a5bf1"
+    },
+    {
+      "path": "router/oauth-relay-router.go",
+      "base_sha256": "224673eb96aee9a6d205621750af244dd74c5f4536cb133d70600b9e1f22b102",
+      "result_sha256": "7e408c050978e62bbbd746ce728a94469c67dba55c0470e5886c46ad9458e3a1"
+    },
+    {
+      "path": "relay/channel/api_request.go",
+      "base_sha256": "30b17462ffc732bf879f045b3dcc6b34795c76a3711536708490c7ff73294bb7",
+      "result_sha256": "b0fce5b3f8b277bd5bcd1f6ce67077a46e443619b2d3cbb15604fc40578ef0f0"
+    }
+  ],
+  "verification_patch": {
+    "file": "patches/new-api-v0.13.2-pkce8-relay-timing-tests.patch",
+    "sha256": "9b01df812c78e3d0ccb2eabd3b67043754c292fd3f464fc2853949f018a3bf61"
+  },
+  "verification_files": [
+    {
+      "path": "common/oauth_relay_timing_test.go",
+      "base_sha256": null,
+      "result_sha256": "a98c7339d674d0edd26a0ba0ed5f94dca81f961d375b1fc9b8bae4f0bc62fbda"
+    },
+    {
+      "path": "middleware/oauth_relay_timing_test.go",
+      "base_sha256": null,
+      "result_sha256": "273dfe4e47d93d81713a72a6e82b78850e8b912d99e275313666c59b96eb5964"
+    },
+    {
+      "path": "relay/channel/oauth_relay_timing_test.go",
+      "base_sha256": null,
+      "result_sha256": "dc477f4872cf44f5909dd028e56f1af6b14655ddfbde263f7e8a0feb67b2a60c"
+    },
+    {
+      "path": "service/oauth_relay_timing_test.go",
+      "base_sha256": null,
+      "result_sha256": "03cdc9275f2c0edd4081d8aa83e140b7a07e32f11d547afb880f11f5c65e8dd7"
+    },
+    {
+      "path": "router/oauth_relay_integration_test.go",
+      "base_sha256": "5d2eda134e32995f796b7af66f6a42178e424094e3473cf4072f94fbef29e681",
+      "result_sha256": "fd0a762f5ee95b8d9510b4af729da87973fb74e737c3b8aea50da419232bc878"
+    },
+    {
+      "path": "router/chat_free_integration_test.go",
+      "base_sha256": "bf53ba18defd147a91718562d8347eeb4e9d0a649f6c37db57bb1f205b724b65",
+      "result_sha256": "bd6f33e98c355237276356edd123f1e192a629ad5971064f49694306e196c2ed"
+    }
+  ],
+  "preserved_files": {
+    "go.mod": "befda82d9376ba545d71cbeac8ef10a45383f052484829c917b276d779b5f804",
+    "go.sum": "ee1729a9671feaf1a226948b83c0b7b832be73097d447947436a6e0d9110789c",
+    "oauth/main_account.go": "32681f93007e2a69c6712a9cd8b6cfbfbc656c6f2c1343de210b762bd707c9c5",
+    "oauth/main_profile.go": "a345f8e76cd97d0a1c6e1bdeb3dd4312d42d1f443a1934bf13234e42590482e1",
+    "model/oauth_relay.go": "a8e2f351ad1fca37ed692803048efbeb57bb91369b3ab5468cdbcb618b4f4298",
+    "model/user_cache.go": "abf402cabc51180631d4b5afc9ea8b908e8361fc9a5fd32942f2c3e01b04e534",
+    "middleware/auth.go": "7dbc74dc32295ecbea8322b1c5493bc458960d64e97d6e41cf14e69dcae41a88",
+    "middleware/distributor.go": "99ee79606f9400e7e321815ef540f3964ac3a431f2e3169b60834dfeb389216d",
+    "service/log_info_generate.go": "65b321baa1c65b0567e54d150fc385fa1577e2838ef5abaff6cb0747eac1c0b5",
+    "service/http_client.go": "4429bb54738699e05ca40b5f8c1f715e840107061f962886f4c6dc76282cba31",
+    "service/billing_session.go": "32a296a2403209b2426104aab6d4bc9a22cb0f27e22a2e03b9666ffa4ef5f021",
+    "main.go": "70d2b7895fec5c9ebfb83799684a978bb0fddf0f557e305431cf1a7141b2acd8",
+    "service/chat_free.go": "c68dae203a93a766186dc7b5b0f580dbcba801b12fba6cc2a10dc8da4dcff9da"
+  }
+}

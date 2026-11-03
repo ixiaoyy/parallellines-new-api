@@ -1,0 +1,40 @@
+{
+  "files": [
+    "README.md",
+    "deploy/nginx-api.conf",
+    "deploy/deploy-performance-release.py",
+    "deploy/test_deploy_performance_release.py",
+    "patches/frontend-performance-manifest.json",
+    "patches/new-api-v0.13.2-pkce8-frontend-performance.patch",
+    "patches/new-api-v0.13.2-pkce8-relay-timing-performance.patch",
+    "patches/new-api-v0.13.2-pkce8-relay-timing-tests.patch",
+    "patches/relay-timing-performance-manifest.json",
+    "patches/new-api-v0.13.2-pkce8-profile-collision-exists.patch",
+    "patches/new-api-v0.13.2-pkce8-profile-collision-exists-tests.patch",
+    "patches/profile-collision-exists-manifest.json",
+    "patches/new-api-v0.13.2-pkce8-public-asset-embed.patch",
+    "patches/new-api-v0.13.2-pkce9-asset-embedding-tests.patch",
+    "scripts/build-performance-local.py",
+    "scripts/build-relay-timing-local.py",
+    "scripts/build-profile-exists-local.py",
+    "scripts/README-performance-local.md",
+    "scripts/README-relay-timing-local.md",
+    "scripts/README-profile-exists-local.md",
+    "scripts/smoke-performance-local.mjs",
+    "scripts/test_build_performance_local.py",
+    "scripts/test_frontend_performance.mjs",
+    "releases/v0.13.2-pkce.9/Dockerfile.runtime",
+    "releases/v0.13.2-pkce.9/README.md",
+    "releases/v0.13.2-pkce.9/RELEASE_NOTES.md",
+    "releases/v0.13.2-pkce.9/frontend-assets.json",
+    "releases/v0.13.2-pkce.9/inspect-frontend.mjs",
+    "releases/v0.13.2-pkce.9/release.py",
+    "releases/v0.13.2-pkce.9/release-inputs.json",
+    "releases/v0.13.2-pkce.9/source-files.json",
+    "releases/v0.13.2-pkce.9/upstream.lock.json"
+  ],
+  "excluded_uncommitted_work": [
+    "docs/OAUTH-RELAY.md",
+    "docs/OPERATIONS.md"
+  ]
+}

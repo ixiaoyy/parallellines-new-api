@@ -1,0 +1,39 @@
+{
+  "base_timing_manifest": "patches/relay-timing-performance-manifest.json",
+  "base_timing_manifest_sha256": "8e7bb518d8bc119606fc660f7daa15bb70b4d38e3ef9977c4c559348f698b147",
+  "application_version": "v0.13.2-pkce.8-local-profile-exists",
+  "published": false,
+  "production_patch": {
+    "file": "patches/new-api-v0.13.2-pkce8-profile-collision-exists.patch",
+    "sha256": "b25c94396b8b0debcbac642806271f1e28baf2fabd28ef4e45e1fbc9d7d6ab70"
+  },
+  "files": [
+    {
+      "path": "oauth/main_account.go",
+      "base_sha256": "32681f93007e2a69c6712a9cd8b6cfbfbc656c6f2c1343de210b762bd707c9c5",
+      "result_sha256": "c45e61297ebc7c9c3ac5c3cfb67dc3cbc0234af548aeb3037563159ce4b6824c"
+    }
+  ],
+  "preserved_main_account_sections": {
+    "prefix_marker": "func mainProfileCollision(",
+    "prefix_sha256": "71062045c483824003f86b1f079175b4ac09068ec26cc145e9f464e3f8546910",
+    "tail_marker": "// FindOrCreateMainProfileUser",
+    "tail_sha256": "53deb950110d244f9805953947b137cf954f7db2319e7b9af901fdb31889d527"
+  },
+  "verification_patch": {
+    "file": "patches/new-api-v0.13.2-pkce8-profile-collision-exists-tests.patch",
+    "sha256": "3b2f7ea712880a731728d29b3c4bb809acad3c89714056fca1417e14dd47fbf3"
+  },
+  "verification_files": [
+    {
+      "path": "oauth/main_profile_collision_exists_test.go",
+      "base_sha256": null,
+      "result_sha256": "8d26a3284c1fe63f7c82c71829c0128e46e01d1fac564876401c01ef1564315a"
+    },
+    {
+      "path": "controller/profile_exists_contract_test.go",
+      "base_sha256": null,
+      "result_sha256": "128e08ff76bd79faf0907f15a4ce6949eccd32a3e1bf47b36ded3b83457e2e38"
+    }
+  ]
+}

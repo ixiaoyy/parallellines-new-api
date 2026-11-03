@@ -1,0 +1,400 @@
+diff --git a/common/oauth_relay_timing_test.go b/common/oauth_relay_timing_test.go
+new file mode 100644
+--- /dev/null
++++ b/common/oauth_relay_timing_test.go
+@@ -0,0 +1,45 @@
++package common
++
++import (
++	"strings"
++	"testing"
++	"time"
++)
++
++func TestOAuthRelayTimingMissingStagesAndHeaderAttempt(t *testing.T) {
++	timings := NewOAuthRelayTimings()
++	if got := timings.String(); !strings.Contains(got, "oauth_relay_userinfo_verify_ms=-") || !strings.Contains(got, "oauth_relay_upstream_headers_ms=-") {
++		t.Fatal("unobserved stages must not be reported as zero")
++	}
++	timings.RecordStage(OAuthRelayUserInfoStage, 17*time.Millisecond)
++	timings.RecordStage(OAuthRelayAccountStage, 23*time.Millisecond)
++	timings.RecordStage(OAuthRelayCredentialStage, 3*time.Millisecond)
++	first := timings.BeginUpstreamAttempt()
++	timings.RecordUpstreamHeaders(first, 11*time.Millisecond, false)
++	if !strings.Contains(timings.String(), "oauth_relay_upstream_headers_ms=-") {
++		t.Fatal("a network error without a response was disguised as response headers")
++	}
++	second := timings.BeginUpstreamAttempt()
++	timings.RecordUpstreamHeaders(second, 31*time.Millisecond, true)
++	third := timings.BeginUpstreamAttempt()
++	timings.RecordUpstreamHeaders(third, 99*time.Millisecond, true)
++	timings.Finish()
++	got := timings.String()
++	for _, value := range []string{"userinfo_verify_ms=17.000", "account_resolve_ms=23.000", "credential_ms=3.000", "upstream_headers_ms=31.000", "upstream_headers_attempt=2", "upstream_attempts=3"} {
++		if !strings.Contains(got, value) {
++			t.Fatalf("missing observed field %s", value)
++		}
++	}
++}
++
++func TestOAuthRelayTimingDistributionDoesNotIncludeRelay(t *testing.T) {
++	timings := NewOAuthRelayTimings()
++	timings.BeginDistribution()
++	timings.FinishDistribution()
++	before := timings.String()
++	time.Sleep(time.Millisecond)
++	timings.FinishDistribution()
++	if timings.String() != before {
++		t.Fatal("the deferred distribution end overwrote the controller-entry measurement")
++	}
++}
+diff --git a/middleware/oauth_relay_timing_test.go b/middleware/oauth_relay_timing_test.go
+new file mode 100644
+--- /dev/null
++++ b/middleware/oauth_relay_timing_test.go
+@@ -0,0 +1,49 @@
++package middleware
++
++import (
++	"bytes"
++	"net/http"
++	"net/http/httptest"
++	"strings"
++	"testing"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/gin-gonic/gin"
++)
++
++func TestOAuthRelayTimingAccessLogAndEarlyReject(t *testing.T) {
++	gin.SetMode(gin.TestMode)
++	t.Setenv("CHAT_OAUTH_RELAY_ENABLED", "true")
++	var logs bytes.Buffer
++	oldWriter := gin.DefaultWriter
++	gin.DefaultWriter = &logs
++	t.Cleanup(func() { gin.DefaultWriter = oldWriter })
++	engine := gin.New()
++	engine.Use(RequestId())
++	SetUpLogger(engine)
++	engine.GET("/oauth-relay/v1/models", ChatOAuthRelayTiming(), ChatOAuthRelay("/v1/models"), func(c *gin.Context) { c.Status(299) })
++	engine.GET("/ordinary", func(c *gin.Context) { c.Status(204) })
++	for _, path := range []string{"/oauth-relay/v1/models", "/oauth-relay/v1/models?access_token=synthetic-secret"} {
++		logs.Reset()
++		response := httptest.NewRecorder()
++		engine.ServeHTTP(response, httptest.NewRequest(http.MethodGet, path, nil))
++		if response.Code != 401 && response.Code != 400 {
++			t.Fatalf("original early rejection changed: %d", response.Code)
++		}
++		entry := logs.String()
++		if strings.Count(entry, "[GIN]") != 1 || strings.Count(entry, "oauth_relay_total_ms=") != 1 {
++			t.Fatal("timings must reuse the single existing access log")
++		}
++		if strings.Contains(entry, "synthetic-secret") || strings.Contains(entry, "access_token") || strings.Contains(entry, "Bearer") {
++			t.Fatal("rejected credentials appeared in the access log")
++		}
++		if !strings.Contains(entry, response.Header().Get(common.RequestIdKey)) || !strings.Contains(entry, "oauth_relay_userinfo_verify_ms=-") {
++			t.Fatal("request ID or truthful missing-stage marker was lost")
++		}
++	}
++	logs.Reset()
++	engine.ServeHTTP(httptest.NewRecorder(), httptest.NewRequest(http.MethodGet, "/ordinary", nil))
++	if strings.Contains(logs.String(), "oauth_relay_") {
++		t.Fatal("ordinary API acquired adapter timing fields")
++	}
++}
+diff --git a/relay/channel/oauth_relay_timing_test.go b/relay/channel/oauth_relay_timing_test.go
+new file mode 100644
+--- /dev/null
++++ b/relay/channel/oauth_relay_timing_test.go
+@@ -0,0 +1,65 @@
++package channel
++
++import (
++	"errors"
++	"io"
++	"net/http"
++	"net/http/httptest"
++	"strings"
++	"testing"
++
++	"github.com/QuantumNous/new-api/common"
++	relaycommon "github.com/QuantumNous/new-api/relay/common"
++	"github.com/QuantumNous/new-api/service"
++	"github.com/gin-gonic/gin"
++)
++
++type timingTransport func(*http.Request) (*http.Response, error)
++
++func (f timingTransport) RoundTrip(request *http.Request) (*http.Response, error) { return f(request) }
++
++type timingUnreadBody struct{ reads int }
++
++func (b *timingUnreadBody) Read([]byte) (int, error) { b.reads++; return 0, io.EOF }
++func (b *timingUnreadBody) Close() error             { return nil }
++
++func TestOAuthRelayTimingActualHTTPHeadersWithoutReadingStream(t *testing.T) {
++	gin.SetMode(gin.TestMode)
++	if service.GetHttpClient() == nil {
++		service.InitHttpClient()
++	}
++	client := service.GetHttpClient()
++	oldClient := *client
++	t.Cleanup(func() { *client = oldClient })
++	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
++	ctx.Request = httptest.NewRequest(http.MethodPost, "/oauth-relay/v1/chat/completions", strings.NewReader("synthetic-body"))
++	timings := common.NewOAuthRelayTimings()
++	ctx.Set(common.OAuthRelayTimingKey, timings)
++	body := &timingUnreadBody{}
++	calls := 0
++	client.Transport = timingTransport(func(request *http.Request) (*http.Response, error) {
++		calls++
++		if request.URL.Host != "synthetic.invalid" {
++			t.Fatal("unexpected request destination")
++		}
++		if calls == 1 {
++			return nil, errors.New("synthetic network failure")
++		}
++		return &http.Response{StatusCode: 200, Header: make(http.Header), Body: body, Request: request}, nil
++	})
++	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{}}
++	for attempt := 1; attempt <= 2; attempt++ {
++		request, _ := http.NewRequest(http.MethodPost, "https://synthetic.invalid/response", strings.NewReader("synthetic-body"))
++		response, err := DoRequest(ctx, request, info)
++		if attempt == 1 {
++			if err == nil || response != nil || !strings.Contains(timings.String(), "oauth_relay_upstream_headers_ms=-") {
++				t.Fatal("failed HTTP attempt changed behavior or fabricated response headers")
++			}
++		} else if err != nil || response.Body != body {
++			t.Fatal("successful response or body identity changed")
++		}
++	}
++	if body.reads != 0 || !strings.Contains(timings.String(), "upstream_headers_attempt=2") || !strings.Contains(timings.String(), "upstream_attempts=2") {
++		t.Fatal("timing consumed the stream body or lost the actual attempt number")
++	}
++}
+diff --git a/service/oauth_relay_timing_test.go b/service/oauth_relay_timing_test.go
+new file mode 100644
+--- /dev/null
++++ b/service/oauth_relay_timing_test.go
+@@ -0,0 +1,26 @@
++package service
++
++import (
++	"testing"
++	"time"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/constant"
++	relaycommon "github.com/QuantumNous/new-api/relay/common"
++	"github.com/gin-gonic/gin"
++)
++
++func TestOAuthRelayTimingKeepsExistingFrtAndRequestStart(t *testing.T) {
++	context, _ := gin.CreateTestContext(nil)
++	start := time.Unix(100, 0)
++	common.SetContextKey(context, constant.ContextKeyRequestStartTime, start)
++	info := &relaycommon.RelayInfo{ChannelMeta: &relaycommon.ChannelMeta{}, StartTime: start, FirstResponseTime: start.Add(1500 * time.Millisecond)}
++	timings := common.NewOAuthRelayTimings()
++	context.Set(common.OAuthRelayTimingKey, timings)
++	timings.RecordStage(common.OAuthRelayUserInfoStage, time.Second)
++	timings.Finish()
++	other := GenerateTextOtherInfo(context, info, 1, 1, 1, 0, 1, -1, 1)
++	if other["frt"] != float64(1500) || common.GetContextKeyTime(context, constant.ContextKeyRequestStartTime) != start {
++		t.Fatal("adapter entry timings redefined the established frt contract")
++	}
++}
+diff --git a/router/oauth_relay_integration_test.go b/router/oauth_relay_integration_test.go
+--- a/router/oauth_relay_integration_test.go
++++ b/router/oauth_relay_integration_test.go
+@@ -1,6 +1,7 @@
+ package router
+ 
+ import (
++	"bytes"
+ 	"fmt"
+ 	"io"
+ 	"net/http"
+@@ -13,6 +14,7 @@
+ 	"github.com/QuantumNous/new-api/common"
+ 	"github.com/QuantumNous/new-api/constant"
+ 	"github.com/QuantumNous/new-api/i18n"
++	"github.com/QuantumNous/new-api/middleware"
+ 	"github.com/QuantumNous/new-api/model"
+ 	"github.com/QuantumNous/new-api/oauth"
+ 	"github.com/QuantumNous/new-api/setting/ratio_setting"
+@@ -114,7 +116,13 @@
+ 		}
+ 		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {"application/json"}}, Body: io.NopCloser(strings.NewReader(string(body))), Request: r}, nil
+ 	})
++	var timingLogs bytes.Buffer
++	oldLogWriter := gin.DefaultWriter
++	gin.DefaultWriter = &timingLogs
++	t.Cleanup(func() { gin.DefaultWriter = oldLogWriter })
+ 	engine := gin.New()
++	engine.Use(middleware.RequestId())
++	middleware.SetUpLogger(engine)
+ 	SetRelayRouter(engine)
+ 	request := func(method, path, identity, body string) *httptest.ResponseRecorder {
+ 		t.Helper()
+@@ -126,7 +134,33 @@
+ 			req.Header.Set("Content-Type", "application/json")
+ 		}
+ 		res := httptest.NewRecorder()
++		logStart := timingLogs.Len()
+ 		engine.ServeHTTP(res, req)
++		entry := timingLogs.String()[logStart:]
++		if strings.Count(entry, "[GIN]") != 1 {
++			t.Fatal("a request must retain one access log")
++		}
++		requestID := res.Header().Get(common.RequestIdKey)
++		if requestID == "" || !strings.Contains(entry, requestID) {
++			t.Fatal("access timing lost the existing request ID")
++		}
++		if strings.HasPrefix(path, "/oauth-relay/") {
++			if strings.Count(entry, "oauth_relay_total_ms=") != 1 {
++				t.Fatal("real adapter route did not emit exactly one timing suffix")
++			}
++			if res.Code == http.StatusOK {
++				for _, field := range []string{"userinfo_verify", "account_resolve", "credential"} {
++					if strings.Contains(entry, "oauth_relay_"+field+"_ms=-") {
++						t.Fatal("real successful adapter call omitted a completed identity stage")
++					}
++				}
++			}
++			if strings.Contains(entry, "synthetic-oauth") || strings.Contains(entry, "synthetic-upstream-key") || strings.Contains(entry, "synthetic-session") {
++				t.Fatal("timing log exposed credentials or identity claims")
++			}
++		} else if strings.Contains(entry, "oauth_relay_total_ms=") {
++			t.Fatal("ordinary request acquired adapter timing")
++		}
+ 		return res
+ 	}
+ 	t.Run("exact route surface", func(t *testing.T) {
+@@ -230,8 +264,10 @@
+ 			"client_id": "parallellines-newapi", "auth_style": oauth.AuthStyleInHeader,
+ 			"username_field": "preferred_username", "display_name_field": "name", "email_field": "email",
+ 			"authorization_endpoint": "https://pingxingxian.space/auth/oidc/auth",
+-			"token_endpoint": "https://pingxingxian.space/auth/oidc/token",
+-		}).Error; err != nil { t.Fatal(err) }
++			"token_endpoint":         "https://pingxingxian.space/auth/oidc/token",
++		}).Error; err != nil {
++			t.Fatal(err)
++		}
+ 		role := "admin"
+ 		previous := http.DefaultTransport
+ 		t.Cleanup(func() { http.DefaultTransport = previous })
+@@ -246,20 +282,38 @@
+ 		})
+ 		for i := 0; i < 2; i++ {
+ 			res := request("GET", "/oauth-relay/v1/models", "fixture-new", "")
+-			if res.Code != 200 || !strings.Contains(res.Body.String(), "gpt-6-luna") || !strings.Contains(res.Body.String(), "gpt-6.1-sol") { t.Fatal("new user cannot discover native group models") }
++			if res.Code != 200 || !strings.Contains(res.Body.String(), "gpt-6-luna") || !strings.Contains(res.Body.String(), "gpt-6.1-sol") {
++				t.Fatal("new user cannot discover native group models")
++			}
+ 		}
+ 		var binding model.UserOAuthBinding
+-		if err := model.DB.Where("provider_id = ? AND provider_user_id = ?", 1, "fixture-new").First(&binding).Error; err != nil { t.Fatal(err) }
++		if err := model.DB.Where("provider_id = ? AND provider_user_id = ?", 1, "fixture-new").First(&binding).Error; err != nil {
++			t.Fatal(err)
++		}
+ 		var user model.User
+-		if err := model.DB.First(&user, binding.UserId).Error; err != nil || user.Role != common.RoleAdminUser || user.Quota != 0 || user.UsedQuota != 0 { t.Fatal("new native account fields incorrect") }
++		if err := model.DB.First(&user, binding.UserId).Error; err != nil || user.Role != common.RoleAdminUser || user.Quota != 0 || user.UsedQuota != 0 {
++			t.Fatal("new native account fields incorrect")
++		}
+ 		role = "moderator"
+-		if res := request("GET", "/oauth-relay/v1/models", "fixture-new", ""); res.Code != 200 { t.Fatal("ordinary role discovery denied") }
+-		if err := model.DB.First(&user, binding.UserId).Error; err != nil || user.Role != common.RoleCommonUser { t.Fatal("current Main role did not revoke administrator") }
+-		if res := request("POST", "/oauth-relay/v1/responses", "fixture-new", `{"model":"gpt-6-luna","input":"synthetic"}`); res.Code != 403 || !strings.Contains(res.Body.String(), "insufficient_user_quota") { t.Fatal("new account bypassed native balance checks") }
+-		if err := model.RevokeOAuthRelayToken(user.Id); err != nil { t.Fatal(err) }
+-		if res := request("GET", "/oauth-relay/v1/models", "fixture-new", ""); res.Code != 403 { t.Fatal("revoked credential renewed") }
++		if res := request("GET", "/oauth-relay/v1/models", "fixture-new", ""); res.Code != 200 {
++			t.Fatal("ordinary role discovery denied")
++		}
++		if err := model.DB.First(&user, binding.UserId).Error; err != nil || user.Role != common.RoleCommonUser {
++			t.Fatal("current Main role did not revoke administrator")
++		}
++		if res := request("POST", "/oauth-relay/v1/responses", "fixture-new", `{"model":"gpt-6-luna","input":"synthetic"}`); res.Code != 403 || !strings.Contains(res.Body.String(), "insufficient_user_quota") {
++			t.Fatal("new account bypassed native balance checks")
++		}
++		if err := model.RevokeOAuthRelayToken(user.Id); err != nil {
++			t.Fatal(err)
++		}
++		if res := request("GET", "/oauth-relay/v1/models", "fixture-new", ""); res.Code != 403 {
++			t.Fatal("revoked credential renewed")
++		}
+ 		var count int64
+ 		model.DB.Model(&model.Token{}).Where("user_id = ? AND internal_purpose = ?", user.Id, model.OAuthRelayTokenPurpose).Count(&count)
+-		if count != 1 { t.Fatal("first access duplicated internal credentials") }
++		if count != 1 {
++			t.Fatal("first access duplicated internal credentials")
++		}
+ 	})
+ }
+diff --git a/router/chat_free_integration_test.go b/router/chat_free_integration_test.go
+--- a/router/chat_free_integration_test.go
++++ b/router/chat_free_integration_test.go
+@@ -1,6 +1,7 @@
+ package router
+ 
+ import (
++	"bytes"
+ 	"fmt"
+ 	"io"
+ 	"net/http"
+@@ -149,7 +150,13 @@
+ 		}
+ 		return &http.Response{StatusCode: 200, Header: http.Header{"Content-Type": {contentType}}, Body: io.NopCloser(strings.NewReader(body)), Request: r}, nil
+ 	})
++	var timingLogs bytes.Buffer
++	oldLogWriter := gin.DefaultWriter
++	gin.DefaultWriter = &timingLogs
++	t.Cleanup(func() { gin.DefaultWriter = oldLogWriter })
+ 	engine := gin.New()
++	engine.Use(middleware.RequestId())
++	middleware.SetUpLogger(engine)
+ 	SetRelayRouter(engine)
+ 	engine.POST("/ordinary", middleware.TokenAuth(), func(c *gin.Context) { c.Status(299) })
+ 	request := func(path, body, bearer string) *httptest.ResponseRecorder {
+@@ -157,7 +164,41 @@
+ 		req.Header.Set("Content-Type", "application/json")
+ 		req.Header.Set("Authorization", "Bearer "+bearer)
+ 		res := httptest.NewRecorder()
++		upstreamBefore := upstreamCalls
++		logStart := timingLogs.Len()
+ 		engine.ServeHTTP(res, req)
++		entry := timingLogs.String()[logStart:]
++		if strings.Count(entry, "[GIN]") != 1 {
++			t.Fatal("a request must retain one access log")
++		}
++		requestID := res.Header().Get(common.RequestIdKey)
++		if requestID == "" || !strings.Contains(entry, requestID) {
++			t.Fatal("access timing lost the existing request ID")
++		}
++		if strings.HasPrefix(path, "/oauth-relay/") {
++			if strings.Count(entry, "oauth_relay_total_ms=") != 1 {
++				t.Fatal("real adapter route did not emit exactly one timing suffix")
++			}
++			if res.Code == http.StatusOK {
++				for _, field := range []string{"userinfo_verify", "account_resolve", "credential"} {
++					if strings.Contains(entry, "oauth_relay_"+field+"_ms=-") {
++						t.Fatal("real successful adapter call omitted a completed identity stage")
++					}
++				}
++			}
++			if upstreamCalls > upstreamBefore {
++				for _, field := range []string{"distribute", "upstream_headers"} {
++					if strings.Contains(entry, "oauth_relay_"+field+"_ms=-") {
++						t.Fatal("real outbound HTTP request omitted an observed routing/header phase")
++					}
++				}
++			}
++			if strings.Contains(entry, "synthetic-oauth") || strings.Contains(entry, "synthetic-upstream-key") || strings.Contains(entry, "synthetic-session") {
++				t.Fatal("timing log exposed credentials or identity claims")
++			}
++		} else if strings.Contains(entry, "oauth_relay_total_ms=") {
++			t.Fatal("ordinary request acquired adapter timing")
++		}
+ 		return res
+ 	}
+ 	for _, protocol := range []string{"chat/completions", "responses"} {

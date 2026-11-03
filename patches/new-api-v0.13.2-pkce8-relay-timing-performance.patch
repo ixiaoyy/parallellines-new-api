@@ -1,0 +1,329 @@
+diff --git a/common/oauth_relay_timing.go b/common/oauth_relay_timing.go
+new file mode 100644
+--- /dev/null
++++ b/common/oauth_relay_timing.go
+@@ -0,0 +1,132 @@
++package common
++
++import (
++	"fmt"
++	"strconv"
++	"sync"
++	"time"
++
++	"github.com/gin-gonic/gin"
++)
++
++const OAuthRelayTimingKey = "chat_oauth_relay_timing"
++
++type OAuthRelayTimingStage int
++
++const (
++	OAuthRelayUserInfoStage OAuthRelayTimingStage = iota
++	OAuthRelayAccountStage
++	OAuthRelayCredentialStage
++)
++
++type oauthRelayDuration struct {
++	elapsed  time.Duration
++	observed bool
++}
++
++// OAuthRelayTimings 仅保存受信路由的阶段时长，不包含身份、凭据、模型或请求正文。
++// 未进入的阶段保持缺失；响应头耗时不代表首个 token 或完整流成功。
++type OAuthRelayTimings struct {
++	mu                    sync.Mutex
++	started               time.Time
++	total                 oauthRelayDuration
++	userinfo              oauthRelayDuration
++	account               oauthRelayDuration
++	credential            oauthRelayDuration
++	distributionStarted   time.Time
++	distribution          oauthRelayDuration
++	upstreamHeaders       oauthRelayDuration
++	upstreamHeaderAttempt int
++	upstreamAttempts      int
++}
++
++// NewOAuthRelayTimings 在 OAuth adapter 路由入口开始计时；不改既有 frt 起点。
++func NewOAuthRelayTimings() *OAuthRelayTimings {
++	return &OAuthRelayTimings{started: time.Now()}
++}
++
++// OAuthRelayTimingsFromContext 只读取已由 adapter 创建的记录，普通 API 返回 nil。
++func OAuthRelayTimingsFromContext(c *gin.Context) *OAuthRelayTimings {
++	value, _ := c.Get(OAuthRelayTimingKey)
++	timings, _ := value.(*OAuthRelayTimings)
++	return timings
++}
++
++// RecordStage 记录已实际执行的核验阶段；elapsed 只覆盖该调用，不包含下游 relay。
++func (t *OAuthRelayTimings) RecordStage(stage OAuthRelayTimingStage, elapsed time.Duration) {
++	t.mu.Lock()
++	defer t.mu.Unlock()
++	value := oauthRelayDuration{elapsed: elapsed, observed: true}
++	switch stage {
++	case OAuthRelayUserInfoStage:
++		t.userinfo = value
++	case OAuthRelayAccountStage:
++		t.account = value
++	case OAuthRelayCredentialStage:
++		t.credential = value
++	}
++}
++
++// BeginDistribution 标记原分发中间件的入口；不改变选渠、限频或重试行为。
++func (t *OAuthRelayTimings) BeginDistribution() {
++	t.mu.Lock()
++	t.distributionStarted = time.Now()
++	t.mu.Unlock()
++}
++
++// FinishDistribution 在 controller 前或选渠失败返回时结束一次计时，不包含生成过程。
++func (t *OAuthRelayTimings) FinishDistribution() {
++	t.mu.Lock()
++	defer t.mu.Unlock()
++	if !t.distributionStarted.IsZero() && !t.distribution.observed {
++		t.distribution = oauthRelayDuration{elapsed: time.Since(t.distributionStarted), observed: true}
++	}
++}
++
++// BeginUpstreamAttempt 仅在原 HTTP client.Do 真正执行前计数；序号供响应头时长关联重试。
++func (t *OAuthRelayTimings) BeginUpstreamAttempt() int {
++	t.mu.Lock()
++	defer t.mu.Unlock()
++	t.upstreamAttempts++
++	return t.upstreamAttempts
++}
++
++// RecordUpstreamHeaders 只记录首次实际返回 HTTP 响应头的那次 Do 耗时及序号。
++// 网络失败且没有响应时保持缺失；不把重试间隔、SSE 保活帧或本地响应当上游响应。
++func (t *OAuthRelayTimings) RecordUpstreamHeaders(attempt int, elapsed time.Duration, received bool) {
++	if !received {
++		return
++	}
++	t.mu.Lock()
++	defer t.mu.Unlock()
++	if !t.upstreamHeaders.observed {
++		t.upstreamHeaders = oauthRelayDuration{elapsed: elapsed, observed: true}
++		t.upstreamHeaderAttempt = attempt
++	}
++}
++
++// Finish 在 adapter 返回时记录总耗时；不推断响应是否到达用户或 SSE 是否成功。
++func (t *OAuthRelayTimings) Finish() {
++	t.mu.Lock()
++	defer t.mu.Unlock()
++	if !t.total.observed {
++		t.total = oauthRelayDuration{elapsed: time.Since(t.started), observed: true}
++	}
++}
++
++func oauthRelayMilliseconds(value oauthRelayDuration) string {
++	if !value.observed {
++		return "-"
++	}
++	return strconv.FormatFloat(float64(value.elapsed)/float64(time.Millisecond), 'f', 3, 64)
++}
++
++// String 为原 GIN access log 生成固定小字段；沿用该行 requestId，不新增重复日志。
++func (t *OAuthRelayTimings) String() string {
++	t.mu.Lock()
++	defer t.mu.Unlock()
++	return fmt.Sprintf("oauth_relay_total_ms=%s oauth_relay_userinfo_verify_ms=%s oauth_relay_account_resolve_ms=%s oauth_relay_credential_ms=%s oauth_relay_distribute_ms=%s oauth_relay_upstream_headers_ms=%s oauth_relay_upstream_headers_attempt=%d oauth_relay_upstream_attempts=%d",
++		oauthRelayMilliseconds(t.total), oauthRelayMilliseconds(t.userinfo), oauthRelayMilliseconds(t.account),
++		oauthRelayMilliseconds(t.credential), oauthRelayMilliseconds(t.distribution), oauthRelayMilliseconds(t.upstreamHeaders),
++		t.upstreamHeaderAttempt, t.upstreamAttempts)
++}
+diff --git a/middleware/oauth_relay_timing.go b/middleware/oauth_relay_timing.go
+new file mode 100644
+--- /dev/null
++++ b/middleware/oauth_relay_timing.go
+@@ -0,0 +1,29 @@
++package middleware
++
++import (
++	"github.com/QuantumNous/new-api/common"
++	"github.com/gin-gonic/gin"
++)
++
++// ChatOAuthRelayTiming 只给既有三条 adapter 路由增加计时，错误/流/身份边界继续由原链路拥有。
++func ChatOAuthRelayTiming() gin.HandlerFunc {
++	return func(c *gin.Context) {
++		timings := common.NewOAuthRelayTimings()
++		c.Set(common.OAuthRelayTimingKey, timings)
++		defer timings.Finish()
++		c.Next()
++	}
++}
++
++// ChatOAuthRelayDistributionTiming 包围原 Distribute；成功时由 controller 前的标记提前结束。
++// 选渠失败没有进入 controller 时由 defer 结束，不把整段生成/结算混作分发耗时。
++func ChatOAuthRelayDistributionTiming() gin.HandlerFunc {
++	return func(c *gin.Context) {
++		timings := common.OAuthRelayTimingsFromContext(c)
++		if timings != nil {
++			timings.BeginDistribution()
++			defer timings.FinishDistribution()
++		}
++		c.Next()
++	}
++}
+diff --git a/middleware/oauth_relay.go b/middleware/oauth_relay.go
+--- a/middleware/oauth_relay.go
++++ b/middleware/oauth_relay.go
+@@ -39,7 +39,7 @@
+ 	Subject    string           `json:"sub"`
+ 	Binding    string           `json:"pl_binding"`
+ 	AuthExpiry int64            `json:"pl_auth_exp"`
+-	Profile    *oauth.OAuthUser  `json:"-"`
++	Profile    *oauth.OAuthUser `json:"-"`
+ }
+ 
+ type chatOAuthIdentity struct{ userID, tokenID int }
+@@ -119,7 +119,13 @@
+ 			chatOAuthAbort(c, 401, "A Chat OAuth bearer token is required")
+ 			return
+ 		}
++		// 仅测本次真实 UserInfo 核验；失败沿原边界返回，不缓存身份或输出声明。
++		timings := common.OAuthRelayTimingsFromContext(c)
++		stageStarted := time.Now()
+ 		claims, err := verifyChatOAuthToken(c.Request.Context(), parts[1])
++		if timings != nil {
++			timings.RecordStage(common.OAuthRelayUserInfoStage, time.Since(stageStarted))
++		}
+ 		if err != nil {
+ 			status := 401
+ 			if errors.Is(err, errChatOAuthUnavailable) {
+@@ -128,6 +134,8 @@
+ 			chatOAuthAbort(c, status, err.Error())
+ 			return
+ 		}
++		// 包含原账号解析/同步事务及其缓存恢复；不跳过无变化资料的既有安全检查。
++		stageStarted = time.Now()
+ 		var user *model.User
+ 		if oauth.MainAccountSyncEnabled() {
+ 			var created bool
+@@ -138,6 +146,9 @@
+ 		} else {
+ 			user, err = model.ResolveOAuthRelayUser(1, "pingxingxian", claims.Subject)
+ 		}
++		if timings != nil {
++			timings.RecordStage(common.OAuthRelayAccountStage, time.Since(stageStarted))
++		}
+ 		if err != nil {
+ 			status, message := 403, "An enabled existing main-site account binding is required"
+ 			if oauth.MainAccountSyncEnabled() {
+@@ -149,7 +160,12 @@
+ 			chatOAuthAbort(c, status, message)
+ 			return
+ 		}
++		// 内部凭据读取/首次创建单独计时，不把它混入主站 HTTPS 或账号同步。
++		stageStarted = time.Now()
+ 		token, err := model.GetOrCreateOAuthRelayToken(user.Id)
++		if timings != nil {
++			timings.RecordStage(common.OAuthRelayCredentialStage, time.Since(stageStarted))
++		}
+ 		if err != nil {
+ 			chatOAuthAbort(c, 403, "The internal Chat credential is unavailable or revoked")
+ 			return
+diff --git a/middleware/logger.go b/middleware/logger.go
+--- a/middleware/logger.go
++++ b/middleware/logger.go
+@@ -2,6 +2,7 @@
+ 
+ import (
+ 	"fmt"
++	"strings"
+ 
+ 	"github.com/QuantumNous/new-api/common"
+ 	"github.com/gin-gonic/gin"
+@@ -26,7 +27,17 @@
+ 		if tag == "" {
+ 			tag = "web"
+ 		}
+-		return fmt.Sprintf("[GIN] %s | %s | %s | %3d | %13v | %15s | %7s %s\n",
++		// 仅 adapter 追加固定耗时字段；复用原 requestId 和单条 access log，不记录身份或正文。
++		timingSuffix := ""
++		path := param.Path
++		if timings, ok := param.Keys[common.OAuthRelayTimingKey].(*common.OAuthRelayTimings); ok {
++			timingSuffix = " | " + timings.String()
++			// 被原 adapter 拒绝的 query 也可能带凭据；access log 只保留路径，不复述 query。
++			if index := strings.IndexByte(path, '?'); index >= 0 {
++				path = path[:index]
++			}
++		}
++		return fmt.Sprintf("[GIN] %s | %s | %s | %3d | %13v | %15s | %7s %s%s\n",
+ 			param.TimeStamp.Format("2006/01/02 - 15:04:05"),
+ 			tag,
+ 			requestID,
+@@ -34,7 +45,8 @@
+ 			param.Latency,
+ 			param.ClientIP,
+ 			param.Method,
+-			param.Path,
++			path,
++			timingSuffix,
+ 		)
+ 	}))
+ }
+diff --git a/router/oauth-relay-router.go b/router/oauth-relay-router.go
+--- a/router/oauth-relay-router.go
++++ b/router/oauth-relay-router.go
+@@ -1,6 +1,7 @@
+ package router
+ 
+ import (
++	"github.com/QuantumNous/new-api/common"
+ 	"github.com/QuantumNous/new-api/controller"
+ 	"github.com/QuantumNous/new-api/middleware"
+ 	"github.com/QuantumNous/new-api/types"
+@@ -8,7 +9,7 @@
+ )
+ 
+ func setChatOAuthRelayRouter(router *gin.Engine) {
+-	group := router.Group("/oauth-relay/v1", middleware.RouteTag("relay"))
++	group := router.Group("/oauth-relay/v1", middleware.RouteTag("relay"), middleware.ChatOAuthRelayTiming())
+ 	group.GET("/models", middleware.ChatOAuthRelay("/v1/models"), middleware.TokenAuth(), controller.ListChatOAuthRelayModels)
+ 	for _, route := range []struct {
+ 		path   string
+@@ -21,8 +22,15 @@
+ 		group.POST(route.path,
+ 			middleware.SystemPerformanceCheck(),
+ 			middleware.ChatOAuthRelay("/v1"+route.path), middleware.TokenAuth(),
+-			middleware.ChatOAuthRelayModelLimit(), middleware.ModelRequestRateLimit(), middleware.Distribute(),
+-			func(c *gin.Context) { controller.Relay(c, format) },
++			middleware.ChatOAuthRelayModelLimit(), middleware.ModelRequestRateLimit(),
++			middleware.ChatOAuthRelayDistributionTiming(), middleware.Distribute(),
++			func(c *gin.Context) {
++				// 分发阶段只到原 controller 入口；保持既有 frt、计费和流处理不变。
++				if timings := common.OAuthRelayTimingsFromContext(c); timings != nil {
++					timings.FinishDistribution()
++				}
++				controller.Relay(c, format)
++			},
+ 		)
+ 	}
+ }
+diff --git a/relay/channel/api_request.go b/relay/channel/api_request.go
+--- a/relay/channel/api_request.go
++++ b/relay/channel/api_request.go
+@@ -536,7 +536,18 @@
+ 		}
+ 	}
+ 
++	// 只对受信 adapter 的实际出站计时；Do 返回的是响应头，不是首 token 或完整响应。
++	timings := common2.OAuthRelayTimingsFromContext(c)
++	var upstreamStarted time.Time
++	upstreamAttempt := 0
++	if timings != nil {
++		upstreamAttempt = timings.BeginUpstreamAttempt()
++		upstreamStarted = time.Now()
++	}
+ 	resp, err := client.Do(req)
++	if timings != nil {
++		timings.RecordUpstreamHeaders(upstreamAttempt, time.Since(upstreamStarted), resp != nil)
++	}
+ 	if err != nil {
+ 		logger.LogError(c, "do request failed: "+err.Error())
+ 		return nil, types.NewError(err, types.ErrorCodeDoRequestFailed, types.ErrOptionWithHideErrMsg("upstream error: do request failed"))

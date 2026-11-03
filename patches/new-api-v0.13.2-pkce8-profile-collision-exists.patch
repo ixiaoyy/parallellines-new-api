@@ -1,0 +1,23 @@
+diff --git a/oauth/main_account.go b/oauth/main_account.go
+--- a/oauth/main_account.go
++++ b/oauth/main_account.go
+@@ -24,12 +24,15 @@
+ var ErrMainAccountUnavailable = errors.New("Main account profile could not be synchronized. Please retry or contact an administrator.")
+ 
+ func mainProfileCollision(tx *gorm.DB, userID int, profile *OAuthUser) error {
+-	var count int64
+-	if err := tx.Unscoped().Model(&model.User{}).Where("id <> ? AND (username = ? OR LOWER(email) = ?)",
+-		userID, profile.Username, strings.ToLower(profile.Email)).Count(&count).Error; err != nil {
++	// 只需判断是否存在冲突；保留完整谓词和软删除范围，命中首条即可停止。
++	// Find 的零行是正常无冲突，不能把记录未找到升级为账号同步错误。
++	var collision model.User
++	query := tx.Unscoped().Model(&model.User{}).Select("id").Where("id <> ? AND (username = ? OR LOWER(email) = ?)",
++		userID, profile.Username, strings.ToLower(profile.Email)).Limit(1).Find(&collision)
++	if query.Error != nil {
+ 		return ErrMainAccountUnavailable
+ 	}
+-	if count != 0 {
++	if query.RowsAffected > 0 {
+ 		return &MainProfileConflictError{}
+ 	}
+ 	return nil

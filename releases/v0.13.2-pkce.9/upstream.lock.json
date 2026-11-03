@@ -1,0 +1,54 @@
+{
+  "application_version": "v0.13.2-pkce.9",
+  "status": "prepared-candidate-unpublished",
+  "base_application_version": "v0.13.2-pkce.8",
+  "base_release_lock": "releases/v0.13.2-pkce.8/upstream.lock.json",
+  "base_source_archive_sha256": "be8e6c2769702999b5dc8ace105a62204e6612356f9a67fefec65572f3302c96",
+  "upstream_commit": "bee339d279ccecbf8c8a89e14ddbbd902f78bd5d",
+  "profile_manifest": "patches/profile-collision-exists-manifest.json",
+  "profile_manifest_sha256": "da376a26270a7ee34e4884d4caeb0126d38a9a0d5cfe6c89b985c0a5bbe39a51",
+  "patches": [
+    {
+      "file": "patches/new-api-v0.13.2-pkce8-frontend-performance.patch",
+      "sha256": "a5efed929c0b5cac307aef905b0434894f58e2d5d1d9da7da7d5954d54c78b9b"
+    },
+    {
+      "file": "patches/new-api-v0.13.2-pkce8-relay-timing-performance.patch",
+      "sha256": "13819c0e2ee3b46e63d08a2ae27aa425857408edbc9361e250a956ffbada9ca6"
+    },
+    {
+      "file": "patches/new-api-v0.13.2-pkce8-profile-collision-exists.patch",
+      "sha256": "b25c94396b8b0debcbac642806271f1e28baf2fabd28ef4e45e1fbc9d7d6ab70"
+    },
+    {
+      "file": "patches/new-api-v0.13.2-pkce8-public-asset-embed.patch",
+      "sha256": "cfc89e396394e771e03bb430063f0153f992c3b716a1aef3b4167c667533d2d8"
+    }
+  ],
+  "approved_embed_change": {
+    "path": "main.go",
+    "base_sha256": "70d2b7895fec5c9ebfb83799684a978bb0fddf0f557e305431cf1a7141b2acd8",
+    "result_sha256": "217a21323d570523812c6e5334ee33a50864b10e2c17ca7d3d67996d7795972d"
+  },
+  "verification_patch": {
+    "file": "patches/new-api-v0.13.2-pkce9-asset-embedding-tests.patch",
+    "sha256": "97b0e2aa01b6f74a1bc2ae6e1440a90ca39ff3f97bf9da0c5feb9bcefd27607f"
+  },
+  "verification_files": [
+    {
+      "path": "main_release_assets_test.go",
+      "base_sha256": null,
+      "result_sha256": "8d3697fe9559948610e2db246bb54b2f0ed82431bc89ff9b880ba471c3bda8a2"
+    }
+  ],
+  "frontend_manifest": "releases/v0.13.2-pkce.9/frontend-assets.json",
+  "frontend_manifest_sha256": "7a7155b7690a5424f1e05fdfca0968125d56388fb9a6b760a3f8d377d4997bb7",
+  "frontend_source_identity": "917b5478de34206961c28986230eed52f7cd15e4457dbe384843e2cf3fe1325f",
+  "go_version": "1.26.1",
+  "platform": "linux/amd64",
+  "cgo_enabled": "0",
+  "go_experiment": "greenteagc",
+  "runtime_base": "calciumion/new-api:v0.13.2@sha256:81da2c875f1de1460e6dd30324c5cb36b23ef55eaae00f317621fcb8a701ad43",
+  "source_manifest": "releases/v0.13.2-pkce.9/source-files.json",
+  "source_manifest_sha256": "192371132daa8b6cc8ba6870c489b42ca11b63ffd8bedeb2e43d1baf186aab43"
+}

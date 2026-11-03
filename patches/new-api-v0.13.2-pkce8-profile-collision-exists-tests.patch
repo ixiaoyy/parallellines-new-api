@@ -1,0 +1,492 @@
+diff --git a/oauth/main_profile_collision_exists_test.go b/oauth/main_profile_collision_exists_test.go
+new file mode 100644
+--- /dev/null
++++ b/oauth/main_profile_collision_exists_test.go
+@@ -0,0 +1,334 @@
++package oauth
++
++import (
++	"context"
++	"errors"
++	"fmt"
++	"runtime"
++	"sort"
++	"strings"
++	"sync/atomic"
++	"testing"
++	"time"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/model"
++	"github.com/glebarez/sqlite"
++	"gorm.io/driver/mysql"
++	"gorm.io/driver/postgres"
++	"gorm.io/gorm"
++	"gorm.io/gorm/logger"
++)
++
++// 保存修改前的完整 COUNT，只用于同库、同谓词的正确性与有界基准对照。
++func collisionCountBaseline(tx *gorm.DB, userID int, profile *OAuthUser) error {
++	var count int64
++	if err := tx.Unscoped().Model(&model.User{}).Where("id <> ? AND (username = ? OR LOWER(email) = ?)",
++		userID, profile.Username, strings.ToLower(profile.Email)).Count(&count).Error; err != nil {
++		return ErrMainAccountUnavailable
++	}
++	if count != 0 {
++		return &MainProfileConflictError{}
++	}
++	return nil
++}
++
++var collisionDatabaseID atomic.Uint64
++
++func collisionDatabase(t *testing.T) *gorm.DB {
++	t.Helper()
++	dsn := fmt.Sprintf("file:collision-exists-%d?mode=memory&cache=shared", collisionDatabaseID.Add(1))
++	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{PrepareStmt: true, Logger: logger.Default.LogMode(logger.Silent)})
++	if err != nil {
++		t.Fatal(err)
++	}
++	connection, err := db.DB()
++	if err != nil {
++		t.Fatal(err)
++	}
++	connection.SetMaxOpenConns(1)
++	t.Cleanup(func() { _ = connection.Close() })
++	if err := db.AutoMigrate(&model.User{}); err != nil {
++		t.Fatal(err)
++	}
++	return db
++}
++
++func collisionErrorKind(err error) string {
++	if err == nil {
++		return "none"
++	}
++	var conflict *MainProfileConflictError
++	if errors.As(err, &conflict) {
++		return "conflict"
++	}
++	if err == ErrMainAccountUnavailable {
++		return "unavailable"
++	}
++	return "unexpected"
++}
++
++type collisionRow struct {
++	id       int
++	username string
++	email    *string
++	deleted  bool
++}
++
++func collisionEmail(value string) *string { return &value }
++
++func insertCollisionRows(t *testing.T, db *gorm.DB, rows []collisionRow) {
++	t.Helper()
++	for _, row := range rows {
++		user := model.User{Id: row.id, Username: row.username, AffCode: fmt.Sprintf("fixture-%d", row.id)}
++		if row.email != nil {
++			user.Email = *row.email
++		}
++		if err := db.Create(&user).Error; err != nil {
++			t.Fatal(err)
++		}
++		if row.email == nil {
++			if err := db.Model(&user).UpdateColumn("email", nil).Error; err != nil {
++				t.Fatal(err)
++			}
++		}
++		if row.deleted {
++			if err := db.Delete(&user).Error; err != nil {
++				t.Fatal(err)
++			}
++		}
++	}
++}
++
++func TestMainProfileCollisionExistsMatchesCount(t *testing.T) {
++	cases := []struct {
++		name                  string
++		userID                int
++		username, email, want string
++		rows                  []collisionRow
++	}{
++		{"empty-table", 11, "needle", "needle@example.invalid", "none", nil},
++		{"self", 11, "needle", "needle@example.invalid", "none", []collisionRow{{11, "needle", collisionEmail("needle@example.invalid"), false}}},
++		{"soft-deleted-self", 11, "needle", "needle@example.invalid", "none", []collisionRow{{11, "needle", collisionEmail("needle@example.invalid"), true}}},
++		{"ordinary-no-conflict", 11, "needle", "needle@example.invalid", "none", []collisionRow{{12, "other", collisionEmail("other@example.invalid"), false}}},
++		{"username", 11, "needle", "needle@example.invalid", "conflict", []collisionRow{{12, "needle", collisionEmail("other@example.invalid"), false}}},
++		{"email", 11, "needle", "needle@example.invalid", "conflict", []collisionRow{{12, "other", collisionEmail("needle@example.invalid"), false}}},
++		{"ascii-email-case", 11, "needle", "NeEdLe@example.invalid", "conflict", []collisionRow{{12, "other", collisionEmail("NEEDLE@EXAMPLE.INVALID"), false}}},
++		{"soft-deleted-username", 11, "needle", "needle@example.invalid", "conflict", []collisionRow{{12, "needle", collisionEmail("other@example.invalid"), true}}},
++		{"soft-deleted-email", 11, "needle", "needle@example.invalid", "conflict", []collisionRow{{12, "other", collisionEmail("NEEDLE@EXAMPLE.INVALID"), true}}},
++		{"new-user-zero-id", 0, "needle", "needle@example.invalid", "conflict", []collisionRow{{11, "needle", collisionEmail("needle@example.invalid"), false}}},
++		{"empty-email", 11, "needle", "", "conflict", []collisionRow{{12, "other", collisionEmail(""), false}}},
++		{"sql-null-email", 11, "needle", "", "none", []collisionRow{{12, "other", nil, false}}},
++		{"empty-username", 11, "", "needle@example.invalid", "conflict", []collisionRow{{12, "", collisionEmail("other@example.invalid"), false}}},
++		{"multiple-email-matches", 11, "needle", "needle@example.invalid", "conflict", []collisionRow{{12, "other-1", collisionEmail("needle@example.invalid"), false}, {13, "other-2", collisionEmail("NEEDLE@EXAMPLE.INVALID"), true}}},
++		{"unicode-exact", 11, "needle", "名@example.invalid", "conflict", []collisionRow{{12, "other", collisionEmail("名@example.invalid"), false}}},
++		// 保留 SQLite 原生 LOWER 对非 ASCII 的既有行为，不借性能改动扩展大小写归一化。
++		{"sqlite-non-ascii-case-unchanged", 11, "needle", "ä@example.invalid", "none", []collisionRow{{12, "other", collisionEmail("Ä@example.invalid"), false}}},
++	}
++	for _, tc := range cases {
++		t.Run(tc.name, func(t *testing.T) {
++			db := collisionDatabase(t)
++			insertCollisionRows(t, db, tc.rows)
++			profile := &OAuthUser{Username: tc.username, Email: tc.email}
++			for _, query := range []struct {
++				name string
++				run  func(*gorm.DB, int, *OAuthUser) error
++			}{{"count", collisionCountBaseline}, {"exists", mainProfileCollision}} {
++				if got := collisionErrorKind(query.run(db, tc.userID, profile)); got != tc.want {
++					t.Fatalf("%s: got %s, want %s", query.name, got, tc.want)
++				}
++			}
++		})
++	}
++}
++
++func TestMainProfileCollisionExistsDatabaseError(t *testing.T) {
++	db := collisionDatabase(t)
++	connection, _ := db.DB()
++	if err := connection.Close(); err != nil {
++		t.Fatal(err)
++	}
++	profile := &OAuthUser{Username: "needle", Email: "needle@example.invalid"}
++	for _, query := range []func(*gorm.DB, int, *OAuthUser) error{collisionCountBaseline, mainProfileCollision} {
++		if query(db, 0, profile) != ErrMainAccountUnavailable {
++			t.Fatal("database failure did not retain the original safe error")
++		}
++	}
++}
++
++type collisionQueryRecorder struct {
++	logger.Interface
++	statements []string
++}
++
++func (r *collisionQueryRecorder) Trace(_ context.Context, _ time.Time, statement func() (string, int64), _ error) {
++	sql, _ := statement()
++	r.statements = append(r.statements, sql)
++}
++
++func TestMainProfileCollisionExistsSQLAndQueryCount(t *testing.T) {
++	profile := &OAuthUser{Username: "needle", Email: "NeEdLe@example.invalid"}
++	for _, dialect := range []struct {
++		name string
++		open func() (*gorm.DB, error)
++	}{
++		{"sqlite", func() (*gorm.DB, error) { return collisionDatabase(t), nil }},
++		{"mysql-dry-run", func() (*gorm.DB, error) {
++			return gorm.Open(mysql.New(mysql.Config{DSN: "synthetic:synthetic@tcp(synthetic.invalid:3306)/synthetic", SkipInitializeWithVersion: true}), &gorm.Config{DryRun: true, DisableAutomaticPing: true})
++		}},
++		{"postgres-dry-run", func() (*gorm.DB, error) {
++			return gorm.Open(postgres.New(postgres.Config{DSN: "host=synthetic.invalid user=synthetic dbname=synthetic password=synthetic sslmode=disable"}), &gorm.Config{DryRun: true, DisableAutomaticPing: true})
++		}},
++	} {
++		t.Run(dialect.name, func(t *testing.T) {
++			db, err := dialect.open()
++			if err != nil {
++				t.Fatal(err)
++			}
++			if dialect.name != "sqlite" {
++				connection, _ := db.DB()
++				defer connection.Close()
++			}
++			recorder := &collisionQueryRecorder{Interface: logger.Default.LogMode(logger.Silent)}
++			db = db.Session(&gorm.Session{Logger: recorder})
++			if err := collisionCountBaseline(db, 11, profile); err != nil {
++				t.Fatal(err)
++			}
++			if err := mainProfileCollision(db, 11, profile); err != nil {
++				t.Fatal(err)
++			}
++			if len(recorder.statements) != 2 {
++				t.Fatalf("expected one query per call, got %d", len(recorder.statements))
++			}
++			oldSQL, newSQL := recorder.statements[0], recorder.statements[1]
++			if !strings.Contains(strings.ToLower(oldSQL), "count(*)") || strings.Contains(strings.ToLower(newSQL), "count(") || !strings.HasSuffix(newSQL, "LIMIT 1") {
++				t.Fatal("query shape is not bounded existence")
++			}
++			oldWhere := oldSQL[strings.Index(oldSQL, " WHERE "):]
++			newWhere := strings.TrimSuffix(newSQL[strings.Index(newSQL, " WHERE "):], " LIMIT 1")
++			if oldWhere != newWhere || strings.Contains(newWhere, "deleted_at") {
++				t.Fatal("collision predicate or Unscoped changed")
++			}
++			projection := newSQL[:strings.Index(newSQL, " FROM ")]
++			projection = strings.NewReplacer("`", "", "\"", "").Replace(projection)
++			if projection != "SELECT id" {
++				t.Fatal("existence query fetched unrelated user fields")
++			}
++			t.Logf("%s baseline=%s; candidate=%s; queries_per_call=1", dialect.name, oldSQL, newSQL)
++		})
++	}
++}
++
++type collisionBenchmarkStats struct {
++	MedianUS float64 `json:"median_us"`
++	P95US    float64 `json:"p95_us"`
++	MeanUS   float64 `json:"mean_us"`
++}
++
++func collisionStats(values []float64) collisionBenchmarkStats {
++	ordered := append([]float64(nil), values...)
++	sort.Float64s(ordered)
++	total := 0.0
++	for _, value := range ordered {
++		total += value
++	}
++	return collisionBenchmarkStats{MedianUS: (ordered[len(ordered)/2-1] + ordered[len(ordered)/2]) / 2, P95US: ordered[(len(ordered)*95+99)/100-1], MeanUS: total / float64(len(ordered))}
++}
++
++func TestMainProfileCollisionExistsBoundedComparison(t *testing.T) {
++	const rows, pairs, warmups, batch = 6000, 32, 2, 64
++	oldProcs := runtime.GOMAXPROCS(1)
++	defer runtime.GOMAXPROCS(oldProcs)
++	deadline, cancel := context.WithTimeout(context.Background(), 45*time.Second)
++	defer cancel()
++	results := []map[string]any{}
++	for _, scenario := range []string{"no-conflict", "first-row-match", "last-row-match", "all-rows-match"} {
++		db := collisionDatabase(t).WithContext(deadline)
++		users := make([]model.User, rows)
++		for index := range users {
++			email := fmt.Sprintf("row-%d@example.invalid", index+1)
++			if (scenario == "first-row-match" && index == 0) || (scenario == "last-row-match" && index == rows-1) || scenario == "all-rows-match" {
++				email = "needle@example.invalid"
++			}
++			users[index] = model.User{Id: index + 1, Username: fmt.Sprintf("fixture-%d", index+1), AffCode: fmt.Sprintf("fixture-%d", index+1), Email: email}
++		}
++		if err := db.CreateInBatches(users, 300).Error; err != nil {
++			t.Fatal(err)
++		}
++		profile := &OAuthUser{Username: "absent-username", Email: "needle@example.invalid"}
++		want := "conflict"
++		if scenario == "no-conflict" {
++			want = "none"
++		}
++		counts := map[string]int{"count": 0, "exists": 0}
++		active := ""
++		if err := db.Callback().Query().After("gorm:query").Register("fixture:collision-query-count", func(*gorm.DB) {
++			if active != "" {
++				counts[active]++
++			}
++		}); err != nil {
++			t.Fatal(err)
++		}
++		queries := []struct {
++			name string
++			run  func(*gorm.DB, int, *OAuthUser) error
++		}{{"count", collisionCountBaseline}, {"exists", mainProfileCollision}}
++		samples := map[string][]float64{"count": {}, "exists": {}}
++		for pair := -warmups; pair < pairs; pair++ {
++			for order := 0; order < 2; order++ {
++				variant := order
++				if pair%2 != 0 {
++					variant = 1 - order
++				}
++				query := queries[variant]
++				active = query.name
++				started := time.Now()
++				// 固定小批量跨过本机单次调用的计时量化，再按真实调用次数归一化。
++				for call := 0; call < batch; call++ {
++					if collisionErrorKind(query.run(db, 0, profile)) != want {
++						t.Fatal("benchmark query result differs from fixture contract")
++					}
++				}
++				elapsed := time.Since(started)
++				active = ""
++				if pair >= 0 {
++					samples[query.name] = append(samples[query.name], float64(elapsed)/float64(time.Microsecond)/batch)
++				}
++			}
++		}
++		if counts["count"] != (pairs+warmups)*batch || counts["exists"] != (pairs+warmups)*batch {
++			t.Fatal("comparison issued additional queries")
++		}
++		oldStats, newStats := collisionStats(samples["count"]), collisionStats(samples["exists"])
++		pairedDelta := make([]float64, pairs)
++		slowerPairs := 0
++		for index := range pairedDelta {
++			pairedDelta[index] = (samples["exists"][index]/samples["count"][index] - 1) * 100
++			if pairedDelta[index] > 0 {
++				slowerPairs++
++			}
++		}
++		sort.Float64s(pairedDelta)
++		paired := map[string]any{"median": (pairedDelta[pairs/2-1] + pairedDelta[pairs/2]) / 2, "p05": pairedDelta[1], "p95": pairedDelta[pairs-2], "candidate_slower_pairs": slowerPairs}
++		plans := map[string][]string{}
++		for _, query := range []struct{ name, sql string }{{"count", "EXPLAIN QUERY PLAN SELECT count(*) FROM users WHERE id <> ? AND (username = ? OR LOWER(email) = ?)"}, {"exists", "EXPLAIN QUERY PLAN SELECT id FROM users WHERE id <> ? AND (username = ? OR LOWER(email) = ?) LIMIT 1"}} {
++			var plan []struct{ Detail string }
++			if err := db.Raw(query.sql, 0, profile.Username, strings.ToLower(profile.Email)).Scan(&plan).Error; err != nil {
++				t.Fatal(err)
++			}
++			for _, row := range plan {
++				plans[query.name] = append(plans[query.name], row.Detail)
++			}
++		}
++		results = append(results, map[string]any{"scenario": scenario, "rows": rows, "measured_pairs": pairs, "calls_per_sample": batch, "warmup_calls_per_variant": warmups * batch, "paired_percent_change": paired, "queries_per_variant": counts["count"], "count": oldStats, "exists": newStats, "candidate_median_change_percent": (newStats.MedianUS/oldStats.MedianUS - 1) * 100, "query_plan": plans})
++		connection, _ := db.DB()
++		if err := connection.Close(); err != nil {
++			t.Fatal(err)
++		}
++	}
++	report, err := common.Marshal(map[string]any{"scope": "warm in-memory SQLite; one connection; fixed original User indexes; not end-to-end latency", "go": runtime.Version(), "os": runtime.GOOS, "arch": runtime.GOARCH, "gomaxprocs": 1, "deadline_seconds": 45, "alternating_order": true, "measurement": "fixed batches averaged per actual call to avoid single-call clock quantization", "results": results})
++	if err != nil {
++		t.Fatal(err)
++	}
++	t.Log("PROFILE_COLLISION_COMPARISON " + string(report))
++}
+diff --git a/controller/profile_exists_contract_test.go b/controller/profile_exists_contract_test.go
+new file mode 100644
+--- /dev/null
++++ b/controller/profile_exists_contract_test.go
+@@ -0,0 +1,148 @@
++package controller
++
++import (
++	"bytes"
++	"context"
++	"database/sql"
++	"errors"
++	"io"
++	"net"
++	"strings"
++	"testing"
++	"time"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/model"
++	"github.com/QuantumNous/new-api/oauth"
++	"github.com/go-redis/redis/v8"
++	"gorm.io/gorm"
++	"gorm.io/gorm/clause"
++)
++
++func TestMainProfileExistsRetainsLockAndTransactionWiring(t *testing.T) {
++	db, provider := profileDatabase(t)
++	insertProfileUser(t, db, 2, "53", "old-name", "old@example.invalid")
++	locked := map[string]int{}
++	queries := 0
++	if err := db.Callback().Query().Before("gorm:query").Register("fixture:profile-exists-wiring", func(query *gorm.DB) {
++		if locking, ok := query.Statement.Clauses["FOR"].Expression.(clause.Locking); ok && locking.Strength == "UPDATE" {
++			if _, ok := query.Statement.ConnPool.(*sql.Tx); !ok {
++				t.Error("locking query escaped original transaction")
++			}
++			locked[query.Statement.Table]++
++		}
++		if query.Statement.Table == "users" && len(query.Statement.Selects) == 1 && query.Statement.Selects[0] == "id" {
++			queries++
++			limit, ok := query.Statement.Clauses["LIMIT"].Expression.(clause.Limit)
++			if !ok || limit.Limit == nil || *limit.Limit != 1 {
++				t.Error("collision query lacks its single-row bound")
++			}
++			if _, ok := query.Statement.ConnPool.(*sql.Tx); !ok {
++				t.Error("collision query escaped original transaction")
++			}
++		}
++	}); err != nil {
++		t.Fatal(err)
++	}
++	if _, _, err := findOrCreateMainProfileUser(db, provider, testMainProfile(), 0); err != nil {
++		t.Fatal(err)
++	}
++	if queries != 1 || locked["custom_oauth_providers"] != 1 || locked["user_oauth_bindings"] != 1 || locked["users"] != 1 {
++		t.Fatalf("locking or query-count wiring changed: queries=%d locks=%v", queries, locked)
++	}
++	// SQLite 省略 FOR UPDATE 文本；这里核对 GORM 原锁意图和事务接线，不冒充 MySQL/PG 实锁验证。
++}
++
++func TestMainProfileExistsConflictCannotPromote(t *testing.T) {
++	db, _ := profileDatabase(t)
++	t.Setenv("MAIN_OAUTH_ACCOUNT_SYNC_ENABLED", "true")
++	before := insertProfileUser(t, db, 2, "53", "old-name", "old@example.invalid")
++	if err := db.Model(&before).Update("role", common.RoleCommonUser).Error; err != nil {
++		t.Fatal(err)
++	}
++	profile := testMainProfile()
++	profile.Extra["main_role"] = "admin"
++	insertProfileUser(t, db, 3, "54", profile.Username, "other@example.invalid")
++	_, _, err := oauth.FindOrCreateChatMainUser(db, profile)
++	var conflict *oauth.MainProfileConflictError
++	if !errors.As(err, &conflict) {
++		t.Fatal("collision did not return the original conflict type")
++	}
++	var after model.User
++	if err := db.First(&after, 2).Error; err != nil {
++		t.Fatal(err)
++	}
++	if after.Role != common.RoleCommonUser || after.Username != before.Username || after.Email != before.Email || after.Quota != before.Quota {
++		t.Fatal("conflict promoted or changed the original account")
++	}
++}
++
++// 进程内 RESP 脚本连接，不监听端口、不拨号 Redis。第一次 DEL 返回错误，第二次成功。
++type profileExistsRedisConn struct {
++	response *bytes.Reader
++	commands bytes.Buffer
++	replies  []string
++	next     int
++}
++
++func (connection *profileExistsRedisConn) Read(data []byte) (int, error) {
++	if connection.response == nil {
++		return 0, io.EOF
++	}
++	return connection.response.Read(data)
++}
++func (connection *profileExistsRedisConn) Write(data []byte) (int, error) {
++	if !bytes.Contains(data, []byte("$3\r\ndel\r\n")) || connection.next >= len(connection.replies) {
++		return 0, errors.New("unexpected synthetic Redis command")
++	}
++	connection.response = bytes.NewReader([]byte(connection.replies[connection.next]))
++	connection.next++
++	return connection.commands.Write(data)
++}
++func (*profileExistsRedisConn) Close() error                     { return nil }
++func (*profileExistsRedisConn) LocalAddr() net.Addr              { return &net.TCPAddr{} }
++func (*profileExistsRedisConn) RemoteAddr() net.Addr             { return &net.TCPAddr{} }
++func (*profileExistsRedisConn) SetDeadline(time.Time) error      { return nil }
++func (*profileExistsRedisConn) SetReadDeadline(time.Time) error  { return nil }
++func (*profileExistsRedisConn) SetWriteDeadline(time.Time) error { return nil }
++
++func TestMainProfileExistsRetriesCacheInvalidationAfterCommittedUpdate(t *testing.T) {
++	db, provider := profileDatabase(t)
++	t.Setenv("MAIN_OAUTH_ACCOUNT_SYNC_ENABLED", "true")
++	before := insertProfileUser(t, db, 2, "53", "old-name", "old@example.invalid")
++	if err := db.Model(&before).Update("role", common.RoleAdminUser).Error; err != nil {
++		t.Fatal(err)
++	}
++	connection := &profileExistsRedisConn{replies: []string{"-ERR synthetic invalidation failure\r\n", ":1\r\n"}}
++	dials := 0
++	client := redis.NewClient(&redis.Options{Addr: "synthetic.invalid:0", PoolSize: 1, MaxRetries: -1, IdleTimeout: -1,
++		Dialer: func(context.Context, string, string) (net.Conn, error) {
++			dials++
++			if dials > 1 {
++				return nil, errors.New("unexpected second synthetic connection")
++			}
++			return connection, nil
++		}})
++	oldClient, oldEnabled := common.RDB, common.RedisEnabled
++	common.RDB, common.RedisEnabled = client, true
++	t.Cleanup(func() { _ = client.Close(); common.RDB, common.RedisEnabled = oldClient, oldEnabled })
++	profile := testMainProfile()
++	profile.Extra["main_role"] = "user"
++	if _, _, err := findOrCreateMainProfileUser(db, provider, profile, 0); err != oauth.ErrMainAccountUnavailable {
++		t.Fatal("failed invalidation was disguised as a successful login")
++	}
++	var committed model.User
++	if err := db.First(&committed, 2).Error; err != nil {
++		t.Fatal(err)
++	}
++	if committed.Role != common.RoleCommonUser || committed.Username != profile.Username || committed.Email != profile.Email {
++		t.Fatal("the original commit-before-cache-error semantics changed")
++	}
++	after, created, err := findOrCreateMainProfileUser(db, provider, profile, 0)
++	if err != nil || created || after.Id != 2 {
++		t.Fatal("unchanged repeated request failed to recover cache invalidation")
++	}
++	if strings.Count(connection.commands.String(), "$3\r\ndel\r\n") != 2 || dials != 1 {
++		t.Fatal("the unchanged request skipped the second DEL or attempted external traffic")
++	}
++}

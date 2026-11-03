@@ -1,0 +1,30 @@
+{
+  "base_release_lock": "releases/v0.13.2-pkce.8/upstream.lock.json",
+  "base_source_archive_manifest": "releases/v0.13.2-pkce.8/source-archive.json",
+  "application_version": "v0.13.2-pkce.8-local-performance",
+  "published": false,
+  "patch": "patches/new-api-v0.13.2-pkce8-frontend-performance.patch",
+  "patch_sha256": "a5efed929c0b5cac307aef905b0434894f58e2d5d1d9da7da7d5954d54c78b9b",
+  "files": [
+    {
+      "path": "web/src/App.jsx",
+      "base_sha256": "06e317ced462a3faba4cf335c72e9f507b183f6a6bb2e7aa75d8db6bf731a1e3",
+      "result_sha256": "a32605b0817ed54f020699b3caf10deb7ecb9f457097553517e3a85ef2349d30"
+    },
+    {
+      "path": "web/src/index.jsx",
+      "base_sha256": "c6a3fbb4f696234dcc92fa27f1eed44c62737f041d38e5d5f33fb53de21dfc72",
+      "result_sha256": "f1ff06ae589063f19f680853d5a6cd598a4f9ddbcff2aae7d0de3387f139178e"
+    },
+    {
+      "path": "web/src/i18n/i18n.js",
+      "base_sha256": "1953ea1a850bd5452fc2927e6984b492d2769f2fa6853dab99140afa5afe9c0a",
+      "result_sha256": "8809a2f76e2acaac5f523aeb8dc046c09c6e6e5b2f5384d64c04c68c2ae4a85c"
+    },
+    {
+      "path": "web/src/i18n/localeBackend.js",
+      "base_sha256": null,
+      "result_sha256": "6d9c91c4e966b1a3b9b5f3a859268a59f5da66c3d556e4b066151072366c9247"
+    }
+  ]
+}

@@ -7,19 +7,20 @@ used by the ParallelLines identity provider. The upstream UI is retained. Source
 
 ## Current release
 
-The latest release recipe is **v0.13.2-pkce.8**. Start with its
-[release instructions](releases/v0.13.2-pkce.8/README.md)
-and [complete ordered patch lock](releases/v0.13.2-pkce.8/upstream.lock.json).
-It retains pkce.6 billing and the [pkce.7 account-sync baseline](releases/v0.13.2-pkce.7/README.md),
-adding only the opt-in `openrouter/free` Chat entry. The account-sync switch defaults off; existing
-root users, quotas and billing are retained. Role revocation is synchronized on
-the next verified Chat request or native OAuth login, not pushed immediately.
-`CHAT_OPENROUTER_FREE_ENABLED` also defaults off. The companion Chat task-isolation
-overlay must be ready before activation; existing paid models, stored credentials
-and ordinary API channels retain their behavior. The deployment host's existing
-Go 1.26.1 completed compilation and focused, network-isolated tests; no local
-toolchain was downloaded. These checks do not replace real Chat acceptance.
-Actual activation is recorded in the server's private deployment receipt. The root lock and
+The latest prepared release recipe is **v0.13.2-pkce.9**. Start with its
+[release instructions](releases/v0.13.2-pkce.9/README.md)
+and [ordered release lock](releases/v0.13.2-pkce.9/upstream.lock.json).
+It retains the [pkce.8 guarded free Chat baseline](releases/v0.13.2-pkce.8/README.md),
+adding frontend route/language loading, bounded collision existence checks,
+request-stage access timings and complete public frontend embedding. Ordinary
+no-conflict account checks have no demonstrated speedup. Existing balances,
+credential restrictions, role synchronization, paid/free billing and timeouts
+are retained. The image-only release path preserves every current environment
+setting, including the already configured free-model gate; it does not reactivate
+features or change identity TTLs. Local compilation and isolated checks do not
+prove production activation or real model behavior. The last public preflight
+still reported pkce.8; actual activation belongs to the private deployment receipt.
+The root lock and
 the base-build commands below intentionally describe the reusable pkce.3 base;
 do not use that base image to replace the current live release.
 

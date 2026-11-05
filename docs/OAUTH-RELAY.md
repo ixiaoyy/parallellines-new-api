@@ -1,9 +1,11 @@
 # Chat OAuth relay (v0.13.2-pkce.2)
 
 This backend-only adapter preserves New API's original UI, OAuth login and relay
-billing handlers. It grants no account, administrator role, wallet quota or
-subscription. Native OAuth registration is a separate existing login flow; this
-adapter only accepts an already bound and enabled native account.
+billing handlers. By default, native OAuth registration is a separate login flow
+and the adapter only accepts an already bound and enabled native account.
+The opt-in [pkce.7 account-sync release](../releases/v0.13.2-pkce.7/README.md)
+adds first-request provisioning and verified Main role synchronization. It retains
+native registration quota policy, existing balances and subscription/billing rules.
 
 ## Fixed trust contract
 
@@ -30,7 +32,12 @@ revalidate the main-site session. New API or legacy client tokens cannot stand i
 for Chat tokens. Native provider ID 1 must be enabled, have slug `pingxingxian`,
 User ID field `sub`, and the exact fixed UserInfo URL. The database's unique
 `user_oauth_bindings(provider_id, provider_user_id)` match supplies `user_id`.
-Missing, ambiguous, changed, disabled or deleted bindings/accounts fail closed.
+With account sync disabled, missing, ambiguous, changed, disabled or deleted
+bindings/accounts fail closed. When enabled, only a genuinely missing binding
+can enter the existing registration transaction; inactive or conflicting accounts
+still fail. The new path also requires verified email/profile and `pl_role` from
+the same trusted UserInfo response. Read the release's synchronization and unlink
+boundaries before activation.
 Email, request headers, cookies and request body user IDs never select an account.
 
 ## Narrow relay surface
@@ -88,8 +95,9 @@ An authenticated root session, with the native matching `New-Api-User` header, c
 call `POST /api/user/:id/oauth-relay/revoke`. It returns no key. An already issued
 credential is disabled durably and its cache entry is invalidated. Repeated
 revocation is idempotent. An absent credential returns 404 and does not create a
-future-ban marker; disable the account or remove its native binding if issuance
-must be prohibited before the first request. Disabled, expired, corrupt or
+future-ban marker; disable the account if issuance must be prohibited before the
+first request. Removing a native binding only blocks the legacy bound-only path;
+with automatic provisioning enabled it is not a durable ban. Disabled, expired, corrupt or
 soft-deleted credentials are never automatically replaced or re-enabled. There
 is no rotation/reset API in this release.
 

@@ -25,7 +25,7 @@ token is required. Register a custom OAuth provider with slug `pingxingxian`:
 | client secret | Independent server-only value registered with the identity bridge |
 | discovery | `https://pingxingxian.space/auth/oidc/.well-known/openid-configuration` |
 | authorization/token/UserInfo URLs | Exact values from verified issuer discovery |
-| scopes | `openid profile` |
+| scopes | `openid profile` for the base release; `openid profile email` for profile/account sync |
 | User ID field | `sub` |
 | username / display name | `preferred_username` / `name` |
 | email field | `email` (optional; do not use for identity merging) |
@@ -47,11 +47,15 @@ Set native options individually, retaining unrelated settings:
 
 `RegisterEnabled` permits first-time OAuth account creation; password registration
 remains disabled. Preserve existing root password login as recovery until a
-verified owner handover. New accounts have the ordinary role (1), with no default
-or invitation quota grants. A normal account may have a personal console but
-must not manage channels, other users, or quotas. Bind an administrator only
-through an authenticated existing-admin flow after checking the stable main-site
-subject and role; no email inference or role inheritance is implemented.
+verified owner handover. With account sync disabled, new accounts have the ordinary
+role (1); administrator binding remains an authenticated existing-admin operation.
+The [pkce.7 opt-in account sync](../releases/v0.13.2-pkce.7/README.md) instead maps
+verified current Main `admin` to native admin (10), and `user/moderator` to ordinary
+(1), while retaining existing root (100). No email inference or account merging is
+allowed. Native registration/invitation quota options keep their existing meaning;
+Chat adds no invitation context or extra grants. A normal account must not manage
+channels, other users, or quotas. Role revocation is synchronized on verified Chat
+requests or OAuth login, not pushed to an otherwise idle API session.
 
 ## Models and quotas
 

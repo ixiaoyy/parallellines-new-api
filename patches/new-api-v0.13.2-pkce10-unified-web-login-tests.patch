@@ -1,0 +1,416 @@
+--- /dev/null
++++ b/controller/unified_web_test.go
+@@ -0,0 +1,94 @@
++package controller
++
++import (
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/i18n"
++	"github.com/QuantumNous/new-api/model"
++	"github.com/gin-contrib/sessions"
++	"github.com/gin-contrib/sessions/cookie"
++	"github.com/gin-gonic/gin"
++	"github.com/glebarez/sqlite"
++	"github.com/stretchr/testify/require"
++	"gorm.io/gorm"
++	"gorm.io/gorm/logger"
++	"net/http"
++	"net/http/httptest"
++	"strings"
++	"testing"
++)
++
++// 所有用户和 MFA 记录均在显式 :memory: SQLite 内，使用原密码/备用码校验路径，无远端或真实凭据。
++func TestUnifiedWebRootRecoveryUsesOriginalPasswordAndMFAOnlyOnPrivateRoute(t *testing.T) {
++	t.Setenv("MAIN_UNIFIED_WEB_LOGIN_ENABLED", "true")
++	t.Setenv("MAIN_WEB_ROOT_RECOVERY_ENABLED", "true")
++	t.Setenv("MAIN_WEB_ROOT_RECOVERY_USER_IDS", "1,2")
++	oldDB, oldPassword := model.DB, common.PasswordLoginEnabled
++	common.PasswordLoginEnabled = true
++	db, err := gorm.Open(sqlite.Open(":memory:"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
++	require.NoError(t, err)
++	model.DB = db
++	t.Cleanup(func() {
++		sql, _ := db.DB()
++		_ = sql.Close()
++		model.DB = oldDB
++		common.PasswordLoginEnabled = oldPassword
++	})
++	require.NoError(t, i18n.Init())
++	require.NoError(t, db.AutoMigrate(&model.User{}, &model.TwoFA{}, &model.TwoFABackupCode{}))
++	hash, err := common.Password2Hash("synthetic-private-password")
++	require.NoError(t, err)
++	require.NoError(t, db.Create(&model.User{Id: 1, Username: "synthetic-root", Password: hash, Role: 100, Status: 1, Group: "default", AffCode: "one"}).Error)
++	require.NoError(t, db.Create(&model.User{Id: 2, Username: "synthetic-ordinary", Password: hash, Role: 1, Status: 1, Group: "default", AffCode: "two"}).Error)
++	require.NoError(t, db.Create(&model.TwoFA{UserId: 1, Secret: "synthetic-unused", IsEnabled: true}).Error)
++	backup, err := common.HashBackupCode("ABCD-EFGH")
++	require.NoError(t, err)
++	require.NoError(t, db.Create(&model.TwoFABackupCode{UserId: 1, CodeHash: backup}).Error)
++	gin.SetMode(gin.TestMode)
++	r := gin.New()
++	r.Use(sessions.Sessions("session", cookie.NewStore([]byte("synthetic-recovery-cookie-key-32"))))
++	r.POST("/api/user/login", Login)
++	r.POST("/api/user/login/2fa", Verify2FALogin)
++	r.POST("/api/user/root-recovery/login", MainRootRecovery(false))
++	r.POST("/api/user/root-recovery/2fa", MainRootRecovery(true))
++	request := func(path, host, body string, cookies []*http.Cookie) *httptest.ResponseRecorder {
++		req := httptest.NewRequest("POST", path, strings.NewReader(body))
++		req.Host = host
++		req.Header.Set("Content-Type", "application/json")
++		for _, cookie := range cookies {
++			req.AddCookie(cookie)
++		}
++		w := httptest.NewRecorder()
++		r.ServeHTTP(w, req)
++		return w
++	}
++	body := `{"username":"synthetic-root","password":"synthetic-private-password"}`
++	require.Equal(t, 403, request("/api/user/login", "localhost", body, nil).Code)
++	require.Equal(t, 404, request("/api/user/root-recovery/login", "api.pingxingxian.space", body, nil).Code)
++	require.Equal(t, 403, request("/api/user/root-recovery/login", "localhost", `{"username":"synthetic-ordinary","password":"synthetic-private-password"}`, nil).Code)
++	first := request("/api/user/root-recovery/login", "localhost", body, nil)
++	require.Contains(t, first.Body.String(), `"require_2fa":true`)
++	require.Equal(t, 403, request("/api/user/login/2fa", "localhost", `{"code":"ABCD-EFGH"}`, first.Result().Cookies()).Code)
++	second := request("/api/user/root-recovery/2fa", "localhost", `{"code":"ABCD-EFGH"}`, first.Result().Cookies())
++	require.Equal(t, 200, second.Code)
++	require.Contains(t, second.Body.String(), `"success":true`)
++	require.Contains(t, second.Body.String(), `"id":1`)
++	var code model.TwoFABackupCode
++	require.NoError(t, db.First(&code).Error)
++	require.True(t, code.IsUsed)
++	t.Setenv("MAIN_WEB_ROOT_RECOVERY_ENABLED", "false")
++	require.Equal(t, 404, request("/api/user/root-recovery/login", "localhost", body, nil).Code)
++}
++
++func TestUnifiedWebMissingProofCannotPretendGlobalLogout(t *testing.T) {
++	t.Setenv("MAIN_UNIFIED_WEB_LOGIN_ENABLED", "true")
++	gin.SetMode(gin.TestMode)
++	r := gin.New()
++	r.Use(sessions.Sessions("session", cookie.NewStore([]byte("synthetic-logout-cookie-key-32"))))
++	r.GET("/logout", MainUnifiedLogout)
++	req := httptest.NewRequest("GET", "/logout", nil)
++	req.Header.Set("New-Api-User", "7")
++	w := httptest.NewRecorder()
++	r.ServeHTTP(w, req)
++	require.Equal(t, 401, w.Code)
++	require.NotContains(t, w.Body.String(), `"success":true`)
++}
+--- a/main_release_assets_test.go
++++ b/main_release_assets_test.go
+@@ -18,7 +18,7 @@
+ )
+ 
+ // 只读取真实 main package 的 embed.FS；不调用 main/InitResources，不连接身份、数据库或模型。
+-func TestPkce9PublicEmbeddedAssetClosure(t *testing.T) {
++func TestPkce10PublicEmbeddedAssetClosure(t *testing.T) {
+ 	var manifest struct {
+ 		Schema int  `json:"schema"`
+ 		Public bool `json:"public_assets_only"`
+@@ -87,7 +87,20 @@
+ 	gin.SetMode(gin.TestMode)
+ 	engine := gin.New()
+ 	router.SetWebRouter(engine, buildFS, indexPage)
+-	for _, name := range []string{"assets/_basePickBy-CFIS4253.js", "assets/_baseUniq-CDJh-vEn.js"} {
++	for _, prefix := range []string{"assets/_basePickBy-", "assets/_baseUniq-"} {
++		// 本版新前端改变 Vite 内容哈希，仍要求两个指定下划线模块各恰好一份，并校验真实 HTTP 字节。
++		name := ""
++		for candidate := range manifest.Files {
++			if strings.HasPrefix(candidate, prefix) && strings.HasSuffix(candidate, ".js") {
++				if name != "" {
++					t.Fatal("duplicate underscore module")
++				}
++				name = candidate
++			}
++		}
++		if name == "" {
++			t.Fatal("required underscore module missing: " + prefix)
++		}
+ 		response := httptest.NewRecorder()
+ 		engine.ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/"+name, nil))
+ 		if response.Code != http.StatusOK || fmt.Sprintf("%x", sha256.Sum256(response.Body.Bytes())) != manifest.Files[name].SHA256 {
+--- /dev/null
++++ b/middleware/unified_web_test.go
+@@ -0,0 +1,109 @@
++package middleware
++
++import (
++	"github.com/QuantumNous/new-api/model"
++	"github.com/QuantumNous/new-api/oauth"
++	"github.com/gin-gonic/gin"
++	"github.com/stretchr/testify/require"
++	"net/http"
++	"net/http/httptest"
++	"testing"
++	"time"
++)
++
++func TestUnifiedWebLegacyCookieRejectedNativeKeysPreserved(t *testing.T) {
++	t.Setenv("MAIN_UNIFIED_WEB_LOGIN_ENABLED", "true")
++	r := sessionRevocationFixture(t)
++	login := sessionRevocationCookie(t, r, sessionRevocationRootClaims())
++	require.Equal(t, 401, sessionRevocationRequest(r, "/root", login, "", "1").Code)
++	require.Equal(t, 200, sessionRevocationRequest(r, "/pricing", nil, "", "").Code)
++	// 无浏览器 cookie 的原生管理 token 沿原验证路径，不需要 Main browser proof。
++	w := sessionRevocationRequest(r, "/user", nil, "synthetic-management-access", "2")
++	require.Equal(t, 200, w.Code)
++	require.Contains(t, w.Body.String(), `"handler":true`)
++}
++func TestUnifiedWebRecoveryRequiresLoopbackAllowlistAndCurrentRoot(t *testing.T) {
++	t.Setenv("MAIN_UNIFIED_WEB_LOGIN_ENABLED", "true")
++	t.Setenv("MAIN_WEB_ROOT_RECOVERY_ENABLED", "true")
++	t.Setenv("MAIN_WEB_ROOT_RECOVERY_USER_IDS", "1")
++	r := sessionRevocationFixture(t)
++	handle, err := oauth.SaveMainWebProof(oauth.MainWebProof{UserID: 1, Recovery: true, Expires: time.Now().Add(time.Hour).Unix()})
++	require.NoError(t, err)
++	defer oauth.DeleteMainWebProof(handle)
++	values := sessionRevocationRootClaims()
++	values[oauth.MainWebProofKey] = handle
++	login := sessionRevocationCookie(t, r, values)
++	request := func(host string) *httptest.ResponseRecorder {
++		req := httptest.NewRequest("GET", "/root", nil)
++		req.Host = host
++		req.AddCookie(login)
++		req.Header.Set("New-Api-User", "1")
++		w := httptest.NewRecorder()
++		r.ServeHTTP(w, req)
++		return w
++	}
++	require.Equal(t, 401, request("api.pingxingxian.space").Code)
++	require.Contains(t, request("localhost:3000").Body.String(), `"handler":true`)
++	require.NoError(t, model.DB.Model(&model.User{}).Where("id = ?", 1).Update("role", 10).Error)
++	require.Equal(t, 401, request("localhost:3000").Code)
++}
++func TestUnifiedWebPublicCredentialBoundaryDefaultOffAndNoRootBypass(t *testing.T) {
++	gin.SetMode(gin.TestMode)
++	for _, enabled := range []bool{false, true} {
++		if enabled {
++			t.Setenv("MAIN_UNIFIED_WEB_LOGIN_ENABLED", "true")
++		} else {
++			t.Setenv("MAIN_UNIFIED_WEB_LOGIN_ENABLED", "false")
++		}
++		r := gin.New()
++		r.Use(MainPublicCredentialBoundary())
++		r.Any("/*path", func(c *gin.Context) { c.Status(204) })
++		for _, path := range []string{"/api/user/login", "/api/user/login/2fa", "/api/user/register", "/api/user/reset", "/api/reset_password", "/api/user/passkey/login/begin", "/api/oauth/github"} {
++			w := httptest.NewRecorder()
++			req := httptest.NewRequest("POST", path, nil)
++			req.Header.Set("New-Api-User", "1")
++			r.ServeHTTP(w, req)
++			if enabled {
++				require.Equal(t, 403, w.Code, path)
++			} else {
++				require.Equal(t, 204, w.Code, path)
++			}
++		}
++		for _, path := range []string{"/api/status", "/api/pricing", "/api/oauth/pingxingxian/start", "/api/oauth/pingxingxian", "/api/user/unified/state"} {
++			w := httptest.NewRecorder()
++			r.ServeHTTP(w, httptest.NewRequest("GET", path, nil))
++			require.Equal(t, 204, w.Code, path)
++		}
++		w := httptest.NewRecorder()
++		req := httptest.NewRequest(http.MethodPost, "/api/user/root-recovery/login", nil)
++		req.Host = "api.pingxingxian.space"
++		req.Header.Set("X-Forwarded-For", "127.0.0.1")
++		r.ServeHTTP(w, req)
++		require.Equal(t, 404, w.Code)
++	}
++}
++
++func TestUnifiedWebMissingAuthorityReturns503WithoutClearingCookie(t *testing.T) {
++	t.Setenv("MAIN_UNIFIED_WEB_LOGIN_ENABLED", "true")
++	r := sessionRevocationFixture(t)
++	require.NoError(t, model.DB.AutoMigrate(&model.UserOAuthBinding{}))
++	require.NoError(t, model.DB.Create(&model.UserOAuthBinding{UserId: 1, ProviderId: 1, ProviderUserId: "synthetic-sub"}).Error)
++	handle, err := oauth.SaveMainWebProof(oauth.MainWebProof{UserID: 1, Subject: "synthetic-sub", Binding: "synthetic-binding", Expires: time.Now().Add(time.Hour).Unix()})
++	require.NoError(t, err)
++	defer oauth.DeleteMainWebProof(handle)
++	values := sessionRevocationRootClaims()
++	values[oauth.MainWebProofKey] = handle
++	login := sessionRevocationCookie(t, r, values)
++	original := oauth.GetProvider("pingxingxian")
++	oauth.Unregister("pingxingxian")
++	t.Cleanup(func() {
++		if original != nil {
++			oauth.Register("pingxingxian", original)
++		}
++	})
++	w := sessionRevocationRequest(r, "/root", login, "", "1")
++	require.Equal(t, 503, w.Code)
++	require.Empty(t, w.Result().Cookies())
++	require.NoError(t, model.DB.Model(&model.UserOAuthBinding{}).Where("user_id = ?", 1).Update("provider_user_id", "synthetic-other-sub").Error)
++	require.Equal(t, 401, sessionRevocationRequest(r, "/root", login, "", "1").Code)
++}
+--- /dev/null
++++ b/oauth/unified_web_test.go
+@@ -0,0 +1,171 @@
++package oauth
++
++import (
++	"context"
++	"encoding/json"
++	"errors"
++	"fmt"
++	"github.com/QuantumNous/new-api/common"
++	"io"
++	"net/http"
++	"strings"
++	"testing"
++	"time"
++)
++
++func TestUnifiedWebTrustedClaimsRequireExplicitBrowserBinding(t *testing.T) {
++	t.Setenv("MAIN_UNIFIED_WEB_LOGIN_ENABLED", "true")
++	p := profileTestProvider(t)
++	claims := profileTestClaims()
++	claims["pl_binding"] = "synthetic-binding"
++	claims["pl_auth_exp"] = time.Now().Add(time.Hour).Unix()
++	claims["pl_unified_browser"] = true
++	body, _ := common.Marshal(claims)
++	user, err := p.parseMainProfile(body)
++	if err != nil || user.Extra["main_web_binding"] != "synthetic-binding" {
++		t.Fatal("trusted new binding rejected", err)
++	}
++	for _, value := range []any{false, "true", nil, 0} {
++		claims["pl_unified_browser"] = value
++		body, _ = common.Marshal(claims)
++		if _, err := p.parseMainProfile(body); err == nil {
++			t.Fatal("old/untyped binding elevated")
++		}
++	}
++	claims["pl_unified_browser"] = true
++	claims["pl_auth_exp"] = time.Now().Add(-time.Second).Unix()
++	body, _ = common.Marshal(claims)
++	if _, err := p.parseMainProfile(body); err == nil {
++		t.Fatal("expired binding accepted")
++	}
++	t.Setenv("MAIN_UNIFIED_WEB_LOGIN_ENABLED", "false")
++	if _, err := p.parseMainProfile(body); err != nil {
++		t.Fatal("default-off old profile changed", err)
++	}
++}
++func TestUnifiedWebOpaqueStoreAndRecoveryAllowlist(t *testing.T) {
++	proof := MainWebProof{UserID: 7, Subject: "synthetic-sub", Binding: "synthetic-binding", Expires: time.Now().Add(48 * time.Hour).Unix()}
++	handle, err := SaveMainWebProof(proof)
++	if err != nil || len(handle) != 64 || strings.Contains(handle, "synthetic") {
++		t.Fatal("invalid opaque handle", err)
++	}
++	loaded, err := LoadMainWebProof(handle)
++	if err != nil || loaded != proof {
++		t.Fatal("proof lost")
++	}
++	DeleteMainWebProof(handle)
++	if _, err := LoadMainWebProof(handle); !errors.Is(err, ErrMainWebInactive) {
++		t.Fatal("deleted proof replay")
++	}
++	t.Setenv("MAIN_WEB_ROOT_RECOVERY_ENABLED", "true")
++	t.Setenv("MAIN_WEB_ROOT_RECOVERY_USER_IDS", "7,8")
++	if !MainRecoveryUser(7, 100) || MainRecoveryUser(8, 10) || MainRecoveryUser(9, 100) {
++		t.Fatal("recovery membership/role invalid")
++	}
++	for _, ids := range []string{"", "0,7", "7,x", strings.Repeat("7,", 16) + "7"} {
++		t.Setenv("MAIN_WEB_ROOT_RECOVERY_USER_IDS", ids)
++		if MainRecoveryUser(7, 100) {
++			t.Fatal("malformed allowlist accepted")
++		}
++	}
++	for _, host := range []string{"api.pingxingxian.space", "localhost.evil.invalid", "127.0.0.1.evil.invalid"} {
++		if MainRecoveryHost(host) {
++			t.Fatal("non-loopback host accepted")
++		}
++	}
++	if !MainRecoveryHost("127.0.0.1:3000") || !MainRecoveryHost("[::1]:3000") {
++		t.Fatal("tunnel host rejected")
++	}
++}
++func TestUnifiedWebLivenessNoPositiveCacheAndFixedBasicContract(t *testing.T) {
++	p := profileTestProvider(t)
++	p.config.ClientSecret = "synthetic-rp-only"
++	original := GetProvider("pingxingxian")
++	Register("pingxingxian", p)
++	oldClient := mainWebClient
++	t.Cleanup(func() {
++		mainWebClient = oldClient
++		if original != nil {
++			Register("pingxingxian", original)
++		} else {
++			Unregister("pingxingxian")
++		}
++	})
++	proof := MainWebProof{UserID: 7, Subject: "synthetic-sub", Binding: "synthetic-binding", Expires: time.Now().Add(time.Hour).Unix()}
++	calls := 0
++	active := true
++	unified := true
++	status := 200
++	payload := ""
++	mainWebClient = &http.Client{Timeout: time.Second, CheckRedirect: oldClient.CheckRedirect, Transport: profileRoundTrip(func(req *http.Request) (*http.Response, error) {
++		calls++
++		id, secret, ok := req.BasicAuth()
++		if !ok || id != mainProfileClient || secret != "synthetic-rp-only" || req.Method != "POST" || req.URL.String() != mainProfileIssuer+"/main-session-state" {
++			t.Fatal("RP endpoint or credentials drift")
++		}
++		var input map[string]string
++		if json.NewDecoder(req.Body).Decode(&input) != nil || input["binding_id"] != proof.Binding || input["subject"] != proof.Subject || len(input) != 2 {
++			t.Fatal("bad RP request")
++		}
++		body, _ := json.Marshal(map[string]any{"active": active, "sub": proof.Subject, "binding_id": proof.Binding, "auth_expires_at": proof.Expires, "unified_browser": unified})
++		if payload != "" {
++			body = []byte(payload)
++		}
++		return &http.Response{StatusCode: status, Header: make(http.Header), Body: io.NopCloser(strings.NewReader(string(body))), Request: req}, nil
++	})}
++	if err := CheckMainWebProof(context.Background(), proof); err != nil {
++		t.Fatal(err)
++	}
++	active = false
++	if err := CheckMainWebProof(context.Background(), proof); !errors.Is(err, ErrMainWebInactive) || calls != 2 {
++		t.Fatal("positive liveness was cached")
++	}
++	active = true
++	unified = false
++	if err := CheckMainWebProof(context.Background(), proof); !errors.Is(err, ErrMainWebInactive) {
++		t.Fatal("old binding upgraded")
++	}
++	unified = true
++	status = 503
++	if err := CheckMainWebProof(context.Background(), proof); !errors.Is(err, ErrMainWebUnavailable) {
++		t.Fatal("authority outage became logout/success")
++	}
++	status = 200
++	payload = strings.Repeat(" ", 16385)
++	if err := CheckMainWebProof(context.Background(), proof); !errors.Is(err, ErrMainWebUnavailable) {
++		t.Fatal("unbounded authority body")
++	}
++}
++
++func TestUnifiedWebProofCapacityAndExpiryFailClosed(t *testing.T) {
++	mainWebProofs.Lock()
++	original := mainWebProofs.entries
++	mainWebProofs.entries = make(map[string]MainWebProof)
++	proof := MainWebProof{UserID: 7, Subject: "synthetic-sub", Binding: "synthetic-binding", Expires: time.Now().Add(time.Hour).Unix()}
++	for index := 0; index < 10000; index++ {
++		mainWebProofs.entries[fmt.Sprintf("%064d", index)] = proof
++	}
++	mainWebProofs.Unlock()
++	defer func() { mainWebProofs.Lock(); mainWebProofs.entries = original; mainWebProofs.Unlock() }()
++	if _, err := SaveMainWebProof(proof); !errors.Is(err, ErrMainWebUnavailable) {
++		t.Fatal("proof capacity did not fail closed")
++	}
++	mainWebProofs.Lock()
++	expired := proof
++	expired.Expires = time.Now().Add(-time.Second).Unix()
++	mainWebProofs.entries[fmt.Sprintf("%064d", 0)] = expired
++	mainWebProofs.Unlock()
++	handle, err := SaveMainWebProof(proof)
++	if err != nil {
++		t.Fatal("expired proof not reclaimed", err)
++	}
++	if _, err := LoadMainWebProof(handle); err != nil {
++		t.Fatal("new proof lost")
++	}
++	mainWebProofs.Lock()
++	count := len(mainWebProofs.entries)
++	mainWebProofs.Unlock()
++	if count != 10000 {
++		t.Fatal("store bound changed")
++	}
++}

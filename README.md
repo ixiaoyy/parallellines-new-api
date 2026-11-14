@@ -7,19 +7,19 @@ used by the ParallelLines identity provider. The upstream UI is retained. Source
 
 ## Current release
 
-The latest prepared release recipe is **v0.13.2-pkce.9**. Start with its
-[release instructions](releases/v0.13.2-pkce.9/README.md)
-and [ordered release lock](releases/v0.13.2-pkce.9/upstream.lock.json).
-It retains the [pkce.8 guarded free Chat baseline](releases/v0.13.2-pkce.8/README.md),
-adding frontend route/language loading, bounded collision existence checks,
-request-stage access timings and complete public frontend embedding. Ordinary
-no-conflict account checks have no demonstrated speedup. Existing balances,
-credential restrictions, role synchronization, paid/free billing and timeouts
-are retained. The image-only release path preserves every current environment
-setting, including the already configured free-model gate; it does not reactivate
-features or change identity TTLs. Local compilation and isolated checks do not
-prove production activation or real model behavior. The last public preflight
-still reported pkce.8; actual activation belongs to the private deployment receipt.
+The latest prepared release recipe is **v0.13.2-pkce.10**. Start with its
+[release instructions](releases/v0.13.2-pkce.10/README.md)
+and [ordered release lock](releases/v0.13.2-pkce.10/upstream.lock.json).
+It derives from the complete [pkce.9 candidate](releases/v0.13.2-pkce.9/README.md),
+adding opt-in Main-only browser login, anonymous public entry, current-browser
+session/account synchronization and a disabled-by-default private Root recovery
+entry. Native user IDs, roles, balances, billing, API keys and Chat OAuth relay
+retain their existing paths. The switch defaults off; the Main/issuer contract
+and private recovery network boundary must be ready before activation. Local
+builds and isolated checks do not establish real SSO or production activation.
+The build lock records the preparation-stage candidate state. Subsequent source
+publication is identified by its commit-bound archive receipt and GitHub release;
+neither establishes production activation by itself.
 The root lock and
 the base-build commands below intentionally describe the reusable pkce.3 base;
 do not use that base image to replace the current live release.

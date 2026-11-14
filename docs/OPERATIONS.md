@@ -14,9 +14,24 @@ attached Nginx edge network. Do not expose raw ports. Validate with
 `docker compose --env-file /data/parallellines/api/deploy.env config --quiet`.
 Do not emit expanded Compose configuration into shared logs.
 
+## Unified browser login (pkce.10 candidate)
+
+The [pkce.10 recipe](../releases/v0.13.2-pkce.10/README.md) adds the explicit
+`MAIN_UNIFIED_WEB_LOGIN_ENABLED` switch, defaulting off. When enabled, public
+credentials belong only to Main; native `/api/user/login` also rejects Root.
+Public pages remain anonymous. New browser proof uses bounded single-process
+memory and live Main checks, without changing API keys, Chat relay or billing.
+
+Private Root recovery is separately disabled by default. Enable it only after
+explicit UID allowlisting, loopback-only host publishing and unconditional public
+proxy denial of both recovery path prefixes are verified. A loopback Host header
+alone is not the network boundary. Keep the original password/MFA path; do not
+add a public Root exception or infer recovery identity from missing OIDC binding.
+This is a local prepared candidate, not evidence of production activation.
+
 ## Native login provider
 
-Use New API's existing root session in its native UI/API; no extra management
+For the default-off legacy mode, use New API's existing root session in its native UI/API; no extra management
 token is required. Register a custom OAuth provider with slug `pingxingxian`:
 
 | Field | Value |

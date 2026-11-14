@@ -46,3 +46,5 @@ go run <repo>/scripts/seed-unified-web-test-db.go --test-root <absolute-marked-t
 2026-11-15，共享测试 owner 指定 `unified-acceptance-20261115` 隔离目录后，seed 已完成 preview 和显式 execute，仅写该目录 `data/`。只读核对得到 Root UID 1、角色 100、1 个用户、provider 1、1 条初始化状态、MFA 开启和 4 条未使用备用码。未手工读取或回显任何合成凭据值。Main A/B 尚待真实 OIDC 自动开户。
 
 本轮尚未启动本地 NewAPI 或共享 issuer。后续用户已明确停止本地 Docker 修复及额外本地验证；不会继续探测 daemon，也未把种库结果当作跨站验收。实际服务器版本、运行及结果仍由根任务取得后补充。
+
+本轮额外完整源码归档及其专属回执曾随 prerelease 发布，随后按用户要求移除；二进制、Git 代码和标签保留。发布配方不再生成该归档，也不再把它当激活前置，不新增 UI 源码入口。许可原文和历史版本保持，不据此作自动满足许可的结论。此调整没有重新测试、构建或运行服务。

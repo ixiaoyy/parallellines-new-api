@@ -1,6 +1,6 @@
 # v0.13.2-pkce.10：主站统一 Web 登录候选
 
-构建锁冻结的准备阶段状态为 `prepared-candidate-unpublished`。后续源码提交与公开 prerelease 以绑定实际提交的归档回执、GitHub 记录为准，不改写已验证构建锁。此记录不证明正式站已激活或真实登录验收已完成。
+构建锁冻结的准备阶段状态为 `prepared-candidate-unpublished`。公开 prerelease 交付已核二进制和 Git 版本摘要，不改写已验证构建锁。此记录不证明正式站已激活或真实登录验收已完成。
 
 ## 行为与兼容
 
@@ -41,14 +41,13 @@
 python releases/v0.13.2-pkce.10/release.py prepare --base-source <pkce9-source> --frontend-dir <pkce10-built-dist> --destination <new-directory>
 python releases/v0.13.2-pkce.10/release.py verify --source <new-directory>/source
 python releases/v0.13.2-pkce.10/release.py build --source <new-directory>/source --cache-dir <existing-cache> --output-dir <new-output>
-python releases/v0.13.2-pkce.10/release.py package --source <new-directory>/source --build-receipt <new-output>/build-receipt.json --output <name>.candidate.tar.gz
 ```
 
-候选包 `publishable:false`。正式发布须本轮输入均来自同一已提交 HEAD，并显式核对源码提交；部署修改版同时提供精确对应源码、AGPL 与 NOTICE。恢复沿 pkce.9 内部凭据隔离要求，不默认回退 stock 上游或覆盖数据库。关闭模式会显式恢复旧登录行为，不能自动失败回退。
+本轮不另生成完整上游源码归档；此前上传的额外完整归档及其专属回执已按用户要求移除，Git 代码、版本标签与二进制保留。许可原文及已有声明不变，不将某种 GitHub 呈现方式自动等同于全部许可义务已满足。恢复沿 pkce.9 内部凭据隔离要求，不默认回退 stock 上游或覆盖数据库。关闭模式会显式恢复旧登录行为，不能自动失败回退。
 
 实际镜像封装使用本版 `Dockerfile.runtime`，传入已核对的 `SOURCE_REVISION`，把相同构建回执的 Linux 二进制以 `new-api` 文件放入新构建上下文。该文件只复制已构建产物，不下载或编译依赖；不能使用带旧版本标签的历史 Dockerfile。真实本地链路的 runtime 接线与验收状态另见 [验收记录](../../docs/UNIFIED-WEB-LOGIN-ACCEPTANCE.md)。
 
-用户现已选择直接在服务器运行和验收，不再本地 Docker/额外测试。复用已验证二进制、最终提交绑定、精确待提交清单与升级/恢复要求见 [正式发布交接](DEPLOYMENT.md)，由根任务统一执行；没有把历史版本当当前线上版本。
+用户现已选择直接在服务器运行和验收，不再本地 Docker/额外测试。复用已验证二进制、Git 版本和升级/恢复要求见 [正式发布交接](DEPLOYMENT.md)，由根任务统一执行；没有把历史版本当当前线上版本。
 
 ## 检查与限制
 

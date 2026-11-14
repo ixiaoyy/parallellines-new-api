@@ -1,15 +1,11 @@
-"""pkce.10 固定 pkce.9 的完整来源与增量补丁；仅本地准备、离线构建和对应源码打包。"""
+"""pkce.10 固定 pkce.9 的来源与增量补丁；仅准备、核对和离线构建，不生成额外源码归档。"""
 import argparse
-import hashlib
 import importlib.util
-import io
 import json
 import os
 from pathlib import Path
-import re
 import shutil
 import subprocess
-import tarfile
 import time
 
 RELEASE = Path(__file__).resolve().parent
@@ -103,49 +99,6 @@ def build(source, cache, output):
     return receipt
 
 
-def package(source, output, receipt_path, code_commit=None):
-    """候选包明确不可发布；正式包须所有本轮输入均来自同一已提交 HEAD，且包含精确对应源码。"""
-    # 正式交付名称沿原发布合同包含精确版本，防止内容是 .10 却以旧版本归档名发布。
-    if code_commit is not None and output.name != 'new-api-v0.13.2-pkce.10-corresponding-source.tar.gz':
-        raise RuntimeError('published_source_archive_name_mismatch')
-    lock = verify(source)
-    receipt = BASE.read_json(receipt_path)
-    binary = PREVIOUS.binary_assets(receipt_path.parent / 'new-api-linux-amd64', lock)
-    if not receipt.get('go_build_run') or receipt.get('application_version') != lock['application_version'] or receipt.get('release_lock_sha256') != BASE.digest(RELEASE / 'upstream.lock.json') or receipt.get('binary_sha256') != binary['binary_sha256']:
-        raise RuntimeError('release_build_receipt_mismatch')
-    if output.exists():
-        raise RuntimeError('source_archive_already_exists')
-    head = subprocess.check_output(['git', 'rev-parse', 'HEAD'], cwd=REPO, text=True, timeout=30).strip()
-    if code_commit is not None and (not re.fullmatch('[0-9a-f]{40}', code_commit) or code_commit != head):
-        raise RuntimeError('source_commit_must_match_current_head')
-    if code_commit is None and not output.name.endswith('.candidate.tar.gz'):
-        raise RuntimeError('uncommitted_candidate_archive_name_required')
-    recipe = {}
-    raw = subprocess.check_output(['git', 'archive', '--format=tar', head], cwd=REPO, timeout=30)
-    with tarfile.open(fileobj=io.BytesIO(raw)) as archive:
-        for member in archive:
-            if member.isfile():
-                recipe[member.name] = archive.extractfile(member).read()
-    for name in BASE.read_json(RELEASE / 'release-inputs.json')['files']:
-        path = REPO / name
-        if not path.resolve().is_relative_to(REPO.resolve()) or path.is_symlink():
-            raise RuntimeError('invalid_recipe_input_path')
-        content = path.read_bytes()
-        if code_commit is not None and recipe.get(name) != content:
-            raise RuntimeError('release_recipe_not_committed: ' + name)
-        recipe[name] = content
-    output.parent.mkdir(parents=True, exist_ok=True)
-    with tarfile.open(output, 'w:gz') as archive:
-        for name, content in sorted(recipe.items()):
-            entry = tarfile.TarInfo(name); entry.size = len(content); entry.mode = 0o644
-            archive.addfile(entry, io.BytesIO(content))
-        for name in sorted(BASE.read_json(REPO / lock['source_manifest'])['files']):
-            archive.add(source / name, arcname='source/' + name, recursive=False)
-    result = {'application_version': lock['application_version'], 'publishable': code_commit is not None, 'integration_commit': code_commit, 'recipe_base_commit': head, 'sha256': BASE.digest(output), 'bytes': output.stat().st_size, 'binary_sha256': binary['binary_sha256']}
-    BASE.write_json(output.with_name(output.name + '.json'), result)
-    return result
-
-
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
     commands = parser.add_subparsers(dest='command', required=True)
@@ -153,7 +106,6 @@ if __name__ == '__main__':
     prep.add_argument('--base-source', type=Path, required=True); prep.add_argument('--frontend-dir', type=Path, required=True); prep.add_argument('--destination', type=Path, required=True)
     check = commands.add_parser('verify'); check.add_argument('--source', type=Path, required=True)
     compile = commands.add_parser('build'); compile.add_argument('--source', type=Path, required=True); compile.add_argument('--cache-dir', type=Path, required=True); compile.add_argument('--output-dir', type=Path, required=True)
-    pack = commands.add_parser('package'); pack.add_argument('--source', type=Path, required=True); pack.add_argument('--output', type=Path, required=True); pack.add_argument('--build-receipt', type=Path, required=True); pack.add_argument('--code-commit')
     args = parser.parse_args()
     if args.command == 'prepare':
         print(prepare(args.base_source.resolve(), args.frontend_dir.resolve(), args.destination.resolve()))
@@ -161,5 +113,3 @@ if __name__ == '__main__':
         print(json.dumps({'application_version': verify(args.source.resolve())['application_version'], 'verified': True}))
     elif args.command == 'build':
         print(json.dumps(build(args.source.resolve(), args.cache_dir.resolve(), args.output_dir.resolve()), indent=2))
-    else:
-        print(json.dumps(package(args.source.resolve(), args.output.resolve(), args.build_receipt.resolve(), args.code_commit), indent=2))

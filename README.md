@@ -17,9 +17,10 @@ entry. Native user IDs, roles, balances, billing, API keys and Chat OAuth relay
 retain their existing paths. The switch defaults off; the Main/issuer contract
 and private recovery network boundary must be ready before activation. Local
 builds and isolated checks do not establish real SSO or production activation.
-The build lock records the preparation-stage candidate state. Subsequent source
-publication is identified by its commit-bound archive receipt and GitHub release;
-neither establishes production activation by itself.
+The build lock records the preparation-stage candidate state. This release
+delivers the reviewed binary and its Git revision through GitHub; no additional
+full upstream source archive is required by the pkce.10 release workflow.
+Publication does not establish production activation or determine license compliance.
 The root lock and
 the base-build commands below intentionally describe the reusable pkce.3 base;
 do not use that base image to replace the current live release.
@@ -27,7 +28,7 @@ do not use that base image to replace the current live release.
 The source archives and manifests describe application source only. Runtime
 secrets, databases, identities and logs are excluded from version control.
 
-## Prepare and build
+## Prepare and build (reusable pkce.3 base)
 
 On a Linux build machine with Bash, curl, unzip, Git, sha256sum, Go 1.26.1 and
 Bun 1.4.4:
@@ -42,8 +43,8 @@ docker build -f Dockerfile.runtime -t parallellines-newapi:v0.13.2-pkce.3 .
 The preparation checks the upstream archive and patch SHA-256 before applying the
 patch. Build uses the upstream frozen Bun lockfile and Go module checksums. It
 produces Linux amd64 with CGO disabled and `GOEXPERIMENT=greenteagc`. Build outputs
-and full downloaded upstream source are ignored by Git. Publish the generated
-corresponding-source archive with each deployed release.
+and full downloaded upstream source are ignored by Git. These historical base
+packaging commands are retained for pkce.3, not required for pkce.10 delivery.
 
 For a downloaded corresponding-source release (which already contains patched
 `source/`), skip preparation and build with

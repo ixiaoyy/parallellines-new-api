@@ -2,51 +2,18 @@
 
 本轮按用户最新决定，不再处理本地 Docker、不补本地测试或重建应用；直接由发布负责人盘点实际服务器、运行候选并验收。此文不是已上线回执。Main、issuer、Chat 与公开代理由根任务统一协调，NewAPI 不单独切换登录权威。
 
-## 可复用产物与最终提交绑定
+## 可复用二进制与 Git 版本
 
 已验证应用输入没有改变：
 
-- 展开源码：`.build/unified-web-login-pkce10-20261114/ready/source`，1310 文件，按本版完整源码清单固定。
 - Linux amd64 二进制：`.build/unified-web-login-pkce10-20261114/ready-output/new-api-linux-amd64`。
 - 构建回执：同目录 `build-receipt.json`。记录版本 `v0.13.2-pkce.10`、199 个实际嵌入公开文件及二进制 SHA-256 `d0f64b597c2d4aeb29c79256fc2f1e434bc4e574512a92c8aefda4ce74b8aa1b`。
-- 现有 `.candidate.tar.gz` 是未绑定提交的历史候选，早于后补发布资料，不能当正式归档发布。
+- 应用 Git 提交及现有版本标签指向 `edffcec34099d5fae861f5cd78466e77bceb410d`，保留代码、补丁、版本锁和构建资料。
+- 后续发布资料清理单独记录 Git 提交，不改写该标签，也不重新编译二进制。
 
-正式对应源码包必须在负责人按用户批准的顺序完成最终提交后生成，确认该仓库的本地 HEAD、已推送目标和批准 SHA 一致；不借本文提前越过服务器候选验收或提交的授权条件。若先运行未提交的服务器候选，必须明确其候选状态，不给它填写虚假的最终 SHA。最终提交后只打正式包，不重编译应用：
+本轮 GitHub prerelease 交付 `new-api-linux-amd64` 与 `release-artifacts.json`，摘要记录二进制身份、应用 Git 版本及发布资料更新提交。完整上游源码归档及其专属 JSON 曾被额外上传，现按用户要求移除，不再作为下载、构建或激活前置。
 
-```powershell
-$sha = git rev-parse HEAD
-python releases/v0.13.2-pkce.10/release.py package --source .build/unified-web-login-pkce10-20261114/ready/source --build-receipt .build/unified-web-login-pkce10-20261114/ready-output/build-receipt.json --output dist/release-v0.13.2-pkce.10/new-api-v0.13.2-pkce.10-corresponding-source.tar.gz --code-commit $sha
-```
-
-这是正式归档操作：核源码/ELF 与已有清单，要求每个 `release-inputs.json` 输入均与该 HEAD 的内容一致，回执写 `publishable:true` 和实际 `integration_commit`。它不安装、不构建、不联网运行应用。正式归档名固定；已有输出不覆盖。若源码、清单或二进制不一致，停止发布，不通过改清单或回执绕过。
-
-## 本次待提交精确清单
-
-以下所有变更均需进入同一个 NewAPI 提交；现有暂存只覆盖生产材料，不能漏掉未暂存/未跟踪的测试和说明引用。
-
-```text
-README.md
-deploy/nginx-api.conf
-docs/OPERATIONS.md
-docs/UNIFIED-WEB-LOGIN-ACCEPTANCE.md
-patches/new-api-v0.13.2-pkce10-unified-web-login.patch
-patches/new-api-v0.13.2-pkce10-unified-web-login-tests.patch
-patches/unified-web-login-manifest.json
-releases/v0.13.2-pkce.10/DEPLOYMENT.md
-releases/v0.13.2-pkce.10/Dockerfile.runtime
-releases/v0.13.2-pkce.10/README.md
-releases/v0.13.2-pkce.10/frontend-assets.json
-releases/v0.13.2-pkce.10/release-inputs.json
-releases/v0.13.2-pkce.10/release.py
-releases/v0.13.2-pkce.10/source-files.json
-releases/v0.13.2-pkce.10/unified-web-login.env.example
-releases/v0.13.2-pkce.10/upstream.lock.json
-scripts/seed-unified-web-test-db.go
-scripts/test-unified-web-helpers.mjs
-scripts/test-unified-web-local.mjs
-```
-
-已提交且未变的 `LICENSE`、`NOTICE.md`、历史配方、锁和脚本依赖由 `git archive HEAD` 一并进入正式对应源码包，展开源码内的许可证也由完整清单保留。不要为重提交而修改许可；部署修改版仍须向使用者提供这份精确对应源码，不能只留私有二进制。
+`release.py` 只保留 `prepare`、`verify`、`build`：需要自行构建时仍可使用已有展开源码与锁；直接部署既有二进制无需重新准备或打包上游代码。原 `LICENSE`、`NOTICE.md` 和历史版本资料保持不变。本次调整交付方式，不就 GitHub 是否自动满足所有许可义务作结论，也不新增 UI 源码入口。
 
 ## 服务器 compare-before
 
@@ -60,7 +27,7 @@ scripts/test-unified-web-local.mjs
 
 ## 服务器最小封装与切换
 
-按当前批准阶段上传已核二进制、相应源码包及回执到新的版本目录，候选不冒充正式版本。正式封装使用归档内本版 Dockerfile，只封装已编译应用；`SOURCE_REVISION`、源码回执、运行镜像标签与批准 SHA 必须一致：
+按当前批准阶段上传已核二进制与摘要到新的版本目录，候选不冒充正式版本。本版 Dockerfile 从已核 Git 版本取得，只封装已编译应用；`SOURCE_REVISION`、摘要中的应用版本和运行镜像标签保持一致，不用发布资料清理提交冒充重新编译的应用：
 
 ```sh
 docker build --platform linux/amd64 --build-arg SOURCE_REVISION="$APPROVED_SHA" -f "$RECIPE/releases/v0.13.2-pkce.10/Dockerfile.runtime" -t "$REVIEWED_IMAGE_TAG" "$NEW_CONTEXT"

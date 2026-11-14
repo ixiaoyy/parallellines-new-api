@@ -1,0 +1,159 @@
+{
+  "application_version": "v0.13.2-pkce.10",
+  "published": false,
+  "base_application_version": "v0.13.2-pkce.9",
+  "base_source_manifest": "releases/v0.13.2-pkce.9/source-files.json",
+  "base_source_manifest_sha256": "192371132daa8b6cc8ba6870c489b42ca11b63ffd8bedeb2e43d1baf186aab43",
+  "production_patch": {
+    "file": "patches/new-api-v0.13.2-pkce10-unified-web-login.patch",
+    "sha256": "d073ecdb0a1c9a43698a2fe7c8d2ea9deab71a9b1e7766547da262a5f52131e9"
+  },
+  "files": [
+    {
+      "path": "controller/misc.go",
+      "base_sha256": "b0f33d369867ee4219fe848f157e268acac2566f1a2680ebeaca182880d2aac6",
+      "result_sha256": "15ab930a1f06684b106e6defee000add0941c54c5bc661221887bc02baa675e5"
+    },
+    {
+      "path": "controller/oauth.go",
+      "base_sha256": "e0d25e9e9055e015ce5b7e3a36ec9f8c721bad8effdc76d291a69561fe283835",
+      "result_sha256": "89027a55d477c9aae8e82446209446b90dfd65fb69544f798a0b4378070e5e5f"
+    },
+    {
+      "path": "controller/oauth_pkce.go",
+      "base_sha256": "44b36e139b341f0c0a388cd810e517dd19cebbf95d5829233e415f84830f875c",
+      "result_sha256": "bd2c061f745a3d84af9a865e4eebe59837cc115fb6a1bf446cbfa0a94bc251c9"
+    },
+    {
+      "path": "controller/twofa.go",
+      "base_sha256": "6904ad3e95f3ad6220f7cff22bab9a34d6d3f17265ed03a57283248475692e1e",
+      "result_sha256": "23c32a2008b8b3761b9cf3a9fc565e6fb0bbee73d6ad12449fc68c6edad84a21"
+    },
+    {
+      "path": "controller/unified_web.go",
+      "base_sha256": null,
+      "result_sha256": "728de00aef4bbe98234e8961f325c2d93d82777a53255ad5219046be9a27d915"
+    },
+    {
+      "path": "controller/user.go",
+      "base_sha256": "c6c8be99efc486944229883dfb9cbf79b0211350b7cffde3f0a56df834883509",
+      "result_sha256": "5b9c674eb2555c780ead7becb28a4d2a2e548e91571e5be54e400c41e925ac4f"
+    },
+    {
+      "path": "middleware/auth.go",
+      "base_sha256": "7dbc74dc32295ecbea8322b1c5493bc458960d64e97d6e41cf14e69dcae41a88",
+      "result_sha256": "7d0ad7fb57ae7e4f6b6b4ca1be846c7938919c987bd9e3369d18d3772f2f9aba"
+    },
+    {
+      "path": "middleware/session_user.go",
+      "base_sha256": "202d51fd5e71b6fb2d290a274c3d70c5f211d1ec197d894f24a50a6d4b788161",
+      "result_sha256": "3b54d6766421451f4900287f7926f0ed2ed8b9b32b4a383563d99a158424a149"
+    },
+    {
+      "path": "middleware/unified_web.go",
+      "base_sha256": null,
+      "result_sha256": "53c356c520d85693ccd608ba057d23f43d6a1d2c68f8fcd9c1e33db337bfd8f4"
+    },
+    {
+      "path": "oauth/generic.go",
+      "base_sha256": "60bae0a465c91ac36af727ca873dde5d94f57af9e2df4e00112efddaafcdf440",
+      "result_sha256": "bc3b0ef52380bcd88f9a6336960591c28d9bfe038a0ef8dc7f82615309156ae6"
+    },
+    {
+      "path": "oauth/main_profile.go",
+      "base_sha256": "a345f8e76cd97d0a1c6e1bdeb3dd4312d42d1f443a1934bf13234e42590482e1",
+      "result_sha256": "1f87515708b6f2e8aa8c499d331661a5d6845479f230c0741c008d9873d13d44"
+    },
+    {
+      "path": "oauth/unified_web.go",
+      "base_sha256": null,
+      "result_sha256": "ba9d42a8749d8342b75dc188aba0e6037d7fe0e0e3735f09cbc45a2dd7bee450"
+    },
+    {
+      "path": "router/api-router.go",
+      "base_sha256": "31675f70ac3f8f15c35e4bd629d80e6e66c4c600c46630802b8d1546f73af77f",
+      "result_sha256": "9626663b7f349644c6c62810ad35a292add39fbb02c9e4c50e9e8a26e5370a3e"
+    },
+    {
+      "path": "router/web-router.go",
+      "base_sha256": "248c6a3cc57d53bfb3c745a5505261e8de858edd2620c2052c8e43a6b81742af",
+      "result_sha256": "a202e04651935babf390177c798e720307d0286e98641fad584c3e16dec2767e"
+    },
+    {
+      "path": "web/src/App.jsx",
+      "base_sha256": "a32605b0817ed54f020699b3caf10deb7ecb9f457097553517e3a85ef2349d30",
+      "result_sha256": "8361d35a4e6d374799fd1a28e788b90ec0608f24f4f7878d6ddd16359e2d53e3"
+    },
+    {
+      "path": "web/src/components/auth/MainRootRecovery.jsx",
+      "base_sha256": null,
+      "result_sha256": "30eb266eb47cfbfcacaf83b105b0b7d65eb5ab960857660865a4ca8f9def7a94"
+    },
+    {
+      "path": "web/src/components/auth/MainUnifiedBoundary.jsx",
+      "base_sha256": null,
+      "result_sha256": "9c45bc3b67bfa41f1933d48992aba187ab158b4ae70ed53eef10ab6df2478bc0"
+    },
+    {
+      "path": "web/src/components/auth/MainUnifiedLogin.jsx",
+      "base_sha256": null,
+      "result_sha256": "5a749bd77635bcdfb7928ba572ea2617532f64c521e6a571a9a4dab78801e9e7"
+    },
+    {
+      "path": "web/src/components/auth/OAuth2Callback.jsx",
+      "base_sha256": "67c11334c4db119b944439cbb9d64c47d5d6277d909c6c03f7c4d5768e771fb0",
+      "result_sha256": "887c0b37312b8bed5507606d359dea9ba81dfd50205a88279d9b68eacb5bf401"
+    },
+    {
+      "path": "web/src/components/layout/PageLayout.jsx",
+      "base_sha256": "8648236443d1acce1636706863a34e9cfc83bb20f7c7a31039bd9b7adf018e39",
+      "result_sha256": "3418c5455519a148b720276a61093b4c8e257a58e2d9d35f88998c357426074a"
+    },
+    {
+      "path": "web/src/components/settings/PersonalSetting.jsx",
+      "base_sha256": "88011ee48b6592553f132a6e0d00730f1f31c9f067713f707626d29125841717",
+      "result_sha256": "cdfbf12f35b309653b4409dd81a3be73a77cd42b9965b723491b53eab406fc24"
+    },
+    {
+      "path": "web/src/helpers/auth.jsx",
+      "base_sha256": "beaa6df1ded2f26088e4c9373a4f9f7dda0a2cd07af280d60fb07ab332164a7b",
+      "result_sha256": "cf3d0bf8df858698e79831303c26561e82bba0d9d40ffe0724fd60302c6c957f"
+    },
+    {
+      "path": "web/src/helpers/unified-web.js",
+      "base_sha256": null,
+      "result_sha256": "f5a18600f3b99102b7975ce772bd5423e0bee177663434c2dba05e8de60361b1"
+    },
+    {
+      "path": "web/src/hooks/common/useHeaderBar.js",
+      "base_sha256": "a63a410ad71acfaf2988f27412f976cb081f6aa5a1a9cac2daa0820431c98cd8",
+      "result_sha256": "6f56513afaeacd8cafd14997fff886930e6f1ade3ec14f49a17cbe31a6869928"
+    }
+  ],
+  "verification_patch": {
+    "file": "patches/new-api-v0.13.2-pkce10-unified-web-login-tests.patch",
+    "sha256": "dd7c577b9366c87d9741e15bb1bd6c9f8a0a423ded509917cd405efff5f28773"
+  },
+  "verification_files": [
+    {
+      "path": "controller/unified_web_test.go",
+      "base_sha256": null,
+      "result_sha256": "971658015449ee9c644294f1a014df9e1254a97524af53cc91b4a07299a4bc24"
+    },
+    {
+      "path": "main_release_assets_test.go",
+      "base_sha256": "8d3697fe9559948610e2db246bb54b2f0ed82431bc89ff9b880ba471c3bda8a2",
+      "result_sha256": "3ab7f2ae0452e23baadc7ccca7fa2cab53ca66d3ac4ec451619e35386c6b999c"
+    },
+    {
+      "path": "middleware/unified_web_test.go",
+      "base_sha256": null,
+      "result_sha256": "2f2c354ee57ded9a3050941897f3dc74ba50847748f38450aabdf14ab521643c"
+    },
+    {
+      "path": "oauth/unified_web_test.go",
+      "base_sha256": null,
+      "result_sha256": "502f9604cddb6dbe824ab89665f7de40429de180100d4ec3d384b600a9e7627e"
+    }
+  ]
+}

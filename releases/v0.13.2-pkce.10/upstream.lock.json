@@ -1,0 +1,35 @@
+{
+  "application_version": "v0.13.2-pkce.10",
+  "status": "prepared-candidate-unpublished",
+  "base_application_version": "v0.13.2-pkce.9",
+  "base_release_lock": "releases/v0.13.2-pkce.9/upstream.lock.json",
+  "base_source_manifest": "releases/v0.13.2-pkce.9/source-files.json",
+  "upstream_commit": "bee339d279ccecbf8c8a89e14ddbbd902f78bd5d",
+  "profile_manifest": "patches/unified-web-login-manifest.json",
+  "patches": [
+    {
+      "file": "patches/new-api-v0.13.2-pkce10-unified-web-login.patch",
+      "sha256": "d073ecdb0a1c9a43698a2fe7c8d2ea9deab71a9b1e7766547da262a5f52131e9"
+    },
+    {
+      "file": "patches/new-api-v0.13.2-pkce10-unified-web-login-tests.patch",
+      "sha256": "dd7c577b9366c87d9741e15bb1bd6c9f8a0a423ded509917cd405efff5f28773"
+    }
+  ],
+  "frontend_manifest": "releases/v0.13.2-pkce.10/frontend-assets.json",
+  "source_manifest": "releases/v0.13.2-pkce.10/source-files.json",
+  "frontend_source_identity": "611b15c1714c3d609174020d2a3810666d6c8872603fd270971b80bb82112161",
+  "go_version": "1.26.1",
+  "platform": "linux/amd64",
+  "cgo_enabled": "0",
+  "go_experiment": "greenteagc",
+  "runtime_base": "calciumion/new-api:v0.13.2@sha256:81da2c875f1de1460e6dd30324c5cb36b23ef55eaae00f317621fcb8a701ad43",
+  "single_instance_required": true,
+  "main_unified_web_login_default": false,
+  "main_root_recovery_default": false,
+  "base_release_lock_sha256": "cbf8792db756900ae84497e723ab26940d6b9926027464cee02c5152c0adedac",
+  "base_source_manifest_sha256": "192371132daa8b6cc8ba6870c489b42ca11b63ffd8bedeb2e43d1baf186aab43",
+  "profile_manifest_sha256": "3f6b1817b2d0caebfc969466b8ac05c5a64250c0b65fd7930be310a40e1ae6b2",
+  "frontend_manifest_sha256": "abc922d85c52303b3d86a3264eb19350b96dcb2c2868ccfdbc13416cc8094d8f",
+  "source_manifest_sha256": "e335779a9fd0758b8ee28272bdb18355b22c49c6adaefe79363cd3fd4e7e8d10"
+}

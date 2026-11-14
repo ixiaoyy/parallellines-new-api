@@ -1,0 +1,1482 @@
+--- a/controller/misc.go
++++ b/controller/misc.go
+@@ -49,29 +49,30 @@
+ 	legalSetting := system_setting.GetLegalSettings()
+ 
+ 	data := gin.H{
+-		"version":                     common.Version,
+-		"start_time":                  common.StartTime,
+-		"email_verification":          common.EmailVerificationEnabled,
+-		"github_oauth":                common.GitHubOAuthEnabled,
+-		"github_client_id":            common.GitHubClientId,
+-		"discord_oauth":               system_setting.GetDiscordSettings().Enabled,
+-		"discord_client_id":           system_setting.GetDiscordSettings().ClientId,
+-		"linuxdo_oauth":               common.LinuxDOOAuthEnabled,
+-		"linuxdo_client_id":           common.LinuxDOClientId,
+-		"linuxdo_minimum_trust_level": common.LinuxDOMinimumTrustLevel,
+-		"telegram_oauth":              common.TelegramOAuthEnabled,
+-		"telegram_bot_name":           common.TelegramBotName,
+-		"system_name":                 common.SystemName,
+-		"logo":                        common.Logo,
+-		"footer_html":                 common.Footer,
+-		"wechat_qrcode":               common.WeChatAccountQRCodeImageURL,
+-		"wechat_login":                common.WeChatAuthEnabled,
+-		"server_address":              system_setting.ServerAddress,
+-		"turnstile_check":             common.TurnstileCheckEnabled,
+-		"turnstile_site_key":          common.TurnstileSiteKey,
+-		"top_up_link":                 common.TopUpLink,
+-		"docs_link":                   operation_setting.GetGeneralSetting().DocsLink,
+-		"quota_per_unit":              common.QuotaPerUnit,
++		"main_unified_web_login_enabled": oauth.MainUnifiedWebEnabled(),
++		"version":                        common.Version,
++		"start_time":                     common.StartTime,
++		"email_verification":             common.EmailVerificationEnabled,
++		"github_oauth":                   common.GitHubOAuthEnabled,
++		"github_client_id":               common.GitHubClientId,
++		"discord_oauth":                  system_setting.GetDiscordSettings().Enabled,
++		"discord_client_id":              system_setting.GetDiscordSettings().ClientId,
++		"linuxdo_oauth":                  common.LinuxDOOAuthEnabled,
++		"linuxdo_client_id":              common.LinuxDOClientId,
++		"linuxdo_minimum_trust_level":    common.LinuxDOMinimumTrustLevel,
++		"telegram_oauth":                 common.TelegramOAuthEnabled,
++		"telegram_bot_name":              common.TelegramBotName,
++		"system_name":                    common.SystemName,
++		"logo":                           common.Logo,
++		"footer_html":                    common.Footer,
++		"wechat_qrcode":                  common.WeChatAccountQRCodeImageURL,
++		"wechat_login":                   common.WeChatAuthEnabled,
++		"server_address":                 system_setting.ServerAddress,
++		"turnstile_check":                common.TurnstileCheckEnabled,
++		"turnstile_site_key":             common.TurnstileSiteKey,
++		"top_up_link":                    common.TopUpLink,
++		"docs_link":                      operation_setting.GetGeneralSetting().DocsLink,
++		"quota_per_unit":                 common.QuotaPerUnit,
+ 		// 兼容旧前端：保留 display_in_currency，同时提供新的 quota_display_type
+ 		"display_in_currency":           operation_setting.IsCurrencyDisplay(),
+ 		"quota_display_type":            operation_setting.GetQuotaDisplayType(),
+--- a/controller/oauth.go
++++ b/controller/oauth.go
+@@ -74,6 +74,10 @@
+ 
+ 	// 2. Check if user is already logged in (bind flow)
+ 	username := session.Get("username")
++	if username != nil && oauth.MainUnifiedWebEnabled() {
++		c.AbortWithStatusJSON(409, gin.H{"success": false, "message": "请重新发起主站统一登录"})
++		return
++	}
+ 	if username != nil {
+ 		handleOAuthBind(c, provider)
+ 		return
+@@ -133,6 +137,22 @@
+ 		return
+ 	}
+ 
++	// 新模式只保存受信主站证明的随机句柄，账户 ID 和额度沿原生绑定。
++	if oauth.MainUnifiedWebEnabled() {
++		binding, _ := oauthUser.Extra["main_web_binding"].(string)
++		expires, _ := oauthUser.Extra["main_web_expires"].(int64)
++		proof := oauth.MainWebProof{UserID: user.Id, Subject: oauthUser.ProviderUserID, Binding: binding, Expires: expires}
++		if err := oauth.CheckMainWebProof(c.Request.Context(), proof); err != nil {
++			c.JSON(503, gin.H{"success": false, "message": "主站会话校验不可用，请重新登录"})
++			return
++		}
++		handle, err := oauth.SaveMainWebProof(proof)
++		if err != nil {
++			common.ApiError(c, err)
++			return
++		}
++		session.Set(oauth.MainWebProofKey, handle)
++	}
+ 	// 9. Setup login
+ 	setupLogin(user, c)
+ }
+--- a/controller/oauth_pkce.go
++++ b/controller/oauth_pkce.go
+@@ -48,6 +48,16 @@
+ 	}
+ 	provider = provider.Snapshot()
+ 	session := sessions.Default(c)
++	if oauth.MainUnifiedWebEnabled() {
++		if c.Param("provider") != "pingxingxian" || provider.ValidateMainProfileConfiguration() != nil {
++			c.AbortWithStatusJSON(503, gin.H{"success": false, "message": "主站统一登录配置不可用"})
++			return
++		}
++		// 重接只清本地会话，不撤销主站绑定，避免把换号流程误当原生账号绑定。
++		handle, _ := session.Get(oauth.MainWebProofKey).(string)
++		oauth.DeleteMainWebProof(handle)
++		session.Clear()
++	}
+ 	if value, ok := session.Get(pkceSessionKey).(string); !ok || value == "" {
+ 		binding, err := oauthpkce.RandomValue()
+ 		if err != nil {
+--- a/controller/twofa.go
++++ b/controller/twofa.go
+@@ -4,9 +4,11 @@
+ 	"errors"
+ 	"net/http"
+ 	"strconv"
++	"time"
+ 
+ 	"github.com/QuantumNous/new-api/common"
+ 	"github.com/QuantumNous/new-api/model"
++	"github.com/QuantumNous/new-api/oauth"
+ 
+ 	"github.com/gin-contrib/sessions"
+ 	"github.com/gin-gonic/gin"
+@@ -396,6 +398,10 @@
+ 
+ // Verify2FALogin 登录时验证2FA
+ func Verify2FALogin(c *gin.Context) {
++	if oauth.MainUnifiedWebEnabled() && !c.GetBool("main_root_recovery") {
++		rejectMainCredentials(c)
++		return
++	}
+ 	var req Verify2FARequest
+ 	if err := c.ShouldBindJSON(&req); err != nil {
+ 		c.JSON(http.StatusOK, gin.H{
+@@ -433,6 +439,12 @@
+ 		return
+ 	}
+ 
++	// 恢复 MFA 必须来自同一专用入口的待验证会话，并重新核对白名单和真实角色。
++	pendingRecoveryExpiry, _ := session.Get("pending_main_recovery_exp").(int64)
++	if c.GetBool("main_root_recovery") && (pendingRecoveryExpiry <= time.Now().Unix() || session.Get("pending_main_recovery") != true || !oauth.MainRecoveryUser(user.Id, user.Role)) {
++		c.AbortWithStatus(403)
++		return
++	}
+ 	// 获取2FA记录
+ 	twoFA, err := model.GetTwoFAByUserId(user.Id)
+ 	if err != nil {
+@@ -480,6 +492,8 @@
+ 	// 2FA验证成功，清理pending会话信息并完成登录
+ 	session.Delete("pending_username")
+ 	session.Delete("pending_user_id")
++	session.Delete("pending_main_recovery")
++	session.Delete("pending_main_recovery_exp")
+ 	session.Save()
+ 
+ 	setupLogin(user, c)
+--- /dev/null
++++ b/controller/unified_web.go
+@@ -0,0 +1,100 @@
++package controller
++
++import (
++	"errors"
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/oauth"
++	"github.com/gin-contrib/sessions"
++	"github.com/gin-gonic/gin"
++	"net/http"
++)
++
++// rejectMainCredentials 统一模式下所有公开凭据入口仅指向 Main，不对 Root 开例外。
++func rejectMainCredentials(c *gin.Context) {
++	c.AbortWithStatusJSON(403, gin.H{"success": false, "message": "请前往主站管理登录、注册和密码", "login_url": "https://pingxingxian.space/auth"})
++}
++
++// MainUnifiedLocalClear 只清当前 RP 的 cookie/证明；用于匿名化与换号，不能撤销主站或其他设备。
++func MainUnifiedLocalClear(c *gin.Context) {
++	if !oauth.MainUnifiedWebEnabled() {
++		c.AbortWithStatus(404)
++		return
++	}
++	if err := clearMainWebSession(c); err != nil {
++		common.ApiError(c, err)
++		return
++	}
++	common.ApiSuccess(c, nil)
++}
++
++// clearMainWebSession 销毁当前浏览器 RP cookie/证明；保存失败由调用方明确返回。
++func clearMainWebSession(c *gin.Context) error {
++	session := sessions.Default(c)
++	handle, _ := session.Get(oauth.MainWebProofKey).(string)
++	oauth.DeleteMainWebProof(handle)
++	session.Clear()
++	return session.Save()
++}
++
++// MainUnifiedState 由 TryUserAuth 先完成实时主站及本地账号校验；只返回 UI 匹配所需的主体。
++func MainUnifiedState(c *gin.Context) {
++	c.Header("Cache-Control", "no-store")
++	if !oauth.MainUnifiedWebEnabled() {
++		c.AbortWithStatus(404)
++		return
++	}
++	session := sessions.Default(c)
++	handle, _ := session.Get(oauth.MainWebProofKey).(string)
++	proof, err := oauth.LoadMainWebProof(handle)
++	if err != nil || session.Get("id") != proof.UserID {
++		common.ApiSuccess(c, gin.H{"authenticated": false})
++		return
++	}
++	common.ApiSuccess(c, gin.H{"authenticated": true, "subject": proof.Subject, "recovery": proof.Recovery})
++}
++
++// MainUnifiedLogout 先换票再清 RP；发行方不可用明确失败，不能伪报已退出所有站点。
++func MainUnifiedLogout(c *gin.Context) {
++	c.Header("Cache-Control", "no-store")
++	session := sessions.Default(c)
++	handle, _ := session.Get(oauth.MainWebProofKey).(string)
++	proof, err := oauth.LoadMainWebProof(handle)
++	// 重启或旧 cookie 缺少证明时不能伪报跨站退出；先回 Main 重接再取得同浏览器票据。
++	if err != nil && (session.Get("id") != nil || c.GetHeader("New-Api-User") != "" && c.GetHeader("New-Api-User") != "0") {
++		c.AbortWithStatusJSON(401, gin.H{"success": false, "message": "登录已过期，请刷新后重试"})
++		return
++	}
++	logoutURL := ""
++	if err == nil && !proof.Recovery {
++		if session.Get("id") != proof.UserID {
++			c.AbortWithStatus(401)
++			return
++		}
++		logoutURL, err = oauth.MainWebLogoutURL(c.Request.Context(), proof)
++		if err != nil && !errors.Is(err, oauth.ErrMainWebInactive) {
++			c.AbortWithStatusJSON(503, gin.H{"success": false, "message": "主站退出暂不可用，请稍后重试"})
++			return
++		}
++	}
++	if err := clearMainWebSession(c); err != nil {
++		common.ApiError(c, err)
++		return
++	}
++	common.ApiSuccess(c, gin.H{"logout_url": logoutURL})
++}
++
++// MainRootRecovery 只在显式开关和回环 Host 上复用原生密码/MFA，不向公开登录入口添加豁免。
++func MainRootRecovery(twoFA bool) gin.HandlerFunc {
++	return func(c *gin.Context) {
++		if !oauth.MainRootRecoveryEnabled() || !oauth.MainRecoveryHost(c.Request.Host) {
++			c.AbortWithStatus(http.StatusNotFound)
++			return
++		}
++		c.Set("main_root_recovery", true)
++		if twoFA {
++			Verify2FALogin(c)
++		} else {
++			Login(c)
++		}
++	}
++}
+--- a/controller/user.go
++++ b/controller/user.go
+@@ -15,8 +15,10 @@
+ 	"github.com/QuantumNous/new-api/i18n"
+ 	"github.com/QuantumNous/new-api/logger"
+ 	"github.com/QuantumNous/new-api/model"
++	"github.com/QuantumNous/new-api/oauth"
+ 	"github.com/QuantumNous/new-api/service"
+ 	"github.com/QuantumNous/new-api/setting"
++	"time"
+ 
+ 	"github.com/QuantumNous/new-api/constant"
+ 
+@@ -30,6 +32,10 @@
+ }
+ 
+ func Login(c *gin.Context) {
++	if oauth.MainUnifiedWebEnabled() && !c.GetBool("main_root_recovery") {
++		rejectMainCredentials(c)
++		return
++	}
+ 	if !common.PasswordLoginEnabled {
+ 		common.ApiErrorI18n(c, i18n.MsgUserPasswordLoginDisabled)
+ 		return
+@@ -64,12 +70,23 @@
+ 		return
+ 	}
+ 
++	// 恢复入口只接受显式 UID 白名单和数据库真实 Root；不根据是否绑定 OIDC 猜测。
++	if c.GetBool("main_root_recovery") && !oauth.MainRecoveryUser(user.Id, user.Role) {
++		c.AbortWithStatusJSON(403, gin.H{"success": false, "message": "恢复账号不可用"})
++		return
++	}
+ 	// 检查是否启用2FA
+ 	if model.IsTwoFAEnabled(user.Id) {
+ 		// 设置pending session，等待2FA验证
+ 		session := sessions.Default(c)
+ 		session.Set("pending_username", user.Username)
+ 		session.Set("pending_user_id", user.Id)
++		if c.GetBool("main_root_recovery") {
++			session.Set("pending_main_recovery", true)
++			session.Set("pending_main_recovery_exp", time.Now().Add(5*time.Minute).Unix())
++		} else {
++			session.Delete("pending_main_recovery")
++		}
+ 		err := session.Save()
+ 		if err != nil {
+ 			common.ApiErrorI18n(c, i18n.MsgUserSessionSaveFailed)
+@@ -91,8 +108,30 @@
+ 
+ // setup session & cookies and then return user info
+ func setupLogin(user *model.User, c *gin.Context) {
++	session := sessions.Default(c)
++	if oauth.MainUnifiedWebEnabled() || c.GetBool("main_root_recovery") {
++		if c.GetBool("main_root_recovery") {
++			if !oauth.MainRecoveryHost(c.Request.Host) || !oauth.MainRecoveryUser(user.Id, user.Role) {
++				c.AbortWithStatus(403)
++				return
++			}
++			handle, err := oauth.SaveMainWebProof(oauth.MainWebProof{UserID: user.Id, Expires: time.Now().Add(time.Hour).Unix(), Recovery: true})
++			if err != nil {
++				common.ApiError(c, err)
++				return
++			}
++			session.Clear()
++			session.Set(oauth.MainWebProofKey, handle)
++		} else {
++			handle, _ := session.Get(oauth.MainWebProofKey).(string)
++			proof, err := oauth.LoadMainWebProof(handle)
++			if err != nil || proof.UserID != user.Id || proof.Recovery {
++				c.AbortWithStatusJSON(401, gin.H{"success": false, "message": "请通过主站统一登录"})
++				return
++			}
++		}
++	}
+ 	model.UpdateUserLastLoginAt(user.Id)
+-	session := sessions.Default(c)
+ 	session.Set("id", user.Id)
+ 	session.Set("username", user.Username)
+ 	session.Set("role", user.Role)
+@@ -118,6 +157,10 @@
+ }
+ 
+ func Logout(c *gin.Context) {
++	if oauth.MainUnifiedWebEnabled() {
++		MainUnifiedLogout(c)
++		return
++	}
+ 	session := sessions.Default(c)
+ 	session.Clear()
+ 	err := session.Save()
+--- a/middleware/auth.go
++++ b/middleware/auth.go
+@@ -163,7 +163,7 @@
+ func TryUserAuth() func(c *gin.Context) {
+ 	return func(c *gin.Context) {
+ 		if err := checkCookieUserExists(c); err != nil {
+-			if errors.Is(err, errCookieIdentityDatabase) {
++			if errors.Is(err, errCookieIdentityDatabase) || errors.Is(err, errCookieIdentityAuthority) {
+ 				rejectCookieIdentity(c, err)
+ 				return
+ 			}
+--- a/middleware/session_user.go
++++ b/middleware/session_user.go
+@@ -15,6 +15,7 @@
+ 
+ var errCookieIdentityInvalid = errors.New("invalid login session")
+ var errCookieIdentityDatabase = errors.New("login session lookup unavailable")
++var errCookieIdentityAuthority = errors.New("Main session authority unavailable")
+ 
+ // 默认只核账号存在；启用统一同步后，仅主站绑定账号改用当前数据库角色，防止旧 cookie 保留已撤销的管理员权限。
+ // 匿名和 OAuth state-only cookie 不查询数据库，本地独立恢复账号保持原授权语义。
+@@ -27,6 +28,45 @@
+ 	id, ok := rawID.(int)
+ 	if !ok || id <= 0 {
+ 		return errCookieIdentityInvalid
++	}
++	if oauth.MainUnifiedWebEnabled() {
++		handle, _ := session.Get(oauth.MainWebProofKey).(string)
++		proof, err := oauth.LoadMainWebProof(handle)
++		if err != nil || proof.UserID != id {
++			return errCookieIdentityInvalid
++		}
++		if proof.Recovery {
++			user, lookupErr := model.GetUserById(id, false)
++			if lookupErr != nil {
++				if errors.Is(lookupErr, gorm.ErrRecordNotFound) {
++					return errCookieIdentityInvalid
++				}
++				return errCookieIdentityDatabase
++			}
++			if !oauth.MainRecoveryHost(c.Request.Host) || !oauth.MainRecoveryUser(id, user.Role) || user.Status != common.UserStatusEnabled {
++				return errCookieIdentityInvalid
++			}
++			session.Set("role", user.Role)
++			session.Set("status", user.Status)
++		} else {
++			// 服务端证明还必须属于当前原生账号的同一 provider/sub；解绑或重绑不能借旧 cookie 访问另一账号。
++			binding, lookupErr := model.GetUserOAuthBinding(id, 1)
++			if lookupErr != nil {
++				if errors.Is(lookupErr, gorm.ErrRecordNotFound) {
++					return errCookieIdentityInvalid
++				}
++				return errCookieIdentityDatabase
++			}
++			if binding.ProviderUserId != proof.Subject {
++				return errCookieIdentityInvalid
++			}
++			if err := oauth.CheckMainWebProof(c.Request.Context(), proof); err != nil {
++				if errors.Is(err, oauth.ErrMainWebUnavailable) {
++					return errCookieIdentityAuthority
++				}
++				return errCookieIdentityInvalid
++			}
++		}
+ 	}
+ 	var err error
+ 	if oauth.MainAccountSyncEnabled() {
+@@ -61,6 +101,10 @@
+ }
+ 
+ func rejectCookieIdentity(c *gin.Context, err error) {
++	if errors.Is(err, errCookieIdentityAuthority) {
++		c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": "登录暂不可用，请稍后重试"})
++		return
++	}
+ 	if errors.Is(err, errCookieIdentityDatabase) {
+ 		c.AbortWithStatusJSON(http.StatusServiceUnavailable, gin.H{"success": false, "message": common.TranslateMessage(c, i18n.MsgDatabaseError)})
+ 		return
+--- /dev/null
++++ b/middleware/unified_web.go
+@@ -0,0 +1,46 @@
++package middleware
++
++import (
++	"github.com/QuantumNous/new-api/oauth"
++	"github.com/gin-gonic/gin"
++	"strings"
++)
++
++// MainPublicCredentialBoundary 保持匿名公开页面；仅阻断会创建第二套凭据的公开 API，默认关闭兼容旧模式。
++func MainPublicCredentialBoundary() gin.HandlerFunc {
++	return func(c *gin.Context) {
++		path := c.Request.URL.Path
++		if strings.HasPrefix(path, "/api/user/root-recovery") {
++			if !oauth.MainRecoveryHost(c.Request.Host) {
++				c.AbortWithStatus(404)
++				return
++			}
++			c.Next()
++			return
++		}
++		if !oauth.MainUnifiedWebEnabled() {
++			c.Next()
++			return
++		}
++		blocked := path == "/api/verification" || path == "/api/reset_password" || path == "/api/user/reset" || path == "/api/user/register" || path == "/api/setup" && c.Request.Method == "POST" || path == "/api/user/login" || strings.HasPrefix(path, "/api/user/login/") || strings.HasPrefix(path, "/api/user/passkey/login/")
++		if strings.HasPrefix(path, "/api/oauth/") && path != "/api/oauth/pingxingxian" && path != "/api/oauth/pingxingxian/start" {
++			blocked = true
++		}
++		if blocked {
++			c.AbortWithStatusJSON(403, gin.H{"success": false, "message": "请前往主站管理登录、注册和密码", "login_url": "https://pingxingxian.space/auth"})
++			return
++		}
++		c.Next()
++	}
++}
++
++// MainRecoveryWebBoundary 补充应用层 Host 检查；公开反向代理仍必须无条件拒绝整个恢复路径树。
++func MainRecoveryWebBoundary() gin.HandlerFunc {
++	return func(c *gin.Context) {
++		if strings.HasPrefix(c.Request.URL.Path, "/root-recovery") && !oauth.MainRecoveryHost(c.Request.Host) {
++			c.AbortWithStatus(404)
++			return
++		}
++		c.Next()
++	}
++}
+--- a/oauth/generic.go
++++ b/oauth/generic.go
+@@ -88,7 +88,7 @@
+ }
+ 
+ func (p *GenericOAuthProvider) ExchangeToken(ctx context.Context, code string, c *gin.Context) (*OAuthToken, error) {
+-	privateMain := p.MainProfileSyncRequired()
++	privateMain := p.MainProfileSyncRequired() || (MainUnifiedWebEnabled() && p.config.Slug == "pingxingxian")
+ 	if privateMain {
+ 		if err := p.ValidateMainProfileConfiguration(); err != nil {
+ 			return nil, err
+@@ -151,6 +151,9 @@
+ 	client := http.Client{
+ 		Timeout: 20 * time.Second,
+ 	}
++	if MainUnifiedWebEnabled() && privateMain {
++		client = *mainWebClient
++	}
+ 	if privateMain {
+ 		client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+ 	}
+@@ -163,7 +166,17 @@
+ 
+ 	logger.LogDebug(ctx, "[OAuth-Generic-%s] ExchangeToken response status: %d", p.config.Slug, res.StatusCode)
+ 
+-	body, err := io.ReadAll(res.Body)
++	var tokenReader io.Reader = res.Body
++	if MainUnifiedWebEnabled() && privateMain {
++		if res.StatusCode != http.StatusOK {
++			return nil, ErrMainWebUnavailable
++		}
++		tokenReader = io.LimitReader(res.Body, 16385)
++	}
++	body, err := io.ReadAll(tokenReader)
++	if MainUnifiedWebEnabled() && privateMain && len(body) > 16384 {
++		return nil, ErrMainWebUnavailable
++	}
+ 	if err != nil {
+ 		logger.LogError(ctx, fmt.Sprintf("[OAuth-Generic-%s] ExchangeToken read body error: %s", p.config.Slug, err.Error()))
+ 		return nil, err
+@@ -225,7 +238,7 @@
+ }
+ 
+ func (p *GenericOAuthProvider) GetUserInfo(ctx context.Context, token *OAuthToken) (*OAuthUser, error) {
+-	privateMain := p.MainProfileSyncRequired()
++	privateMain := p.MainProfileSyncRequired() || (MainUnifiedWebEnabled() && p.config.Slug == "pingxingxian")
+ 	if privateMain {
+ 		if err := p.ValidateMainProfileConfiguration(); err != nil {
+ 			return nil, err
+@@ -245,6 +258,9 @@
+ 
+ 	client := http.Client{
+ 		Timeout: 20 * time.Second,
++	}
++	if MainUnifiedWebEnabled() && privateMain {
++		client = *mainWebClient
+ 	}
+ 	if privateMain {
+ 		client.CheckRedirect = func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }
+--- a/oauth/main_profile.go
++++ b/oauth/main_profile.go
+@@ -6,6 +6,7 @@
+ 	"net/mail"
+ 	"os"
+ 	"strings"
++	"time"
+ 	"unicode/utf8"
+ 
+ 	"github.com/QuantumNous/new-api/common"
+@@ -51,7 +52,22 @@
+ 	if err := p.ValidateMainProfileConfiguration(); err != nil {
+ 		return nil, err
+ 	}
+-	return parseTrustedMainProfile(body, mainProfileClient)
++	user, err := parseTrustedMainProfile(body, mainProfileClient)
++	if err != nil || !MainUnifiedWebEnabled() {
++		return user, err
++	}
++	// 新 Web 登录必须来自新版浏览器绑定，旧绑定的 false 不可升格。
++	var claims struct {
++		Binding string `json:"pl_binding"`
++		Expires int64  `json:"pl_auth_exp"`
++		Unified bool   `json:"pl_unified_browser"`
++	}
++	if json.Unmarshal(body, &claims) != nil || !claims.Unified || claims.Binding == "" || len(claims.Binding) > 256 || claims.Expires <= time.Now().Unix() {
++		return nil, ErrMainWebInactive
++	}
++	user.Extra["main_web_binding"] = claims.Binding
++	user.Extra["main_web_expires"] = claims.Expires
++	return user, nil
+ }
+ 
+ // ParseChatMainProfile 解析同一次受信 UserInfo 响应中的开户资料；只接受 Chat audience，
+--- /dev/null
++++ b/oauth/unified_web.go
+@@ -0,0 +1,205 @@
++package oauth
++
++import (
++	"bytes"
++	"context"
++	"crypto/rand"
++	"encoding/hex"
++	"encoding/json"
++	"errors"
++	"io"
++	"net"
++	"net/http"
++	"net/url"
++	"os"
++	"strconv"
++	"strings"
++	"sync"
++	"time"
++)
++
++const MainWebProofKey = "main_web_handle"
++
++var ErrMainWebInactive = errors.New("Main browser session is inactive")
++var ErrMainWebUnavailable = errors.New("Main browser session authority is unavailable")
++
++// MainUnifiedWebEnabled 默认关闭；只约束浏览器登录，不改变普通 API key 或 Chat relay。
++func MainUnifiedWebEnabled() bool { return os.Getenv("MAIN_UNIFIED_WEB_LOGIN_ENABLED") == "true" }
++
++// MainWebProof 仅在单实例服务内保存，不把主站绑定或访问令牌写入浏览器 cookie。
++type MainWebProof struct {
++	UserID   int
++	Subject  string
++	Binding  string
++	Expires  int64
++	Recovery bool
++}
++
++var mainWebProofs = struct {
++	sync.Mutex
++	entries map[string]MainWebProof
++}{entries: make(map[string]MainWebProof)}
++
++// SaveMainWebProof 返回随机浏览器句柄；过期清理后最多保留一万个会话，容量满时明确失败。
++func SaveMainWebProof(proof MainWebProof) (string, error) {
++	now := time.Now().Unix()
++	if proof.UserID <= 0 || proof.Expires <= now || (!proof.Recovery && (proof.Subject == "" || proof.Binding == "")) {
++		return "", ErrMainWebInactive
++	}
++	raw := make([]byte, 32)
++	if _, err := rand.Read(raw); err != nil {
++		return "", err
++	}
++	handle := hex.EncodeToString(raw)
++	mainWebProofs.Lock()
++	defer mainWebProofs.Unlock()
++	for key, value := range mainWebProofs.entries {
++		if value.Expires <= now {
++			delete(mainWebProofs.entries, key)
++		}
++	}
++	if len(mainWebProofs.entries) >= 10000 {
++		return "", ErrMainWebUnavailable
++	}
++	mainWebProofs.entries[handle] = proof
++	return handle, nil
++}
++
++// LoadMainWebProof 只读取有效句柄；重启丢失证明后必须重新走原有 Main OIDC。
++func LoadMainWebProof(handle string) (MainWebProof, error) {
++	mainWebProofs.Lock()
++	defer mainWebProofs.Unlock()
++	proof, ok := mainWebProofs.entries[handle]
++	if !ok || len(handle) != 64 || proof.Expires <= time.Now().Unix() {
++		delete(mainWebProofs.entries, handle)
++		return MainWebProof{}, ErrMainWebInactive
++	}
++	return proof, nil
++}
++
++// DeleteMainWebProof 仅移除本 RP 的内存证明；不向主站发送撤销或退出。
++func DeleteMainWebProof(handle string) {
++	mainWebProofs.Lock()
++	delete(mainWebProofs.entries, handle)
++	mainWebProofs.Unlock()
++}
++
++// MainRootRecoveryEnabled 显式启用应急入口，默认关闭。
++func MainRootRecoveryEnabled() bool { return os.Getenv("MAIN_WEB_ROOT_RECOVERY_ENABLED") == "true" }
++
++// MainRecoveryHost 只接受原始 Host 的回环名字；不采信 X-Forwarded-For/Host，仍须外层私有监听及公开代理拒绝。
++func MainRecoveryHost(host string) bool {
++	if h, _, err := net.SplitHostPort(host); err == nil {
++		host = h
++	}
++	host = strings.ToLower(strings.Trim(host, "[]"))
++	return host == "localhost" || host == "127.0.0.1" || host == "::1"
++}
++
++// MainRecoveryUser 要求显式正 UID 白名单（最多十六个）及真实 Root 角色；配置非法时全部拒绝。
++func MainRecoveryUser(id, role int) bool {
++	if !MainRootRecoveryEnabled() || id <= 0 || role != 100 {
++		return false
++	}
++	parts := strings.Split(os.Getenv("MAIN_WEB_ROOT_RECOVERY_USER_IDS"), ",")
++	if len(parts) > 16 {
++		return false
++	}
++	found := false
++	for _, part := range parts {
++		n, err := strconv.Atoi(strings.TrimSpace(part))
++		if err != nil || n <= 0 {
++			return false
++		}
++		if n == id {
++			found = true
++		}
++	}
++	return found
++}
++
++type mainWebState struct {
++	Active    bool   `json:"active"`
++	Subject   string `json:"sub"`
++	Binding   string `json:"binding_id"`
++	Expires   int64  `json:"auth_expires_at"`
++	Unified   bool   `json:"unified_browser"`
++	LogoutURL string `json:"logout_url"`
++	ExpiresIn int    `json:"expires_in"`
++}
++
++var mainWebClient = &http.Client{
++	Timeout:       5 * time.Second,
++	Transport:     &http.Transport{Proxy: http.ProxyFromEnvironment, DialContext: (&net.Dialer{Timeout: 2 * time.Second, KeepAlive: 30 * time.Second}).DialContext, TLSHandshakeTimeout: 2 * time.Second, ResponseHeaderTimeout: 3 * time.Second, MaxIdleConns: 16, MaxIdleConnsPerHost: 8, IdleConnTimeout: 30 * time.Second},
++	CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
++}
++
++// requestMainWeb 仅调用固定发行方、原 RP Basic 凭据；无重试、无重定向，响应上限 16KiB。
++func requestMainWeb(ctx context.Context, proof MainWebProof, path string) (mainWebState, error) {
++	provider, ok := GetProvider("pingxingxian").(*GenericOAuthProvider)
++	if !ok {
++		return mainWebState{}, ErrMainWebUnavailable
++	}
++	provider = provider.Snapshot()
++	if provider.ValidateMainProfileConfiguration() != nil || provider.config.ClientSecret == "" {
++		return mainWebState{}, ErrMainWebUnavailable
++	}
++	payload, _ := json.Marshal(map[string]string{"binding_id": proof.Binding, "subject": proof.Subject})
++	ctx, cancel := context.WithTimeout(ctx, 5*time.Second)
++	defer cancel()
++	req, err := http.NewRequestWithContext(ctx, http.MethodPost, mainProfileIssuer+path, bytes.NewReader(payload))
++	if err != nil {
++		return mainWebState{}, ErrMainWebUnavailable
++	}
++	req.SetBasicAuth(provider.config.ClientId, provider.config.ClientSecret)
++	req.Header.Set("Content-Type", "application/json")
++	req.Header.Set("Accept", "application/json")
++	res, err := mainWebClient.Do(req)
++	if err != nil {
++		return mainWebState{}, ErrMainWebUnavailable
++	}
++	defer res.Body.Close()
++	body, err := io.ReadAll(io.LimitReader(res.Body, 16385))
++	if err != nil || len(body) > 16384 || res.StatusCode != 200 {
++		return mainWebState{}, ErrMainWebUnavailable
++	}
++	var state mainWebState
++	var required struct {
++		Active *bool `json:"active"`
++	}
++	if json.Unmarshal(body, &required) != nil || required.Active == nil {
++		return state, ErrMainWebUnavailable
++	}
++	if json.Unmarshal(body, &state) != nil {
++		return state, ErrMainWebUnavailable
++	}
++	if !state.Active {
++		return state, ErrMainWebInactive
++	}
++	return state, nil
++}
++
++// CheckMainWebProof 每个私有 Web 请求实时复核，不缓存主站正向存活结果。
++func CheckMainWebProof(ctx context.Context, proof MainWebProof) error {
++	state, err := requestMainWeb(ctx, proof, "/main-session-state")
++	if err != nil {
++		return err
++	}
++	if !state.Unified || state.Subject != proof.Subject || state.Binding != proof.Binding || state.Expires <= time.Now().Unix() || state.Expires != proof.Expires {
++		return ErrMainWebInactive
++	}
++	return nil
++}
++
++// MainWebLogoutURL 换取一次性同浏览器退出票据；不持有或撤销其他设备会话。
++func MainWebLogoutURL(ctx context.Context, proof MainWebProof) (string, error) {
++	state, err := requestMainWeb(ctx, proof, "/unified-logout-ticket")
++	if err != nil {
++		return "", err
++	}
++	u, parseErr := url.Parse(state.LogoutURL)
++	if parseErr != nil || u.Scheme != "https" || u.Host != "pingxingxian.space" || u.User != nil || u.Fragment != "" || u.Path != "/auth/unified/logout" || len(u.Query()) != 1 || len(u.Query()["ticket"]) != 1 || u.Query().Get("ticket") == "" || state.ExpiresIn <= 0 || state.ExpiresIn > 60 {
++		return "", ErrMainWebUnavailable
++	}
++	return u.String(), nil
++}
+--- a/router/api-router.go
++++ b/router/api-router.go
+@@ -17,6 +17,7 @@
+ 	apiRouter.Use(gzip.Gzip(gzip.DefaultCompression))
+ 	apiRouter.Use(middleware.BodyStorageCleanup()) // 清理请求体存储
+ 	apiRouter.Use(middleware.GlobalAPIRateLimit())
++	apiRouter.Use(middleware.MainPublicCredentialBoundary())
+ 	{
+ 		apiRouter.GET("/setup", controller.GetSetup)
+ 		apiRouter.POST("/setup", controller.PostSetup)
+@@ -64,6 +65,10 @@
+ 			userRoute.POST("/passkey/login/finish", middleware.CriticalRateLimit(), controller.PasskeyLoginFinish)
+ 			//userRoute.POST("/tokenlog", middleware.CriticalRateLimit(), controller.TokenLog)
+ 			userRoute.GET("/logout", controller.Logout)
++			userRoute.POST("/unified/local-clear", controller.MainUnifiedLocalClear)
++			userRoute.GET("/unified/state", middleware.TryUserAuth(), controller.MainUnifiedState)
++			userRoute.POST("/root-recovery/login", middleware.CriticalRateLimit(), controller.MainRootRecovery(false))
++			userRoute.POST("/root-recovery/2fa", middleware.CriticalRateLimit(), controller.MainRootRecovery(true))
+ 			userRoute.POST("/epay/notify", controller.EpayNotify)
+ 			userRoute.GET("/epay/notify", controller.EpayNotify)
+ 			userRoute.GET("/groups", controller.GetUserGroups)
+--- a/router/web-router.go
++++ b/router/web-router.go
+@@ -14,6 +14,7 @@
+ )
+ 
+ func SetWebRouter(router *gin.Engine, buildFS embed.FS, indexPage []byte) {
++	router.Use(middleware.MainRecoveryWebBoundary())
+ 	router.Use(gzip.Gzip(gzip.DefaultCompression))
+ 	router.Use(middleware.GlobalWebRateLimit())
+ 	router.Use(middleware.Cache())
+--- a/web/src/App.jsx
++++ b/web/src/App.jsx
+@@ -31,6 +31,8 @@
+ const User = lazy(() => import('./pages/User'));
+ const RegisterForm = lazy(() => import('./components/auth/RegisterForm'));
+ const LoginForm = lazy(() => import('./components/auth/LoginForm'));
++const MainUnifiedLogin = lazy(() => import('./components/auth/MainUnifiedLogin'));
++const MainRootRecovery = lazy(() => import('./components/auth/MainRootRecovery'));
+ const Setting = lazy(() => import('./pages/Setting'));
+ const PasswordResetForm = lazy(
+   () => import('./components/auth/PasswordResetForm'),
+@@ -74,6 +76,8 @@
+ 
+   // 获取模型广场权限配置
+   const pricingRequireAuth = useMemo(() => {
++    // 统一模式下价格页保持公开，原站点的私有管理权限不变。
++    if (statusState?.status?.main_unified_web_login_enabled === true) return false;
+     const headerNavModulesConfig = statusState?.status?.HeaderNavModules;
+     if (headerNavModulesConfig) {
+       try {
+@@ -92,7 +96,9 @@
+       }
+     }
+     return false; // 默认不需要登录
+-  }, [statusState?.status?.HeaderNavModules]);
++  }, [statusState?.status?.HeaderNavModules, statusState?.status?.main_unified_web_login_enabled]);
++
++  if (!statusState?.status && /^\/(?:login|register|reset)(?:\/|$)/.test(location.pathname)) return <Loading />;
+ 
+   return (
+     <SetupCheck>
+@@ -114,6 +120,7 @@
+               </Suspense>
+             }
+           />
++          <Route path='/root-recovery' element={<MainRootRecovery />} />
+           <Route path='/forbidden' element={<Forbidden />} />
+           <Route
+             path='/console/models'
+@@ -183,7 +190,7 @@
+             path='/user/reset'
+             element={
+               <Suspense fallback={<Loading></Loading>} key={location.pathname}>
+-                <PasswordResetConfirm />
++                {statusState?.status?.main_unified_web_login_enabled ? <MainUnifiedLogin /> : <PasswordResetConfirm />}
+               </Suspense>
+             }
+           />
+@@ -192,7 +199,7 @@
+             element={
+               <Suspense fallback={<Loading></Loading>} key={location.pathname}>
+                 <AuthRedirect>
+-                  <LoginForm />
++                  {statusState?.status?.main_unified_web_login_enabled ? <MainUnifiedLogin /> : <LoginForm />}
+                 </AuthRedirect>
+               </Suspense>
+             }
+@@ -202,7 +209,7 @@
+             element={
+               <Suspense fallback={<Loading></Loading>} key={location.pathname}>
+                 <AuthRedirect>
+-                  <RegisterForm />
++                  {statusState?.status?.main_unified_web_login_enabled ? <MainUnifiedLogin /> : <RegisterForm />}
+                 </AuthRedirect>
+               </Suspense>
+             }
+@@ -211,7 +218,7 @@
+             path='/reset'
+             element={
+               <Suspense fallback={<Loading></Loading>} key={location.pathname}>
+-                <PasswordResetForm />
++                {statusState?.status?.main_unified_web_login_enabled ? <MainUnifiedLogin /> : <PasswordResetForm />}
+               </Suspense>
+             }
+           />
+--- /dev/null
++++ b/web/src/components/auth/MainRootRecovery.jsx
+@@ -0,0 +1,111 @@
++import React, { useContext, useState } from 'react';
++import { Button, Input } from '@douyinfe/semi-ui';
++import { API, updateAPI } from '../../helpers/api';
++import { UserContext } from '../../context/User';
++
++// 专用应急页没有公开导航；必须经私有回环监听/隧道，服务端还会核开关、UID、Root 与原 MFA。
++export default function MainRootRecovery() {
++  const [, dispatch] = useContext(UserContext);
++  const [username, setUsername] = useState(''),
++    [password, setPassword] = useState(''),
++    [code, setCode] = useState('');
++  const [twoFA, setTwoFA] = useState(false),
++    [error, setError] = useState(''),
++    [busy, setBusy] = useState(false);
++  const local = ['localhost', '127.0.0.1', '[::1]'].includes(
++    window.location.hostname,
++  );
++  const submit = async (event) => {
++    event.preventDefault();
++    setBusy(true);
++    setError('');
++    try {
++      const response = await API.post(
++        `/api/user/root-recovery/${twoFA ? '2fa' : 'login'}`,
++        twoFA ? { code } : { username, password },
++      );
++      if (!response.data?.success)
++        throw new Error(response.data?.message || '恢复登录失败');
++      if (response.data.data?.require_2fa) {
++        setTwoFA(true);
++        setPassword('');
++        return;
++      }
++      localStorage.setItem('user', JSON.stringify(response.data.data));
++      dispatch({ type: 'login', payload: response.data.data });
++      updateAPI();
++      // 保持在同一私有 Host；恢复模式不会触发主站自动登录或跨站退出。
++      sessionStorage.setItem('pl-root-recovery', 'true');
++      window.location.assign('/console');
++    } catch (e) {
++      setError(e.message);
++    } finally {
++      setBusy(false);
++    }
++  };
++  if (!local) return <p>此页面不可用。</p>;
++  return (
++    <section
++      style={{
++        width: 'calc(100% - 32px)',
++        maxWidth: 480,
++        margin: '112px auto 48px',
++        padding: 32,
++        border: '1px solid var(--semi-color-border)',
++        borderRadius: 16,
++        background: 'var(--semi-color-bg-1)',
++      }}
++    >
++      <h1 style={{ fontSize: 26, fontWeight: 600, marginBottom: 24 }}>
++        管理员登录
++      </h1>
++
++      <form onSubmit={submit}>
++        {twoFA ? (
++          <label style={{ display: 'block', marginBottom: 16 }}>
++            验证码或备用码
++            <Input
++              value={code}
++              onChange={setCode}
++              autoComplete='one-time-code'
++              required
++            />
++          </label>
++        ) : (
++          <>
++            <label style={{ display: 'block', marginBottom: 16 }}>
++              账号
++              <Input
++                value={username}
++                onChange={setUsername}
++                autoComplete='username'
++                required
++              />
++            </label>
++            <label style={{ display: 'block', marginBottom: 16 }}>
++              密码
++              <Input
++                type='password'
++                value={password}
++                onChange={setPassword}
++                autoComplete='current-password'
++                required
++              />
++            </label>
++          </>
++        )}
++        <Button
++          htmlType='submit'
++          type='primary'
++          theme='solid'
++          size='large'
++          block
++          disabled={busy}
++        >
++          {busy ? '验证中…' : '登录'}
++        </Button>
++      </form>
++      {error && <p role='alert'>{error}</p>}
++    </section>
++  );
++}
+--- /dev/null
++++ b/web/src/components/auth/MainUnifiedBoundary.jsx
+@@ -0,0 +1,188 @@
++import React, { useContext, useEffect, useRef, useState } from 'react';
++import { useLocation } from 'react-router-dom';
++import { StatusContext } from '../../context/Status';
++import { UserContext } from '../../context/User';
++import { API } from '../../helpers/api';
++import {
++  MAIN_ORIGIN,
++  clearUnifiedPrivateCache,
++  startMainUnifiedLogin,
++} from '../../helpers/unified-web';
++
++// Main iframe 只传 UI 状态，不传令牌；所有私有 API 仍由后端实时复核原绑定。
++export default function MainUnifiedBoundary({ children }) {
++  const [statusState] = useContext(StatusContext);
++  const [, dispatch] = useContext(UserContext);
++  const location = useLocation();
++  const locationRef = useRef(location);
++  locationRef.current = location;
++  const frame = useRef(null);
++  const [requestId] = useState(() =>
++    Array.from(crypto.getRandomValues(new Uint8Array(16)), (b) =>
++      b.toString(16).padStart(2, '0'),
++    ).join(''),
++  );
++  const [ready, setReady] = useState(false);
++  const [error, setError] = useState('');
++  const enabled = statusState?.status?.main_unified_web_login_enabled === true;
++  const recovery =
++    ['localhost', '127.0.0.1', '[::1]'].includes(window.location.hostname) &&
++    sessionStorage.getItem('pl-root-recovery') === 'true';
++  const bypass =
++    recovery || /^\/(?:oauth|root-recovery)(?:\/|$)/.test(location.pathname);
++  const privatePage =
++    location.pathname.startsWith('/console') ||
++    location.pathname === '/chat2link';
++
++  useEffect(() => {
++    if (!enabled || bypass) return;
++    let closed = false,
++      sequence = 0,
++      working = false,
++      pendingEvent = null,
++      received = false;
++    const accept = async (event) => {
++      const data = event.data;
++      if (
++        event.origin !== MAIN_ORIGIN ||
++        event.source !== frame.current?.contentWindow ||
++        data?.type !== 'pl:unified-session' ||
++        data.version !== 1 ||
++        data.request_id !== requestId ||
++        typeof data.available !== 'boolean'
++      )
++        return;
++      received = true;
++      if (!data.available) {
++        sequence++;
++        setReady(false);
++        setError('暂时无法确认登录状态，请稍后重试。');
++        return;
++      }
++      if (
++        typeof data.authenticated !== 'boolean' ||
++        (data.authenticated &&
++          (typeof data.subject !== 'string' ||
++            !data.subject ||
++            typeof data.auth_epoch !== 'string' ||
++            !/^[-_A-Za-z0-9]{32,128}$/.test(data.auth_epoch)))
++      )
++        return;
++      const own = ++sequence;
++      setReady(false);
++      if (working) {
++        pendingEvent = event;
++        return;
++      }
++      working = true;
++      try {
++        if (!data.authenticated) {
++          await API.post('/api/user/unified/local-clear');
++          if (closed || own !== sequence) return;
++          clearUnifiedPrivateCache();
++          dispatch({ type: 'logout' });
++          sessionStorage.removeItem('pl-unified-attempt');
++          sessionStorage.removeItem('pl-unified-epoch');
++          setError('');
++          setReady(true);
++          return;
++        }
++        const response = await API.get('/api/user/unified/state', {
++          disableDuplicate: true,
++          skipErrorHandler: true,
++        });
++        if (closed || own !== sequence) return;
++        const local = response.data?.data;
++        const epoch = sessionStorage.getItem('pl-unified-epoch');
++        if (
++          response.data?.success &&
++          local?.authenticated &&
++          local.subject === data.subject &&
++          (!epoch || epoch === data.auth_epoch) &&
++          localStorage.getItem('user')
++        ) {
++          sessionStorage.setItem('pl-unified-epoch', data.auth_epoch);
++          sessionStorage.removeItem('pl-unified-attempt');
++          setError('');
++          setReady(true);
++          return;
++        }
++        // 主体或浏览器登录代次不同，先销毁旧账号状态，再完整重走原 OIDC；不借旧身份静默恢复。
++        clearUnifiedPrivateCache();
++        dispatch({ type: 'logout' });
++        const attempt = JSON.stringify([data.subject, data.auth_epoch]);
++        if (sessionStorage.getItem('pl-unified-attempt') === attempt) {
++          setError('登录未完成，请重试。');
++          return;
++        }
++        sessionStorage.setItem('pl-unified-attempt', attempt);
++        sessionStorage.setItem('pl-unified-epoch', data.auth_epoch);
++        const here = locationRef.current;
++        await startMainUnifiedLogin(
++          `${here.pathname}${here.search}${here.hash}`,
++        );
++      } catch (e) {
++        if (!closed) setError('暂时无法确认登录状态，请稍后重试。');
++      } finally {
++        working = false;
++        if (pendingEvent && !closed) {
++          const next = pendingEvent;
++          pendingEvent = null;
++          void accept(next);
++        }
++      }
++    };
++    const refresh = () =>
++      frame.current?.contentWindow?.postMessage(
++        {
++          type: 'pl:unified-session:refresh',
++          version: 1,
++          request_id: requestId,
++        },
++        MAIN_ORIGIN,
++      );
++    window.addEventListener('message', accept);
++    window.addEventListener('focus', refresh);
++    const timer = window.setInterval(refresh, 30000);
++    const deadline = window.setTimeout(() => {
++      if (!closed && !received) setError('暂时无法确认登录状态，请稍后重试。');
++    }, 8000);
++    refresh();
++    return () => {
++      closed = true;
++      sequence++;
++      window.removeEventListener('message', accept);
++      window.removeEventListener('focus', refresh);
++      window.clearInterval(timer);
++      window.clearTimeout(deadline);
++    };
++  }, [enabled, bypass, dispatch, requestId]);
++
++  // 状态配置未知时不先展示旧账号的私有缓存；旧模式配置到达后沿原流程运行。
++  if (!statusState?.status && privatePage)
++    return <p style={{ margin: '112px 24px' }}>正在加载…</p>;
++  return (
++    <>
++      {enabled && !bypass && (
++        <iframe
++          ref={frame}
++          title='主站登录状态'
++          hidden
++          src={`${MAIN_ORIGIN}/auth/unified/state?client=newapi&request_id=${requestId}`}
++        />
++      )}
++      {enabled && !bypass && privatePage && error && (
++        <p role='status' style={{ margin: '80px 24px 0' }}>
++          {error} <a href='/login'>登录</a>
++        </p>
++      )}
++      {enabled && !bypass && privatePage && !ready ? (
++        error ? null : (
++          <p style={{ margin: '112px 24px' }}>正在确认登录…</p>
++        )
++      ) : (
++        children
++      )}
++    </>
++  );
++}
+--- /dev/null
++++ b/web/src/components/auth/MainUnifiedLogin.jsx
+@@ -0,0 +1,54 @@
++import React, { useState } from 'react';
++import { useLocation } from 'react-router-dom';
++import { Button } from '@douyinfe/semi-ui';
++import { MAIN_ORIGIN, startMainUnifiedLogin } from '../../helpers/unified-web';
++
++// 公开入口保留返回首页；登录、注册、找回统一交由主站，不展示第二套密码框。
++export default function MainUnifiedLogin() {
++  const location = useLocation();
++  const [error, setError] = useState('');
++  const [busy, setBusy] = useState(false);
++  const login = async () => {
++    setBusy(true);
++    setError('');
++    try {
++      await startMainUnifiedLogin(location.state?.from?.pathname || '/', true);
++    } catch (e) {
++      setError(e.message);
++      setBusy(false);
++    }
++  };
++  return (
++    <section
++      style={{
++        width: 'calc(100% - 32px)',
++        maxWidth: 480,
++        margin: '112px auto 48px',
++        padding: 32,
++        border: '1px solid var(--semi-color-border)',
++        borderRadius: 16,
++        background: 'var(--semi-color-bg-1)',
++        boxShadow: '0 8px 32px rgba(0,0,0,0.04)',
++      }}
++    >
++      <h1 style={{ fontSize: 26, fontWeight: 600, marginBottom: 16 }}>登录</h1>
++      <Button
++        htmlType='button'
++        type='primary'
++        theme='solid'
++        size='large'
++        block
++        disabled={busy}
++        onClick={login}
++      >
++        {busy ? '正在登录…' : '使用平行线账号登录'}
++      </Button>
++      <p style={{ marginTop: 20, fontSize: 14, lineHeight: 1.8 }}>
++        <a href={`${MAIN_ORIGIN}/auth?mode=register`}>注册账号</a> ·{' '}
++        <a href={`${MAIN_ORIGIN}/auth?mode=forgot`}>忘记密码</a> ·{' '}
++        <a href='/'>返回首页</a>
++      </p>
++      {error && <p role='alert'>{error}</p>}
++    </section>
++  );
++}
+--- a/web/src/components/auth/OAuth2Callback.jsx
++++ b/web/src/components/auth/OAuth2Callback.jsx
+@@ -29,9 +29,13 @@
+ } from '../../helpers';
+ import { UserContext } from '../../context/User';
+ import Loading from '../common/ui/Loading';
++import { RETURN_KEY, safeUnifiedReturn } from '../../helpers/unified-web';
++import { StatusContext } from '../../context/Status';
+ 
+ const OAuth2Callback = (props) => {
+   const { t } = useTranslation();
++  const [statusState] = useContext(StatusContext);
++  const unified = statusState?.status?.main_unified_web_login_enabled === true;
+   const [searchParams] = useSearchParams();
+   const [, userDispatch] = useContext(UserContext);
+   const navigate = useNavigate();
+@@ -45,7 +49,7 @@
+   const sendCode = async (code, state, retry = 0) => {
+     try {
+       const { data: resData } = await API.get(
+-        `/api/oauth/${props.type}?code=${code}&state=${state}`,
++        `/api/oauth/${props.type}?code=${encodeURIComponent(code)}&state=${encodeURIComponent(state || "")}`,
+       );
+ 
+       const { success, message, data } = resData;
+@@ -53,6 +57,7 @@
+       if (!success) {
+         // 业务错误不重试，直接显示错误
+         showError(message || t('授权失败'));
++        if (unified) navigate('/login?unified_error=1');
+         return;
+       }
+ 
+@@ -65,11 +70,11 @@
+         setUserData(data);
+         updateAPI();
+         showSuccess(t('登录成功！'));
+-        navigate('/console/token');
++        if (unified) { const target = safeUnifiedReturn(sessionStorage.getItem(RETURN_KEY)); sessionStorage.removeItem(RETURN_KEY); window.location.replace(target); } else navigate('/console/token');
+       }
+     } catch (error) {
+       // 网络错误等可重试
+-      if (retry < MAX_RETRIES) {
++      if (!unified && retry < MAX_RETRIES) {
+         // 递增的退避等待
+         await new Promise((resolve) => setTimeout(resolve, (retry + 1) * 2000));
+         return sendCode(code, state, retry + 1);
+@@ -77,7 +82,7 @@
+ 
+       // 重试次数耗尽，提示错误并返回设置页面
+       showError(error.message || t('授权失败'));
+-      navigate('/console/personal');
++      navigate(unified ? '/login?unified_error=1' : '/console/personal');
+     }
+   };
+ 
+--- a/web/src/components/layout/PageLayout.jsx
++++ b/web/src/components/layout/PageLayout.jsx
+@@ -18,6 +18,7 @@
+ */
+ 
+ import HeaderBar from './headerbar';
++import MainUnifiedBoundary from '../auth/MainUnifiedBoundary';
+ import { Layout } from '@douyinfe/semi-ui';
+ import SiderBar from './SiderBar';
+ import App from '../../App';
+@@ -218,7 +219,7 @@
+             }}
+           >
+             <ErrorBoundary>
+-              <App />
++              <MainUnifiedBoundary><App /></MainUnifiedBoundary>
+             </ErrorBoundary>
+           </Content>
+           {!shouldHideFooter && (
+--- a/web/src/components/settings/PersonalSetting.jsx
++++ b/web/src/components/settings/PersonalSetting.jsx
+@@ -1,3 +1,4 @@
++import { logoutUnifiedOrNative } from '../../helpers/unified-web';
+ /*
+ Copyright (C) 2025 QuantumNous
+ 
+@@ -388,7 +389,7 @@
+ 
+     if (success) {
+       showSuccess(t('账户已删除！'));
+-      await API.get('/api/user/logout');
++      if (await logoutUnifiedOrNative()) return;
+       userDispatch({ type: 'logout' });
+       localStorage.removeItem('user');
+       navigate('/login');
+--- a/web/src/helpers/auth.jsx
++++ b/web/src/helpers/auth.jsx
+@@ -17,7 +17,8 @@
+ For commercial licensing, please contact support@quantumnous.com
+ */
+ 
+-import React from 'react';
++import React, { useContext } from 'react';
++import { StatusContext } from '../context/Status';
+ import { Navigate } from 'react-router-dom';
+ import { history } from './history';
+ 
+@@ -33,9 +34,11 @@
+ }
+ 
+ export const AuthRedirect = ({ children }) => {
++  const [statusState] = useContext(StatusContext);
++  const unified = statusState?.status?.main_unified_web_login_enabled === true;
+   const user = localStorage.getItem('user');
+ 
+-  if (user) {
++  if (user && !unified) {
+     return <Navigate to='/console' replace />;
+   }
+ 
+--- /dev/null
++++ b/web/src/helpers/unified-web.js
+@@ -0,0 +1,79 @@
++import { API, updateAPI } from './api';
++import { showError } from './utils';
++
++export const MAIN_ORIGIN = 'https://pingxingxian.space';
++export const RETURN_KEY = 'pl-unified-return';
++
++// 换号时清掉用户、游乐场消息/密钥及私有模块缓存；仅保留公开状态、语言和主题。
++export function clearUnifiedPrivateCache() {
++  for (const key of Object.keys(localStorage)) {
++    if (!['status', 'theme-mode', 'i18nextLng'].includes(key))
++      localStorage.removeItem(key);
++  }
++  updateAPI();
++}
++
++// 返回路径仅允许本站普通路径，不能把回调、恢复或凭据页变成重定向循环。
++export function safeUnifiedReturn(path) {
++  if (
++    typeof path !== 'string' ||
++    !path.startsWith('/') ||
++    path.startsWith('//') ||
++    path.includes('\\')
++  )
++    return '/';
++  const target = new URL(path, window.location.origin);
++  if (
++    target.origin !== window.location.origin ||
++    /^\/(?:oauth|root-recovery|login|register|reset)(?:\/|$)/.test(
++      target.pathname,
++    )
++  )
++    return '/';
++  return `${target.pathname}${target.search}${target.hash}`;
++}
++
++// 复用原 RP 的一次性 S256 PKCE；服务端清本地会话，不触发主站退出或账号绑定。
++export async function startMainUnifiedLogin(returnTo = '/', explicit = false) {
++  sessionStorage.setItem(RETURN_KEY, safeUnifiedReturn(returnTo));
++  if (explicit) sessionStorage.removeItem('pl-unified-attempt');
++  clearUnifiedPrivateCache();
++  const response = await API.post('/api/oauth/pingxingxian/start');
++  const url = response.data?.data?.authorization_url;
++  const target = url && new URL(url);
++  if (
++    !response.data?.success ||
++    !target ||
++    target.origin !== MAIN_ORIGIN ||
++    target.pathname !== '/auth/oidc/auth'
++  )
++    throw new Error('主站统一登录暂不可用，请重试');
++  window.location.assign(target.href);
++}
++
++// 退出票据只能回固定 Main；true 表示已重定向或已报告失败，调用方不可继续本地成功流程。
++export async function logoutUnifiedOrNative() {
++  try {
++    const response = await API.get('/api/user/logout', {
++      skipErrorHandler: true,
++    });
++    if (!response.data?.success)
++      throw new Error(response.data?.message || '退出失败');
++    sessionStorage.removeItem('pl-root-recovery');
++    const url = response.data?.data?.logout_url;
++    if (!url) return false;
++    const target = new URL(url);
++    if (
++      target.origin !== MAIN_ORIGIN ||
++      target.pathname !== '/auth/unified/logout'
++    )
++      throw new Error('主站退出地址无效');
++    clearUnifiedPrivateCache();
++    window.location.assign(target.href);
++    return true;
++  } catch (error) {
++    // 已显示真实错误，调用方停止本地成功提示和跳转，不能伪报跨站退出。
++    showError(error);
++    return true;
++  }
++}
+--- a/web/src/hooks/common/useHeaderBar.js
++++ b/web/src/hooks/common/useHeaderBar.js
+@@ -24,6 +24,7 @@
+ import { StatusContext } from '../../context/Status';
+ import { useSetTheme, useTheme, useActualTheme } from '../../context/Theme';
+ import { getLogo, getSystemName, API, showSuccess } from '../../helpers';
++import { logoutUnifiedOrNative } from '../../helpers/unified-web';
+ import { normalizeLanguage } from '../../i18n/language';
+ import { useIsMobile } from './useIsMobile';
+ import { useSidebarCollapsed } from './useSidebarCollapsed';
+@@ -80,13 +81,15 @@
+ 
+   // 获取模型广场权限配置
+   const pricingRequireAuth = useMemo(() => {
++    // 统一模式的价格入口始终匿名开放，不把旧的 requireAuth 配置变成登录墙。
++    if (statusState?.status?.main_unified_web_login_enabled === true) return false;
+     if (headerNavModules?.pricing) {
+       return typeof headerNavModules.pricing === 'object'
+         ? headerNavModules.pricing.requireAuth
+         : false; // 默认不需要登录
+     }
+     return false; // 默认不需要登录
+-  }, [headerNavModules]);
++  }, [headerNavModules, statusState?.status?.main_unified_web_login_enabled]);
+ 
+   const isConsoleRoute = location.pathname.startsWith('/console');
+ 
+@@ -140,7 +143,7 @@
+ 
+   // Actions
+   const logout = useCallback(async () => {
+-    await API.get('/api/user/logout');
++    if (await logoutUnifiedOrNative()) return;
+     showSuccess(t('注销成功!'));
+     userDispatch({ type: 'logout' });
+     localStorage.removeItem('user');

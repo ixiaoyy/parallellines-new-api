@@ -37,9 +37,10 @@ authorized deployment. Neither
 the application version nor the prepared-candidate status is changed.
 
 The anonymous interface footer links to the fixed
-[i18n-20261117 release](https://github.com/ixiaoyy/parallellines-new-api/releases/tag/i18n-20261117)
+[i18n-20261118 release](https://github.com/ixiaoyy/parallellines-new-api/releases/tag/i18n-20261118)
 in both default and custom-footer modes. Publish the matching binary and exact
 corresponding-source archive there before activation; retain upstream attribution.
+The already published i18n-20261117 release and its assets remain unchanged.
 
 The source archives and manifests describe application source only. Runtime
 secrets, databases, identities and logs are excluded from version control.

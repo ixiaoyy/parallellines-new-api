@@ -4,7 +4,7 @@
   "scope": "interface-zh-en-only",
   "production_patch": {
     "file": "patches/new-api-v0.13.2-pkce10-interface-i18n.patch",
-    "sha256": "c34a4f3416e28f73e6784026ade96ef1b78134f4eadb9c5b62fd4bc9b35e3b43"
+    "sha256": "906ff1bd02d1f23c377850591fda6e79fde48a38aa3d10d21850fe3c2d9a25e7"
   },
   "files": [
     {
@@ -30,7 +30,7 @@
     {
       "path": "web/src/components/layout/Footer.jsx",
       "base_sha256": "d8160ba535fc8e7a79b64ec2350f8bd4d86867a671278ac5f464a956be19af81",
-      "result_sha256": "a7dad5228a78d68b0d42c8f9607379a30dbb4cbdef8d83111454de38ad7b0e13"
+      "result_sha256": "6e8e6524bee1deccb222d6859fe2c73071088aa2cbace60e4367e24f802d44a8"
     },
     {
       "path": "web/src/components/layout/PageLayout.jsx",
@@ -60,7 +60,7 @@
     {
       "path": "web/src/i18n/locales/zh-CN.json",
       "base_sha256": "aa7c4015d79220ece853d3b030f9e227c332942a95a08d60df730e9c61931678",
-      "result_sha256": "89aad957202e00c299cbe6582abd1918a0f3d391b8c46950ebd9ad6a5d68a3c4"
+      "result_sha256": "078c5766660dab39628958272778b414f0b4857701c0e28242824294b50baa4f"
     }
   ],
   "preserved": [
@@ -69,5 +69,5 @@
     "quota and billing",
     "existing binary receipts"
   ],
-  "source_offer_url": "https://github.com/ixiaoyy/parallellines-new-api/releases/tag/i18n-20261117"
+  "source_offer_url": "https://github.com/ixiaoyy/parallellines-new-api/releases/tag/i18n-20261118"
 }

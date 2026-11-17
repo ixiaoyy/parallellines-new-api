@@ -198,7 +198,7 @@
 +      {/* 对应源码入口独立于自定义页脚；未登录也可访问，原上游署名保持不变。 */}
 +      <div className='px-6 pb-4 text-center text-sm'>
 +        <a
-+          href='https://github.com/ixiaoyy/parallellines-new-api/releases/tag/i18n-20261117'
++          href='https://github.com/ixiaoyy/parallellines-new-api/releases/tag/i18n-20261118'
 +          target='_blank'
 +          rel='noopener noreferrer'
 +          className='!text-semi-color-primary hover:underline'
@@ -464,6 +464,15 @@
  }
 --- a/web/src/i18n/locales/zh-CN.json
 +++ b/web/src/i18n/locales/zh-CN.json
+@@ -106,7 +106,7 @@
+     "Client Secret": "Client Secret",
+     "Codex 授权": "Codex 授权",
+     "Codex 渠道不支持批量创建": "Codex 渠道不支持批量创建",
+-    "common.changeLanguage": "common.changeLanguage",
++    "common.changeLanguage": "切换语言",
+     "Completion tokens": "Completion tokens",
+     "Configuration": "Configuration",
+     "context_int/context_string 从请求上下文读取；gjson 从入口请求的 JSON body 按 gjson path 读取。": "context_int/context_string 从请求上下文读取；gjson 从入口请求的 JSON body 按 gjson path 读取。",
 @@ -3780,6 +3780,41 @@
      "本站额度采用此版本标准价；通用倍率设置不覆盖本策略。": "本站额度采用此版本标准价；通用倍率设置不覆盖本策略。",
      "本站额度口径，不保证上游实际账单。": "本站额度口径，不保证上游实际账单。",

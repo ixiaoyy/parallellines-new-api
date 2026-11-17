@@ -1,6 +1,7 @@
 // 中英界面回归：只启动临时回环静态站；所有 API 和跨站请求均由浏览器夹具拦截。
 // 用法：node scripts/check-interface-i18n.mjs <dist> <evidence-dir>
 // --source-link-only 仅检查无需登录的中英源码入口，不重复原业务回归。
+// --source-controls-only 仅检查语言控件的中英无障碍名称和当前源码链接。
 // 复用现有 Playwright：PLAYWRIGHT_MODULE 指向已安装包，CHROMIUM_EXECUTABLE 可指定已有浏览器。
 import assert from 'node:assert/strict';
 import { createReadStream, existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
@@ -28,6 +29,7 @@ const origin = `http://127.0.0.1:${server.address().port}`;
 const browser = await chromium.launch({ headless: true, ...(process.env.CHROMIUM_EXECUTABLE ? { executablePath: process.env.CHROMIUM_EXECUTABLE } : {}) });
 const results = [];
 const sourceLinkOnly = process.argv.includes('--source-link-only');
+const sourceControlsOnly = process.argv.includes('--source-controls-only');
 
 /** 创建隔离浏览器夹具，参数控制浏览器语言、宽度、会话故障及原生登录模式；返回合成请求记录。 */
 async function fixture({ locale = 'en-US', width = 1440, unavailable = false, native = false, user = null, footer = null } = {}) {
@@ -77,7 +79,25 @@ async function capture(fixture, name) {
 }
 
 try {
-  if (sourceLinkOnly) {
+  if (sourceControlsOnly) {
+    for (const locale of ['en-US', 'zh-CN']) {
+      const f = await fixture({ locale, width: locale === 'en-US' ? 1440 : 390 });
+      await f.page.goto(origin + '/login');
+      const caption = locale === 'en-US' ? 'Corresponding source' : '对应源码';
+      const aria = locale === 'en-US' ? 'Change Language' : '切换语言';
+      const language = f.page.getByRole('button', { name: aria, exact: true });
+      const source = f.page.getByRole('link', { name: caption, exact: true });
+      await language.waitFor();
+      await source.waitFor();
+      assert.equal(await language.getAttribute('title'), aria);
+      assert.equal(await source.getAttribute('href'), 'https://github.com/ixiaoyy/parallellines-new-api/releases/tag/i18n-20261118');
+      assert.deepEqual(f.errors, []);
+      await language.screenshot({ path: resolve(evidence, `controls-${locale}-language.png`) });
+      await source.screenshot({ path: resolve(evidence, `controls-${locale}-source.png`) });
+      results.push({ case: `language aria and immutable source href, ${locale}`, passed: true });
+      await f.context.close();
+    }
+  } else if (sourceLinkOnly) {
     for (const locale of ['en-US', 'zh-CN']) {
       for (const custom of [false, true]) {
         const f = await fixture({ locale, width: locale === 'en-US' ? 1440 : 390, footer: custom ? '<span>Fixture custom footer</span>' : null });
@@ -85,7 +105,7 @@ try {
         const caption = locale === 'en-US' ? 'Corresponding source' : '对应源码';
         const link = f.page.getByRole('link', { name: caption, exact: true });
         await link.waitFor();
-        assert.equal(await link.getAttribute('href'), 'https://github.com/ixiaoyy/parallellines-new-api/releases/tag/i18n-20261117');
+        assert.equal(await link.getAttribute('href'), 'https://github.com/ixiaoyy/parallellines-new-api/releases/tag/i18n-20261118');
         assert.equal(await link.getAttribute('target'), '_blank');
         assert.equal(await link.getAttribute('rel'), 'noopener noreferrer');
         assert.equal(await f.page.locator('.custom-footer').count(), custom ? 1 : 0);

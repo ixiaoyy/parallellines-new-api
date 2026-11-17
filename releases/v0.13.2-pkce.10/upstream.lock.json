@@ -17,12 +17,12 @@
     },
     {
       "file": "patches/new-api-v0.13.2-pkce10-interface-i18n.patch",
-      "sha256": "c34a4f3416e28f73e6784026ade96ef1b78134f4eadb9c5b62fd4bc9b35e3b43"
+      "sha256": "906ff1bd02d1f23c377850591fda6e79fde48a38aa3d10d21850fe3c2d9a25e7"
     }
   ],
   "frontend_manifest": "releases/v0.13.2-pkce.10/frontend-assets.json",
   "source_manifest": "releases/v0.13.2-pkce.10/source-files.json",
-  "frontend_source_identity": "31b9a78e6db7b9c326778f6f80faf477e2d9a2dd1f7145277c5c65b728a6ca8c",
+  "frontend_source_identity": "290ed871a0b4ca3397c33627301b8e0d8acddae8c834ff9122df098a8bb8d917",
   "go_version": "1.26.1",
   "platform": "linux/amd64",
   "cgo_enabled": "0",
@@ -34,8 +34,8 @@
   "base_release_lock_sha256": "cbf8792db756900ae84497e723ab26940d6b9926027464cee02c5152c0adedac",
   "base_source_manifest_sha256": "192371132daa8b6cc8ba6870c489b42ca11b63ffd8bedeb2e43d1baf186aab43",
   "profile_manifest_sha256": "3f6b1817b2d0caebfc969466b8ac05c5a64250c0b65fd7930be310a40e1ae6b2",
-  "frontend_manifest_sha256": "d708943c7378064042d602480db1432c54eeb29f6381dda8e1e11051c6620338",
-  "source_manifest_sha256": "5014fcc2c60a9e7c2e279eceb0fef7066a74553811fa3f7802f5ba35c5c13dae",
+  "frontend_manifest_sha256": "1e840db0a25277ba3f321822c1c856bbcfe06eeaf717c87c81fc341c4b12853e",
+  "source_manifest_sha256": "420ff331bb7262890e28f1bd9983864349a1fbe8c83df575f484a4c73ed6131f",
   "interface_manifest": "patches/interface-i18n-manifest.json",
-  "interface_manifest_sha256": "1c7604de4b9fdb5f1d20592e79cc38a97368062a8862a1fd9c66ed44a6c21349"
+  "interface_manifest_sha256": "b0032bf256d61d9cd3e59c482c7573c41405224f53a70068a6eec7916205271c"
 }

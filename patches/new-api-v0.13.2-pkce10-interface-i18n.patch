@@ -189,6 +189,26 @@
        navigate(unified ? '/login?unified_error=1' : '/console/personal');
      }
    };
+--- a/web/src/components/layout/Footer.jsx
++++ b/web/src/components/layout/Footer.jsx
+@@ -245,6 +245,17 @@
+       ) : (
+         customFooter
+       )}
++      {/* 对应源码入口独立于自定义页脚；未登录也可访问，原上游署名保持不变。 */}
++      <div className='px-6 pb-4 text-center text-sm'>
++        <a
++          href='https://github.com/ixiaoyy/parallellines-new-api/releases/tag/i18n-20261117'
++          target='_blank'
++          rel='noopener noreferrer'
++          className='!text-semi-color-primary hover:underline'
++        >
++          {t('对应源码')}
++        </a>
++      </div>
+     </div>
+   );
+ };
 --- a/web/src/components/layout/PageLayout.jsx
 +++ b/web/src/components/layout/PageLayout.jsx
 @@ -48,7 +48,7 @@
@@ -399,7 +419,7 @@
        escapeValue: false,
 --- a/web/src/i18n/locales/en.json
 +++ b/web/src/i18n/locales/en.json
-@@ -3796,6 +3796,40 @@
+@@ -3796,6 +3796,41 @@
      "本站额度采用此版本标准价；通用倍率设置不覆盖本策略。": "Site quota uses this versioned standard schedule; general ratio settings do not override this policy.",
      "本站额度口径，不保证上游实际账单。": "Site quota policy, not a guarantee of the upstream invoice.",
      "价格来源": "Price source",
@@ -438,12 +458,13 @@
 +    "错误：服务器内部错误，请联系管理员！": "Internal server error. Please contact an administrator.",
 +    "本站仅作演示之用，无服务端！": "This is a demo site with no backend.",
 +    "Unable to connect to server": "Unable to connect to server",
-+    "Failed to load status": "Failed to load status"
++    "Failed to load status": "Failed to load status",
++    "对应源码": "Corresponding source"
    }
  }
 --- a/web/src/i18n/locales/zh-CN.json
 +++ b/web/src/i18n/locales/zh-CN.json
-@@ -3780,6 +3780,40 @@
+@@ -3780,6 +3780,41 @@
      "本站额度采用此版本标准价；通用倍率设置不覆盖本策略。": "本站额度采用此版本标准价；通用倍率设置不覆盖本策略。",
      "本站额度口径，不保证上游实际账单。": "本站额度口径，不保证上游实际账单。",
      "价格来源": "价格来源",
@@ -482,6 +503,7 @@
 +    "错误：服务器内部错误，请联系管理员！": "错误：服务器内部错误，请联系管理员！",
 +    "本站仅作演示之用，无服务端！": "本站仅作演示之用，无服务端！",
 +    "Unable to connect to server": "无法连接服务器",
-+    "Failed to load status": "加载站点状态失败"
++    "Failed to load status": "加载站点状态失败",
++    "对应源码": "对应源码"
    }
  }

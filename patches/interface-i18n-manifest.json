@@ -4,7 +4,7 @@
   "scope": "interface-zh-en-only",
   "production_patch": {
     "file": "patches/new-api-v0.13.2-pkce10-interface-i18n.patch",
-    "sha256": "cc292ccca5289e7e0db41057b691341d7a2bb92e791813799ee48363112e9b37"
+    "sha256": "c34a4f3416e28f73e6784026ade96ef1b78134f4eadb9c5b62fd4bc9b35e3b43"
   },
   "files": [
     {
@@ -26,6 +26,11 @@
       "path": "web/src/components/auth/OAuth2Callback.jsx",
       "base_sha256": "887c0b37312b8bed5507606d359dea9ba81dfd50205a88279d9b68eacb5bf401",
       "result_sha256": "ba20f996333e3b523afda68fd717f60411aff4e38d5069260410f72807b7f29a"
+    },
+    {
+      "path": "web/src/components/layout/Footer.jsx",
+      "base_sha256": "d8160ba535fc8e7a79b64ec2350f8bd4d86867a671278ac5f464a956be19af81",
+      "result_sha256": "a7dad5228a78d68b0d42c8f9607379a30dbb4cbdef8d83111454de38ad7b0e13"
     },
     {
       "path": "web/src/components/layout/PageLayout.jsx",
@@ -50,12 +55,12 @@
     {
       "path": "web/src/i18n/locales/en.json",
       "base_sha256": "a1ee10ff02472b2a156c52bad465825f22ef10a383e511381576a29c323a2afb",
-      "result_sha256": "4485534a1e0cf548c8a7029df266999da20508aec3e944a14986811493af6a61"
+      "result_sha256": "7cbed88c1fbb3ef263aaada0906e665dc4b898f3bcc3a36c031a965a6ec32871"
     },
     {
       "path": "web/src/i18n/locales/zh-CN.json",
       "base_sha256": "aa7c4015d79220ece853d3b030f9e227c332942a95a08d60df730e9c61931678",
-      "result_sha256": "2a45ddfa8c2c3613425774d31e68bbf393cfc3d0e9571c79decbd56ec3556ba1"
+      "result_sha256": "89aad957202e00c299cbe6582abd1918a0f3d391b8c46950ebd9ad6a5d68a3c4"
     }
   ],
   "preserved": [
@@ -63,5 +68,6 @@
     "OAuth and recovery state",
     "quota and billing",
     "existing binary receipts"
-  ]
+  ],
+  "source_offer_url": "https://github.com/ixiaoyy/parallellines-new-api/releases/tag/i18n-20261117"
 }

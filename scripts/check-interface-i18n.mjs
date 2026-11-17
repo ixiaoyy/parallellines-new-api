@@ -1,5 +1,6 @@
 // 中英界面回归：只启动临时回环静态站；所有 API 和跨站请求均由浏览器夹具拦截。
 // 用法：node scripts/check-interface-i18n.mjs <dist> <evidence-dir>
+// --source-link-only 仅检查无需登录的中英源码入口，不重复原业务回归。
 // 复用现有 Playwright：PLAYWRIGHT_MODULE 指向已安装包，CHROMIUM_EXECUTABLE 可指定已有浏览器。
 import assert from 'node:assert/strict';
 import { createReadStream, existsSync, mkdirSync, statSync, writeFileSync } from 'node:fs';
@@ -26,13 +27,15 @@ await new Promise(done => server.listen(0, '127.0.0.1', done));
 const origin = `http://127.0.0.1:${server.address().port}`;
 const browser = await chromium.launch({ headless: true, ...(process.env.CHROMIUM_EXECUTABLE ? { executablePath: process.env.CHROMIUM_EXECUTABLE } : {}) });
 const results = [];
+const sourceLinkOnly = process.argv.includes('--source-link-only');
 
 /** 创建隔离浏览器夹具，参数控制浏览器语言、宽度、会话故障及原生登录模式；返回合成请求记录。 */
-async function fixture({ locale = 'en-US', width = 1440, unavailable = false, native = false, user = null } = {}) {
+async function fixture({ locale = 'en-US', width = 1440, unavailable = false, native = false, user = null, footer = null } = {}) {
   const context = await browser.newContext({ viewport: { width, height: 960 }, locale });
   if (user) await context.addInitScript(value => {
     if (!localStorage.getItem('user')) localStorage.setItem('user', JSON.stringify(value));
   }, user);
+  if (footer !== null) await context.addInitScript(value => localStorage.setItem('footer_html', value), footer);
   const calls = [], errors = [], blocked = [];
   let recoveryStep = 0;
   await context.route('**/*', async route => {
@@ -74,6 +77,28 @@ async function capture(fixture, name) {
 }
 
 try {
+  if (sourceLinkOnly) {
+    for (const locale of ['en-US', 'zh-CN']) {
+      for (const custom of [false, true]) {
+        const f = await fixture({ locale, width: locale === 'en-US' ? 1440 : 390, footer: custom ? '<span>Fixture custom footer</span>' : null });
+        await f.page.goto(origin + '/login');
+        const caption = locale === 'en-US' ? 'Corresponding source' : '对应源码';
+        const link = f.page.getByRole('link', { name: caption, exact: true });
+        await link.waitFor();
+        assert.equal(await link.getAttribute('href'), 'https://github.com/ixiaoyy/parallellines-new-api/releases/tag/i18n-20261117');
+        assert.equal(await link.getAttribute('target'), '_blank');
+        assert.equal(await link.getAttribute('rel'), 'noopener noreferrer');
+        assert.equal(await f.page.locator('.custom-footer').count(), custom ? 1 : 0);
+        assert.equal(await f.page.locator('a[href="https://github.com/QuantumNous/new-api"]').count(), 1);
+        assert.equal(await f.page.locator('input[type=password]').count(), 0);
+        assert.ok(!f.calls.some(call => call.path === '/api/oauth/pingxingxian/start'));
+        await link.scrollIntoViewIfNeeded();
+        await capture(f, `source-link-${locale}-${custom ? 'custom' : 'default'}`);
+        results.push({ case: `anonymous source link, ${locale}, ${custom ? 'custom' : 'default'} footer`, passed: true });
+        await f.context.close();
+      }
+    }
+  } else {
   for (const width of [1440, 390]) {
     const f = await fixture({ width });
     await f.page.goto(origin + '/login');
@@ -144,6 +169,7 @@ try {
   await account.page.locator('header button[aria-label]').filter({ hasText: '中文' }).waitFor();
   results.push({ case: 'native logged-in language save and refresh retain original API contract', passed: true });
   await account.context.close();
+  }
   writeFileSync(resolve(evidence, 'results.json'), JSON.stringify({ productionRequests: 0, results }, null, 2) + '\n');
   console.log(JSON.stringify(results, null, 2));
 } finally {

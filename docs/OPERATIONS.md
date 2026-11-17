@@ -113,10 +113,13 @@ not a successful zero-cost request.
 3. Recreate only this service, retaining existing data and secret mounts. Check
    startup, `/api/status`, enabled login provider, and ordinary/admin permission
    boundaries. This does not require a model completion request.
-4. Preserve the applicable license text and original notices. The approved
-   pkce.10 delivery is binary plus Git revision, without another full-source
-   archive. This change is not a determination that GitHub publication alone
-   fulfills every license obligation; historical release materials are unchanged.
+4. Preserve the applicable license text and original notices. For the current
+   multilingual rollout, deliver the newly built binary, its exact Git revision,
+   and complete corresponding source produced by the versioned
+   `package-source.py`; make that archive's exact URL available to service users
+   as required by `NOTICE.md`. Earlier binary-only delivery records remain
+   historical. This records technical source correspondence, not a determination
+   that publication fulfills every license obligation.
 
 After any internal Chat credential is issued, stock v0.13.2 and pkce.1 are unsafe
 rollback targets: they lack the internal-key visibility and direct-use guards.

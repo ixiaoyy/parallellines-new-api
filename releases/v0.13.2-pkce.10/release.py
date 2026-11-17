@@ -20,7 +20,7 @@ PREVIOUS.RELEASE = RELEASE  # 只复用无版本常量的公开资产及 ELF 检
 def settings():
     """校验独立锁、完整基线及本轮增量，不改历史发布配方。"""
     lock = BASE.read_json(RELEASE / 'upstream.lock.json')
-    for key in ('base_source_manifest', 'profile_manifest', 'frontend_manifest', 'source_manifest'):
+    for key in ('base_source_manifest', 'profile_manifest', 'interface_manifest', 'frontend_manifest', 'source_manifest'):
         if BASE.digest(REPO / lock[key]) != lock[key + '_sha256']:
             raise RuntimeError('release_manifest_changed: ' + key)
     for entry in lock['patches']:

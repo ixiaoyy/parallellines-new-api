@@ -18,12 +18,23 @@ retain their existing paths. The switch defaults off; the Main/issuer contract
 and private recovery network boundary must be ready before activation. Local
 builds and isolated checks do not establish real SSO or production activation.
 The build lock records the preparation-stage candidate state. This release
-delivers the reviewed binary and its Git revision through GitHub; no additional
-full upstream source archive is required by the pkce.10 release workflow.
-Publication does not establish production activation or determine license compliance.
+originally delivered the reviewed unified-login binary and its Git revision
+without another source archive. The current multilingual rollout additionally
+packages complete corresponding source tied to the exact new commit, following
+[NOTICE.md](NOTICE.md). Publication does not establish production activation or
+determine license compliance.
 The root lock and
 the base-build commands below intentionally describe the reusable pkce.3 base;
 do not use that base image to replace the current live release.
+
+The current working candidate also includes the 2026-11-17 Chinese/English
+interface patch in the same ordered pkce.10 recipe. It reuses the native language
+selector, resources and saved preferences, retaining the other existing
+languages. The previously recorded pkce.10 binary does **not** contain this
+interface revision: local frontend checks are recorded separately, and a new
+application build and its matching source archive are required for the currently
+authorized deployment. Neither
+the application version nor the prepared-candidate status is changed.
 
 The source archives and manifests describe application source only. Runtime
 secrets, databases, identities and logs are excluded from version control.

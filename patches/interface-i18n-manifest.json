@@ -1,0 +1,67 @@
+{
+  "application_version": "v0.13.2-pkce.10",
+  "published": false,
+  "scope": "interface-zh-en-only",
+  "production_patch": {
+    "file": "patches/new-api-v0.13.2-pkce10-interface-i18n.patch",
+    "sha256": "cc292ccca5289e7e0db41057b691341d7a2bb92e791813799ee48363112e9b37"
+  },
+  "files": [
+    {
+      "path": "web/src/components/auth/MainRootRecovery.jsx",
+      "base_sha256": "30eb266eb47cfbfcacaf83b105b0b7d65eb5ab960857660865a4ca8f9def7a94",
+      "result_sha256": "0de371f6e8d67b75f5f8242387cc6d9aebe0b3eef88aefc86cf981becf005aa8"
+    },
+    {
+      "path": "web/src/components/auth/MainUnifiedBoundary.jsx",
+      "base_sha256": "9c45bc3b67bfa41f1933d48992aba187ab158b4ae70ed53eef10ab6df2478bc0",
+      "result_sha256": "2caf730d21ece856b6d993de8235c6d1d4d920933aa80fcd1200f080e18a20f9"
+    },
+    {
+      "path": "web/src/components/auth/MainUnifiedLogin.jsx",
+      "base_sha256": "5a749bd77635bcdfb7928ba572ea2617532f64c521e6a571a9a4dab78801e9e7",
+      "result_sha256": "36394ebc2b0f0fd32b880f9ec984e9d007395cddec1af86f76dcd4d846b3dcbb"
+    },
+    {
+      "path": "web/src/components/auth/OAuth2Callback.jsx",
+      "base_sha256": "887c0b37312b8bed5507606d359dea9ba81dfd50205a88279d9b68eacb5bf401",
+      "result_sha256": "ba20f996333e3b523afda68fd717f60411aff4e38d5069260410f72807b7f29a"
+    },
+    {
+      "path": "web/src/components/layout/PageLayout.jsx",
+      "base_sha256": "3418c5455519a148b720276a61093b4c8e257a58e2d9d35f88998c357426074a",
+      "result_sha256": "78a860e2fb98c2b6bdad21c88e151760a634d6d74e97740fb38f053f74dcc649"
+    },
+    {
+      "path": "web/src/components/layout/headerbar/LanguageSelector.jsx",
+      "base_sha256": "17db415be9dce19ec6ff23302d377603863745138e0156b16f385ae3548addf7",
+      "result_sha256": "ffe2798d312eb2c610cbff6d3906debd9007e6b026d614c11a28ba5bcd944317"
+    },
+    {
+      "path": "web/src/helpers/utils.jsx",
+      "base_sha256": "6c6368d974a4d7fdbd24dda419865e2c6dcc1ac568b651f1a2a1652abac02d61",
+      "result_sha256": "f3c250ee8c52efb63dbf17afa072eaee01c3a4996afb4b0685bd938f4fd2a987"
+    },
+    {
+      "path": "web/src/i18n/i18n.js",
+      "base_sha256": "8809a2f76e2acaac5f523aeb8dc046c09c6e6e5b2f5384d64c04c68c2ae4a85c",
+      "result_sha256": "ac0b9052d089053dce783649f30a2b1b8dbf279ab403e300ebcf05c307b59096"
+    },
+    {
+      "path": "web/src/i18n/locales/en.json",
+      "base_sha256": "a1ee10ff02472b2a156c52bad465825f22ef10a383e511381576a29c323a2afb",
+      "result_sha256": "4485534a1e0cf548c8a7029df266999da20508aec3e944a14986811493af6a61"
+    },
+    {
+      "path": "web/src/i18n/locales/zh-CN.json",
+      "base_sha256": "aa7c4015d79220ece853d3b030f9e227c332942a95a08d60df730e9c61931678",
+      "result_sha256": "2a45ddfa8c2c3613425774d31e68bbf393cfc3d0e9571c79decbd56ec3556ba1"
+    }
+  ],
+  "preserved": [
+    "native languages",
+    "OAuth and recovery state",
+    "quota and billing",
+    "existing binary receipts"
+  ]
+}

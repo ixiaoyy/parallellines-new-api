@@ -1,0 +1,487 @@
+--- a/web/src/components/auth/MainRootRecovery.jsx
++++ b/web/src/components/auth/MainRootRecovery.jsx
+@@ -1,10 +1,12 @@
+ import React, { useContext, useState } from 'react';
++import { useTranslation } from 'react-i18next';
+ import { Button, Input } from '@douyinfe/semi-ui';
+ import { API, updateAPI } from '../../helpers/api';
+ import { UserContext } from '../../context/User';
+ 
+ // 专用应急页没有公开导航；必须经私有回环监听/隧道，服务端还会核开关、UID、Root 与原 MFA。
+ export default function MainRootRecovery() {
++  const { t } = useTranslation();
+   const [, dispatch] = useContext(UserContext);
+   const [username, setUsername] = useState(''),
+     [password, setPassword] = useState(''),
+@@ -43,7 +45,7 @@
+       setBusy(false);
+     }
+   };
+-  if (!local) return <p>此页面不可用。</p>;
++  if (!local) return <p>{t('此页面不可用。')}</p>;
+   return (
+     <section
+       style={{
+@@ -57,13 +59,13 @@
+       }}
+     >
+       <h1 style={{ fontSize: 26, fontWeight: 600, marginBottom: 24 }}>
+-        管理员登录
++        {t('管理员登录')}
+       </h1>
+ 
+       <form onSubmit={submit}>
+         {twoFA ? (
+           <label style={{ display: 'block', marginBottom: 16 }}>
+-            验证码或备用码
++            {t('验证码或备用码')}
+             <Input
+               value={code}
+               onChange={setCode}
+@@ -74,7 +76,7 @@
+         ) : (
+           <>
+             <label style={{ display: 'block', marginBottom: 16 }}>
+-              账号
++              {t('账号')}
+               <Input
+                 value={username}
+                 onChange={setUsername}
+@@ -83,7 +85,7 @@
+               />
+             </label>
+             <label style={{ display: 'block', marginBottom: 16 }}>
+-              密码
++              {t('密码')}
+               <Input
+                 type='password'
+                 value={password}
+@@ -102,10 +104,10 @@
+           block
+           disabled={busy}
+         >
+-          {busy ? '验证中…' : '登录'}
++          {busy ? t('验证中…') : t('登录')}
+         </Button>
+       </form>
+-      {error && <p role='alert'>{error}</p>}
++      {error && <p role='alert'>{t(error)}</p>}
+     </section>
+   );
+ }
+--- a/web/src/components/auth/MainUnifiedBoundary.jsx
++++ b/web/src/components/auth/MainUnifiedBoundary.jsx
+@@ -1,4 +1,5 @@
+ import React, { useContext, useEffect, useRef, useState } from 'react';
++import { useTranslation } from 'react-i18next';
+ import { useLocation } from 'react-router-dom';
+ import { StatusContext } from '../../context/Status';
+ import { UserContext } from '../../context/User';
+@@ -11,6 +12,7 @@
+ 
+ // Main iframe 只传 UI 状态，不传令牌；所有私有 API 仍由后端实时复核原绑定。
+ export default function MainUnifiedBoundary({ children }) {
++  const { t } = useTranslation();
+   const [statusState] = useContext(StatusContext);
+   const [, dispatch] = useContext(UserContext);
+   const location = useLocation();
+@@ -23,6 +25,7 @@
+     ).join(''),
+   );
+   const [ready, setReady] = useState(false);
++  // 保存原始状态文案键；切换语言只重绘，不重新发起会话检查。
+   const [error, setError] = useState('');
+   const enabled = statusState?.status?.main_unified_web_login_enabled === true;
+   const recovery =
+@@ -160,25 +163,25 @@
+ 
+   // 状态配置未知时不先展示旧账号的私有缓存；旧模式配置到达后沿原流程运行。
+   if (!statusState?.status && privatePage)
+-    return <p style={{ margin: '112px 24px' }}>正在加载…</p>;
++    return <p style={{ margin: '112px 24px' }}>{t('正在加载…')}</p>;
+   return (
+     <>
+       {enabled && !bypass && (
+         <iframe
+           ref={frame}
+-          title='主站登录状态'
++          title={t('主站登录状态')}
+           hidden
+           src={`${MAIN_ORIGIN}/auth/unified/state?client=newapi&request_id=${requestId}`}
+         />
+       )}
+       {enabled && !bypass && privatePage && error && (
+         <p role='status' style={{ margin: '80px 24px 0' }}>
+-          {error} <a href='/login'>登录</a>
++          {t(error)} <a href='/login'>{t('登录')}</a>
+         </p>
+       )}
+       {enabled && !bypass && privatePage && !ready ? (
+         error ? null : (
+-          <p style={{ margin: '112px 24px' }}>正在确认登录…</p>
++          <p style={{ margin: '112px 24px' }}>{t('正在确认登录…')}</p>
+         )
+       ) : (
+         children
+--- a/web/src/components/auth/MainUnifiedLogin.jsx
++++ b/web/src/components/auth/MainUnifiedLogin.jsx
+@@ -1,10 +1,12 @@
+ import React, { useState } from 'react';
+ import { useLocation } from 'react-router-dom';
++import { useTranslation } from 'react-i18next';
+ import { Button } from '@douyinfe/semi-ui';
+ import { MAIN_ORIGIN, startMainUnifiedLogin } from '../../helpers/unified-web';
+ 
+ // 公开入口保留返回首页；登录、注册、找回统一交由主站，不展示第二套密码框。
+ export default function MainUnifiedLogin() {
++  const { t } = useTranslation();
+   const location = useLocation();
+   const [error, setError] = useState('');
+   const [busy, setBusy] = useState(false);
+@@ -31,7 +33,9 @@
+         boxShadow: '0 8px 32px rgba(0,0,0,0.04)',
+       }}
+     >
+-      <h1 style={{ fontSize: 26, fontWeight: 600, marginBottom: 16 }}>登录</h1>
++      <h1 style={{ fontSize: 26, fontWeight: 600, marginBottom: 16 }}>
++        {t('登录')}
++      </h1>
+       <Button
+         htmlType='button'
+         type='primary'
+@@ -41,14 +45,14 @@
+         disabled={busy}
+         onClick={login}
+       >
+-        {busy ? '正在登录…' : '使用平行线账号登录'}
++        {busy ? t('正在登录…') : t('使用平行线账号登录')}
+       </Button>
+       <p style={{ marginTop: 20, fontSize: 14, lineHeight: 1.8 }}>
+-        <a href={`${MAIN_ORIGIN}/auth?mode=register`}>注册账号</a> ·{' '}
+-        <a href={`${MAIN_ORIGIN}/auth?mode=forgot`}>忘记密码</a> ·{' '}
+-        <a href='/'>返回首页</a>
++        <a href={`${MAIN_ORIGIN}/auth?mode=register`}>{t('注册账号')}</a> ·{' '}
++        <a href={`${MAIN_ORIGIN}/auth?mode=forgot`}>{t('忘记密码')}</a> ·{' '}
++        <a href='/'>{t('返回首页')}</a>
+       </p>
+-      {error && <p role='alert'>{error}</p>}
++      {error && <p role='alert'>{t(error)}</p>}
+     </section>
+   );
+ }
+--- a/web/src/components/auth/OAuth2Callback.jsx
++++ b/web/src/components/auth/OAuth2Callback.jsx
+@@ -56,7 +56,7 @@
+ 
+       if (!success) {
+         // 业务错误不重试，直接显示错误
+-        showError(message || t('授权失败'));
++        showError(t(message || '授权失败'));
+         if (unified) navigate('/login?unified_error=1');
+         return;
+       }
+@@ -81,7 +81,7 @@
+       }
+ 
+       // 重试次数耗尽，提示错误并返回设置页面
+-      showError(error.message || t('授权失败'));
++      showError(t(error.message || '授权失败'));
+       navigate(unified ? '/login?unified_error=1' : '/console/personal');
+     }
+   };
+--- a/web/src/components/layout/PageLayout.jsx
++++ b/web/src/components/layout/PageLayout.jsx
+@@ -48,7 +48,7 @@
+   const isMobile = useIsMobile();
+   const [collapsed, , setCollapsed] = useSidebarCollapsed();
+   const [drawerOpen, setDrawerOpen] = useState(false);
+-  const { i18n } = useTranslation();
++  const { i18n, t } = useTranslation();
+   const location = useLocation();
+ 
+   const cardProPages = [
+@@ -95,10 +95,10 @@
+         statusDispatch({ type: 'set', payload: data });
+         setStatusData(data);
+       } else {
+-        showError('Unable to connect to server');
++        showError(t('Unable to connect to server'));
+       }
+     } catch (error) {
+-      showError('Failed to load status');
++      showError(t('Failed to load status'));
+     }
+   };
+ 
+--- a/web/src/components/layout/headerbar/LanguageSelector.jsx
++++ b/web/src/components/layout/headerbar/LanguageSelector.jsx
+@@ -17,54 +17,64 @@
+ For commercial licensing, please contact support@quantumnous.com
+ */
+ 
+-import React from 'react';
++import React, { useState } from 'react';
+ import { Button, Dropdown } from '@douyinfe/semi-ui';
+ import { Languages } from 'lucide-react';
+ 
+ const LanguageSelector = ({ currentLang, onLanguageChange, t }) => {
++  const [visible, setVisible] = useState(false);
++  // 选择后收起菜单，避免手机上切换完仍遮挡登录表单；偏好保存继续交给原调用方。
++  const selectLanguage = (language) => {
++    setVisible(false);
++    onLanguageChange(language);
++  };
+   return (
+     <Dropdown
+       position='bottomRight'
++      trigger='click'
++      visible={visible}
++      onVisibleChange={setVisible}
+       render={
+         <Dropdown.Menu className='!bg-semi-color-bg-overlay !border-semi-color-border !shadow-lg !rounded-lg dark:!bg-gray-700 dark:!border-gray-600'>
+           {/* Language sorting: Order by English name (Chinese, English, French, Japanese, Russian) */}
+           <Dropdown.Item
+-            onClick={() => onLanguageChange('zh-CN')}
++            onClick={() => selectLanguage('zh-CN')}
+             className={`!px-3 !py-1.5 !text-sm !text-semi-color-text-0 dark:!text-gray-200 ${currentLang === 'zh-CN' ? '!bg-semi-color-primary-light-default dark:!bg-blue-600 !font-semibold' : 'hover:!bg-semi-color-fill-1 dark:hover:!bg-gray-600'}`}
+           >
+             简体中文
+           </Dropdown.Item>
+           <Dropdown.Item
+-            onClick={() => onLanguageChange('zh-TW')}
++            onClick={() => selectLanguage('zh-TW')}
+             className={`!px-3 !py-1.5 !text-sm !text-semi-color-text-0 dark:!text-gray-200 ${currentLang === 'zh-TW' ? '!bg-semi-color-primary-light-default dark:!bg-blue-600 !font-semibold' : 'hover:!bg-semi-color-fill-1 dark:hover:!bg-gray-600'}`}
+           >
+-        	繁體中文
+-          </Dropdown.Item>          <Dropdown.Item
+-            onClick={() => onLanguageChange('en')}
++            繁體中文
++          </Dropdown.Item>{' '}
++          <Dropdown.Item
++            onClick={() => selectLanguage('en')}
+             className={`!px-3 !py-1.5 !text-sm !text-semi-color-text-0 dark:!text-gray-200 ${currentLang === 'en' ? '!bg-semi-color-primary-light-default dark:!bg-blue-600 !font-semibold' : 'hover:!bg-semi-color-fill-1 dark:hover:!bg-gray-600'}`}
+           >
+             English
+           </Dropdown.Item>
+           <Dropdown.Item
+-            onClick={() => onLanguageChange('fr')}
++            onClick={() => selectLanguage('fr')}
+             className={`!px-3 !py-1.5 !text-sm !text-semi-color-text-0 dark:!text-gray-200 ${currentLang === 'fr' ? '!bg-semi-color-primary-light-default dark:!bg-blue-600 !font-semibold' : 'hover:!bg-semi-color-fill-1 dark:hover:!bg-gray-600'}`}
+           >
+             Français
+           </Dropdown.Item>
+           <Dropdown.Item
+-            onClick={() => onLanguageChange('ja')}
++            onClick={() => selectLanguage('ja')}
+             className={`!px-3 !py-1.5 !text-sm !text-semi-color-text-0 dark:!text-gray-200 ${currentLang === 'ja' ? '!bg-semi-color-primary-light-default dark:!bg-blue-600 !font-semibold' : 'hover:!bg-semi-color-fill-1 dark:hover:!bg-gray-600'}`}
+           >
+             日本語
+           </Dropdown.Item>
+           <Dropdown.Item
+-            onClick={() => onLanguageChange('ru')}
++            onClick={() => selectLanguage('ru')}
+             className={`!px-3 !py-1.5 !text-sm !text-semi-color-text-0 dark:!text-gray-200 ${currentLang === 'ru' ? '!bg-semi-color-primary-light-default dark:!bg-blue-600 !font-semibold' : 'hover:!bg-semi-color-fill-1 dark:hover:!bg-gray-600'}`}
+           >
+             Русский
+           </Dropdown.Item>
+           <Dropdown.Item
+-            onClick={() => onLanguageChange('vi')}
++            onClick={() => selectLanguage('vi')}
+             className={`!px-3 !py-1.5 !text-sm !text-semi-color-text-0 dark:!text-gray-200 ${currentLang === 'vi' ? '!bg-semi-color-primary-light-default dark:!bg-blue-600 !font-semibold' : 'hover:!bg-semi-color-fill-1 dark:hover:!bg-gray-600'}`}
+           >
+             Tiếng Việt
+@@ -75,10 +85,18 @@
+       <Button
+         icon={<Languages size={18} />}
+         aria-label={t('common.changeLanguage')}
++        title={t('common.changeLanguage')}
+         theme='borderless'
+         type='tertiary'
+         className='!p-1.5 !text-current focus:!bg-semi-color-fill-1 dark:focus:!bg-gray-700 !rounded-full !bg-semi-color-fill-0 dark:!bg-semi-color-fill-1 hover:!bg-semi-color-fill-1 dark:hover:!bg-semi-color-fill-2'
+-      />
++      >
++        {/* 同时显示当前语言，手机上也可直接找到切换入口。 */}
++        {currentLang === 'zh-CN'
++          ? '中文'
++          : currentLang === 'zh-TW'
++            ? '繁中'
++            : currentLang?.split('-')[0].toUpperCase()}
++      </Button>
+     </Dropdown>
+   );
+ };
+--- a/web/src/helpers/utils.jsx
++++ b/web/src/helpers/utils.jsx
+@@ -17,6 +17,7 @@
+ For commercial licensing, please contact support@quantumnous.com
+ */
+ 
++import i18n from '../i18n/i18n';
+ import { Toast, Pagination } from '@douyinfe/semi-ui';
+ import { toastConstants, BILLING_PRICING_VARS, BILLING_VAR_REGEX } from '../constants';
+ import React from 'react';
+@@ -121,6 +122,7 @@
+ }
+ 
+ export function showError(error) {
++  // 只翻译展示文案，保留既有 HTTP 状态处理、退出跳转与原始错误日志。
+   console.error(error);
+   if (error.message) {
+     if (error.name === 'AxiosError') {
+@@ -132,22 +134,26 @@
+           window.location.href = '/login?expired=true';
+           break;
+         case 429:
+-          Toast.error('错误：请求次数过多，请稍后再试！');
++          Toast.error(i18n.t('错误：请求次数过多，请稍后再试！'));
+           break;
+         case 500:
+-          Toast.error('错误：服务器内部错误，请联系管理员！');
++          Toast.error(i18n.t('错误：服务器内部错误，请联系管理员！'));
+           break;
+         case 405:
+-          Toast.info('本站仅作演示之用，无服务端！');
++          Toast.info(i18n.t('本站仅作演示之用，无服务端！'));
+           break;
+         default:
+-          Toast.error('错误：' + error.message);
++          Toast.error(
++            i18n.t('错误：{{message}}', { message: i18n.t(error.message) }),
++          );
+       }
+       return;
+     }
+-    Toast.error('错误：' + error.message);
++    Toast.error(
++      i18n.t('错误：{{message}}', { message: i18n.t(error.message) }),
++    );
+   } else {
+-    Toast.error('错误：' + error);
++    Toast.error(i18n.t('错误：{{message}}', { message: i18n.t(String(error)) }));
+   }
+ }
+ 
+--- a/web/src/i18n/i18n.js
++++ b/web/src/i18n/i18n.js
+@@ -22,7 +22,7 @@
+ import LanguageDetector from 'i18next-browser-languagedetector';
+ 
+ import zhCNTranslation from './locales/zh-CN.json';
+-import { supportedLanguages } from './language';
++import { normalizeLanguage, supportedLanguages } from './language';
+ import { createLocaleBackend } from './localeBackend';
+ 
+ // 中文回退保留在入口；其他已支持语言仅在检测到或主动切换时读取。
+@@ -35,6 +35,11 @@
+   vi: () => import('./locales/vi.json'),
+ };
+ 
++// 保持辅助技术使用的页面语言与实际界面一致，不更改账号或跨站偏好。
++i18n.on('languageChanged', (language) => {
++  document.documentElement.lang = normalizeLanguage(language);
++});
++
+ i18n
+   .use(createLocaleBackend(localeLoaders))
+   .use(LanguageDetector)
+@@ -45,6 +50,12 @@
+     partialBundledLanguages: true,
+     resources: { 'zh-CN': zhCNTranslation },
+     fallbackLng: 'zh-CN',
++    // 已保存的手动选择优先于 URL、旧 Cookie 和浏览器；首次访问仍自动识别。
++    detection: {
++      order: ['localStorage', 'querystring', 'cookie', 'navigator'],
++      caches: ['localStorage'],
++      convertDetectedLanguage: normalizeLanguage,
++    },
+     nsSeparator: false,
+     interpolation: {
+       escapeValue: false,
+--- a/web/src/i18n/locales/en.json
++++ b/web/src/i18n/locales/en.json
+@@ -3796,6 +3796,40 @@
+     "本站额度采用此版本标准价；通用倍率设置不覆盖本策略。": "Site quota uses this versioned standard schedule; general ratio settings do not override this policy.",
+     "本站额度口径，不保证上游实际账单。": "Site quota policy, not a guarantee of the upstream invoice.",
+     "价格来源": "Price source",
+-    "核验日期": "Checked on"
++    "核验日期": "Checked on",
++    "管理员登录": "Administrator sign in",
++    "验证码或备用码": "Verification or backup code",
++    "账号": "Account",
++    "验证中…": "Verifying…",
++    "此页面不可用。": "This page is unavailable.",
++    "恢复登录失败": "Recovery sign-in failed",
++    "正在登录…": "Signing in…",
++    "使用平行线账号登录": "Sign in with ParallelLines",
++    "注册账号": "Create an account",
++    "忘记密码": "Forgot password",
++    "返回首页": "Back to home",
++    "暂时无法确认登录状态，请稍后重试。": "Unable to confirm your sign-in status. Please try again later.",
++    "登录未完成，请重试。": "Sign-in was not completed. Please try again.",
++    "正在加载…": "Loading…",
++    "主站登录状态": "ParallelLines sign-in status",
++    "正在确认登录…": "Checking sign-in status…",
++    "主站统一登录暂不可用，请重试": "ParallelLines sign-in is temporarily unavailable. Please try again.",
++    "退出失败": "Sign-out failed",
++    "主站退出地址无效": "Invalid ParallelLines sign-out address",
++    "请重新发起主站统一登录": "Please start ParallelLines sign-in again",
++    "主站会话校验不可用，请重新登录": "ParallelLines session verification is unavailable. Please sign in again.",
++    "主站统一登录配置不可用": "ParallelLines sign-in configuration is unavailable",
++    "请前往主站管理登录、注册和密码": "Manage sign-in, registration and passwords on ParallelLines",
++    "登录已过期，请刷新后重试": "Your sign-in has expired. Please refresh and try again.",
++    "主站退出暂不可用，请稍后重试": "ParallelLines sign-out is temporarily unavailable. Please try again later.",
++    "恢复账号不可用": "Recovery account is unavailable",
++    "请通过主站统一登录": "Please sign in through ParallelLines",
++    "登录暂不可用，请稍后重试": "Sign-in is temporarily unavailable. Please try again later.",
++    "错误：{{message}}": "Error: {{message}}",
++    "错误：请求次数过多，请稍后再试！": "Too many requests. Please try again later.",
++    "错误：服务器内部错误，请联系管理员！": "Internal server error. Please contact an administrator.",
++    "本站仅作演示之用，无服务端！": "This is a demo site with no backend.",
++    "Unable to connect to server": "Unable to connect to server",
++    "Failed to load status": "Failed to load status"
+   }
+ }
+--- a/web/src/i18n/locales/zh-CN.json
++++ b/web/src/i18n/locales/zh-CN.json
+@@ -3780,6 +3780,40 @@
+     "本站额度采用此版本标准价；通用倍率设置不覆盖本策略。": "本站额度采用此版本标准价；通用倍率设置不覆盖本策略。",
+     "本站额度口径，不保证上游实际账单。": "本站额度口径，不保证上游实际账单。",
+     "价格来源": "价格来源",
+-    "核验日期": "核验日期"
++    "核验日期": "核验日期",
++    "管理员登录": "管理员登录",
++    "验证码或备用码": "验证码或备用码",
++    "账号": "账号",
++    "验证中…": "验证中…",
++    "此页面不可用。": "此页面不可用。",
++    "恢复登录失败": "恢复登录失败",
++    "正在登录…": "正在登录…",
++    "使用平行线账号登录": "使用平行线账号登录",
++    "注册账号": "注册账号",
++    "忘记密码": "忘记密码",
++    "返回首页": "返回首页",
++    "暂时无法确认登录状态，请稍后重试。": "暂时无法确认登录状态，请稍后重试。",
++    "登录未完成，请重试。": "登录未完成，请重试。",
++    "正在加载…": "正在加载…",
++    "主站登录状态": "主站登录状态",
++    "正在确认登录…": "正在确认登录…",
++    "主站统一登录暂不可用，请重试": "主站统一登录暂不可用，请重试",
++    "退出失败": "退出失败",
++    "主站退出地址无效": "主站退出地址无效",
++    "请重新发起主站统一登录": "请重新发起主站统一登录",
++    "主站会话校验不可用，请重新登录": "主站会话校验不可用，请重新登录",
++    "主站统一登录配置不可用": "主站统一登录配置不可用",
++    "请前往主站管理登录、注册和密码": "请前往主站管理登录、注册和密码",
++    "登录已过期，请刷新后重试": "登录已过期，请刷新后重试",
++    "主站退出暂不可用，请稍后重试": "主站退出暂不可用，请稍后重试",
++    "恢复账号不可用": "恢复账号不可用",
++    "请通过主站统一登录": "请通过主站统一登录",
++    "登录暂不可用，请稍后重试": "登录暂不可用，请稍后重试",
++    "错误：{{message}}": "错误：{{message}}",
++    "错误：请求次数过多，请稍后再试！": "错误：请求次数过多，请稍后再试！",
++    "错误：服务器内部错误，请联系管理员！": "错误：服务器内部错误，请联系管理员！",
++    "本站仅作演示之用，无服务端！": "本站仅作演示之用，无服务端！",
++    "Unable to connect to server": "无法连接服务器",
++    "Failed to load status": "加载站点状态失败"
+   }
+ }

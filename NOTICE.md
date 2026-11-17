@@ -23,5 +23,13 @@ archive. Publish that archive alongside every deployed modified version and make
 its exact URL available to users interacting with the service. Keep older release
 source available while those versions are deployed. A binary alone is insufficient.
 
+For the 2026-11-17 pkce.10 multilingual rollout, use
+`releases/v0.13.2-pkce.10/package-source.py`, not the reusable root pkce.3 archive
+script. It binds the complete frozen upstream source and frontend to the exact
+new Git recipe, ordered patches, dependency locks, original licenses/notices,
+and matching binary build receipt. Runtime secrets, databases, real environment
+files, dependency caches and debug artifacts are excluded. Earlier delivery
+records do not replace this version's corresponding source.
+
 This repository is an independent deployment project; upstream names do not imply
 endorsement. Dependency components retain their respective licenses.

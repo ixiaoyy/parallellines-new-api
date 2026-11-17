@@ -1,6 +1,6 @@
 # v0.13.2-pkce.10：主站统一 Web 登录候选
 
-构建锁冻结的准备阶段状态为 `prepared-candidate-unpublished`。公开 prerelease 交付已核二进制和 Git 版本摘要，不改写已验证构建锁。此记录不证明正式站已激活或真实登录验收已完成。
+构建锁冻结的准备阶段状态为 `prepared-candidate-unpublished`。原统一登录 prerelease 的二进制和 Git 摘要属于历史交付；本轮多语言部署交付新构建、准确新提交及完整对应源码归档，不改应用版本和准备状态。此文不证明正式站已激活或真实登录验收已完成。
 
 ## 行为与兼容
 
@@ -33,9 +33,18 @@
 
 ## 准备与构建
 
+### 2026-11-17 中英界面修订
+
+当前候选的有序补丁链追加 `new-api-v0.13.2-pkce10-interface-i18n.patch`，清单为 `patches/interface-i18n-manifest.json`。原 `prepare`、`verify`、`build` 入口直接消费这份补丁与更新后的源码、前端资产清单，不需要另选可选脚本。版本及 `prepared-candidate-unpublished` 状态不变。
+
+- 复用原生语言菜单和偏好保存；顶栏显示当前语言，手机也可点击切换。首次按浏览器识别，已保存的选择优先于 URL、旧 Cookie 和浏览器，不增加跨站同步。
+- 统一登录、私有恢复、会话检查状态及相关错误提示补齐中英。保留其他原生语言、OAuth/恢复状态、匿名价格页、账号、额度与计费路径；未知服务端错误保留原文。
+- 本轮仅离线复用已有依赖构建前端；本地 Chromium 全网络拦截覆盖中英桌面/390px、切换/刷新、手动选择优先、登录失败、会话故障门禁、恢复页 MFA 状态及原用户设置保存协议。截图和记录位于 `.build/i18n-20261117/evidence/`，不是线上验收。
+- 历史 `ready-output` 二进制及其回执保留，**不含本次界面修订，不能当作当前候选构建产物**。当前部署必须按下列配方重新构建，并将新二进制、源码归档和准确 Git 提交绑定交付；不能以本地代码或历史回执声称已上线。React Doctor 未安装，未为此安装依赖。
+
 需要 Python >=3.12、现有 Go 1.26.1、Bun 1.4.4。配方不安装、不下载、不连接业务系统。根锁仍是可复用 pkce.3，不可替换当前候选。
 
-本版锁定完整 pkce.9 `source-files.json`，再顺序应用独立生产/验证补丁；前端使用本版源码和既有冻结依赖构建，不能复用 pkce.9 dist。准备时精确核对本版 `frontend-assets.json`。
+本版锁定完整 pkce.9 `source-files.json`，再顺序应用独立生产/验证/中英界面补丁；前端使用本版源码和既有冻结依赖构建，不能复用 pkce.9 dist。准备时精确核对本版 `frontend-assets.json`。
 
 ```powershell
 python releases/v0.13.2-pkce.10/release.py prepare --base-source <pkce9-source> --frontend-dir <pkce10-built-dist> --destination <new-directory>
@@ -43,11 +52,17 @@ python releases/v0.13.2-pkce.10/release.py verify --source <new-directory>/sourc
 python releases/v0.13.2-pkce.10/release.py build --source <new-directory>/source --cache-dir <existing-cache> --output-dir <new-output>
 ```
 
-本轮不另生成完整上游源码归档；此前上传的额外完整归档及其专属回执已按用户要求移除，Git 代码、版本标签与二进制保留。许可原文及已有声明不变，不将某种 GitHub 呈现方式自动等同于全部许可义务已满足。恢复沿 pkce.9 内部凭据隔离要求，不默认回退 stock 上游或覆盖数据库。关闭模式会显式恢复旧登录行为，不能自动失败回退。
+当前多语言部署按 `NOTICE.md` 准备完整对应源码。`package-source.py` 从明确的新提交读取 Git 配方，将清单精确匹配的完整展开源码、冻结前端、原许可证/声明及同次构建回执放入归档；拒绝真实环境、密钥、数据库、依赖缓存、调试文件与额外源码文件。归档、摘要及可供服务用户获取的准确公开地址由发布负责人绑定到本轮新二进制，不使用旧标签冒充本次源码。
+
+```powershell
+python releases/v0.13.2-pkce.10/package-source.py --source <prepared-source> --build-dir <new-output> --revision <full-new-commit> --output dist/<unique-corresponding-source>.tar.gz
+```
+
+此前额外归档的移除记录保留为历史，不代表本轮新版本已有对应源码。许可原文不变，不将某种 GitHub 呈现方式自动等同于全部许可义务已满足。恢复沿 pkce.9 内部凭据隔离要求，不默认回退 stock 上游或覆盖数据库。关闭模式会显式恢复旧登录行为，不能自动失败回退。
 
 实际镜像封装使用本版 `Dockerfile.runtime`，传入已核对的 `SOURCE_REVISION`，把相同构建回执的 Linux 二进制以 `new-api` 文件放入新构建上下文。该文件只复制已构建产物，不下载或编译依赖；不能使用带旧版本标签的历史 Dockerfile。真实本地链路的 runtime 接线与验收状态另见 [验收记录](../../docs/UNIFIED-WEB-LOGIN-ACCEPTANCE.md)。
 
-用户现已选择直接在服务器运行和验收，不再本地 Docker/额外测试。复用已验证二进制、Git 版本和升级/恢复要求见 [正式发布交接](DEPLOYMENT.md)，由根任务统一执行；没有把历史版本当当前线上版本。
+原统一登录交接按当时选择直接在服务器运行和验收，不再本地 Docker/额外测试。原二进制、Git 版本和升级/恢复要求见 [正式发布交接](DEPLOYMENT.md)；该二进制不含上方新增界面修订，不能把历史交接当作当前候选的构建或上线结果。发布仍由根任务在单独授权后统一执行。
 
 ## 检查与限制
 

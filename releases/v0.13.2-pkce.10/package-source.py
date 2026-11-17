@@ -73,9 +73,14 @@ def package(source, build, revision, output):
         raise RuntimeError('prepared_source_file_set_changed')
     archive_data = subprocess.check_output(['git', 'archive', '--format=tar', revision], cwd=REPO, timeout=60)
     recipe = []
+    excluded_outputs = []
     with tarfile.open(fileobj=io.BytesIO(archive_data), mode='r:') as snapshot:
         for entry in snapshot.getmembers():
             if entry.isdir():
+                continue
+            # 老版本曾将 dist 产物纳入 Git；它们不属于当前配方输入，也不能混入本次源码包。
+            if entry.name.startswith('dist/'):
+                excluded_outputs.append(entry.name)
                 continue
             public_path(entry.name)
             if not entry.isfile():
@@ -88,12 +93,14 @@ def package(source, build, revision, output):
         'release_lock_sha256': digest(lock_data), 'source_manifest_sha256': digest(manifest_data),
         'frontend_manifest_sha256': lock['frontend_manifest_sha256'],
         'binary_sha256': receipt['binary_sha256'], 'source_files': len(expected), 'recipe_files': len(recipe),
+        'excluded_historical_outputs': excluded_outputs,
     }
     instructions = (
         '# Exact corresponding source\n\n'
         'Source revision: `' + revision + '`. Application version: `' + lock['application_version'] + '`.\n\n'
         '`source/` contains the complete frozen upstream source, applied patches, dependency lockfiles and ' + str(receipt['verified_public_files']) + ' embedded frontend files. '
-        '`recipe/` is the exact Git snapshot with ordered release patches, manifests, build instructions and original licenses/notices.\n\n'
+        '`recipe/` contains public recipe files from the exact Git revision, including ordered patches, manifests, build instructions and original licenses/notices. '
+        'Historical tracked dist outputs are excluded and recorded in release.json.\n\n'
         'Use `python recipe/releases/v0.13.2-pkce.10/release.py verify --source source` to inspect these inputs. '
         'With existing Go 1.26.1 and module cache, run the same recipe `build --source source --cache-dir <existing-cache> --output-dir <new-output>`. '
         'The builder uses linux/amd64, CGO=0 and offline dependencies. See the versioned README and Dockerfile.runtime; do not use the reusable root pkce.3 recipe.\n\n'

@@ -1,0 +1,12 @@
+diff --git a/web/src/components/layout/Footer.jsx b/web/src/components/layout/Footer.jsx
+--- a/web/src/components/layout/Footer.jsx
++++ b/web/src/components/layout/Footer.jsx
+@@ -248,7 +248,7 @@
+       {/* 对应源码入口独立于自定义页脚；未登录也可访问，原上游署名保持不变。 */}
+       <div className='px-6 pb-4 text-center text-sm'>
+         <a
+-          href='https://github.com/ixiaoyy/parallellines-new-api/releases/tag/i18n-20261118'
++          href='https://github.com/ixiaoyy/parallellines-new-api/tree/main/releases/v0.13.2-pkce.11'
+           target='_blank'
+           rel='noopener noreferrer'
+           className='!text-semi-color-primary hover:underline'

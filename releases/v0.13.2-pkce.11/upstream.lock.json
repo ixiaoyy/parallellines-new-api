@@ -40,6 +40,10 @@
     {
       "file": "patches/new-api-v0.13.2-pkce11-tavern-flux-two-room-tests.patch",
       "sha256": "cd32391bb8af6d1d1fce3e0512c314cdb98958755c261180107a70efa09240c4"
+    },
+    {
+      "file": "patches/new-api-v0.13.2-pkce11-tavern-flux-source-link.patch",
+      "sha256": "d05e2f81756358c3373d0a3f6f5a971962eca0169a5719f08c066419c62fbd88"
     }
   ],
   "base_release_lock": "releases/v0.13.2-pkce.10/upstream.lock.json",
@@ -47,8 +51,8 @@
   "base_source_manifest": "releases/v0.13.2-pkce.10/source-files.json",
   "base_source_manifest_sha256": "420ff331bb7262890e28f1bd9983864349a1fbe8c83df575f484a4c73ed6131f",
   "source_manifest": "releases/v0.13.2-pkce.11/source-files.json",
-  "source_manifest_sha256": "c300a7b353e00505f3f34005d8c93d38f85c94abd3e6322a0633efcb006308d3",
+  "source_manifest_sha256": "bcbe0cde53406d31954f99904c60781522733aa6efc7362f53d7a0876e2865f2",
   "frontend_manifest": "releases/v0.13.2-pkce.11/frontend-assets.json",
-  "frontend_source_identity": "4a1c6bdb61634dca7e00fc9416b56491cc77aa531bbb114bd5654342ec7972e0",
-  "frontend_manifest_sha256": "2e197d3c7d384a55c5c01fa91571da17757b7245e1f5dfaee3fc3ed5b6d987c5"
+  "frontend_source_identity": "7b95cd41caf47c1765d83fb5438e72b6b1f27f59e3d3292a166b6a3f1a3bb8ff",
+  "frontend_manifest_sha256": "d5a0ee4d8bb9de960f6070c1590c2a1ee81d2090cd25ec69e8c0b1c5587d19ea"
 }

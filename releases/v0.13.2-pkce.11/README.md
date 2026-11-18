@@ -22,7 +22,9 @@ python releases/v0.13.2-pkce.11/release.py verify --source <new-directory>/sourc
 python releases/v0.13.2-pkce.11/release.py build --source <new-directory>/source --cache-dir <existing-cache> --output-dir <new-output>
 ```
 
-配方只接受本版新构建的 `web/dist`，并核对冻结的完整源码和实际 Linux 二进制的内嵌前端文件。使用现有 Go 1.26.1 和已就绪的离线模块缓存，不重新下载依赖。镜像只封装本次编译产物；生产交付时需另绑准确的 Git 提交、对应源码归档及不可变镜像，不用历史产物冒充本版。
+配方只接受本版新构建的 `web/dist`，并核对冻结的完整源码和实际 Linux 二进制的内嵌前端文件。使用现有 Go 1.26.1 和已就绪的离线模块缓存，不重新下载依赖。镜像只封装本次编译产物；生产交付记录准确的 Git 提交和不可变镜像，不用历史产物冒充本版。
+
+本版对应源码通过本公开 Git 版本、锁定补丁和配方获取，不另传 `pkce.11` 源码压缩包。`--base-source` 使用 [已公开的 pkce.10 i18n 发布](https://github.com/ixiaoyy/parallellines-new-api/releases/tag/i18n-20261118) 中 `new-api-v0.13.2-pkce.10-i18n-20261118-3f67a7832808-corresponding-source.tar.gz` 解包后的 `source`；配方按该版全文件清单验证基线。构建本版 Web 时复用原有 `web/bun.lock` 和 Bun 1.4.4，先在同一基线上按 `upstream.lock.json` 中顺序应用补丁，再执行原有 `bun run build`，用产出的新 `web/dist` 准备 Go 构建。Matrix 外观/邀请与 Baibot 改动见 [聊天频道公开源码](https://github.com/ixiaoyy/parallellines-entertainment/tree/main)。原角色卡、头像和配置秘密不属于这些公开交付物。
 
 本地 Go 回归已验证实际 HTTP 网关及隔离 SQLite 钱包：两个房间分别由不同人支付；A 房撤销后一律拒绝新请求，B 房不受影响，达到上限后不再请求模拟模型；同房其他成员余额不变。覆盖重复事件、超预留退款、同一钱包并发和崩溃占资回退。Linux amd64 网关编译通过，已检查实际二进制内嵌的 200 个公开前端资源。上述检查未使用真实账号、模型 Key 或生产服务。
 

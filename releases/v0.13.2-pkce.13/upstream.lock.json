@@ -1,0 +1,26 @@
+{
+  "application_version": "v0.13.2-pkce.13",
+  "status": "prepared-room-model-candidate-unpublished",
+  "production_ready": false,
+  "front_end_dist_frozen": true,
+  "go_version": "1.26.1",
+  "bun_version": "1.4.4",
+  "platform": "linux/amd64",
+  "base_application_version": "v0.13.2-pkce.12",
+  "upstream_commit": "bee339d279ccecbf8c8a89e14ddbbd902f78bd5d",
+  "patches": [
+    {
+      "file": "patches/new-api-v0.13.2-pkce13-tavern-flux-room-model.patch",
+      "sha256": "5567a158259b9cfbbb66674541dd98c758b1153fc35f72ed4875fa5f52f457cf"
+    }
+  ],
+  "base_release_lock": "releases/v0.13.2-pkce.12/upstream.lock.json",
+  "base_release_lock_sha256": "195c0effe515a01a603a42dcf1c2bb06ffaa82686be21b651cc4b68559207d87",
+  "base_source_manifest": "releases/v0.13.2-pkce.12/source-files.json",
+  "base_source_manifest_sha256": "309ee34f231c47b61f3f53f5126d58a95362c3e073b16a5cdc523d01645d8995",
+  "source_manifest": "releases/v0.13.2-pkce.13/source-files.json",
+  "source_manifest_sha256": "1bd9aa3e3a9063069390c102fe4c5ec7201051131b789acf702ad4a5ecbe32bd",
+  "frontend_manifest": "releases/v0.13.2-pkce.13/frontend-assets.json",
+  "frontend_manifest_sha256": "7af3b76cf85f0d5c505e339ff2b29df295a04ae0563ca6003a12dbdb467f2277",
+  "frontend_source_identity": "85fb21720e3c015e1d196e640c9604596ddf9c2f37ba0fc77a6e55243c1ddffd"
+}

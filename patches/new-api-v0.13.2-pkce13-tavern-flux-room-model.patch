@@ -1,0 +1,1021 @@
+diff --git a/controller/tavern_flux.go b/controller/tavern_flux.go
+--- a/controller/tavern_flux.go
++++ b/controller/tavern_flux.go
+@@ -113,7 +113,8 @@
+ 		fluxError(c, http.StatusNotFound, "flux_authorization_not_found")
+ 	case errors.Is(err, model.ErrFluxForbidden):
+ 		fluxError(c, http.StatusForbidden, "flux_authorization_denied")
+-	case errors.Is(err, model.ErrFluxConflict), errors.Is(err, model.ErrFluxInvalid), errors.Is(err, model.ErrFluxDuplicate):
++	case errors.Is(err, model.ErrFluxConflict), errors.Is(err, model.ErrFluxInvalid), errors.Is(err, model.ErrFluxDuplicate),
++		errors.Is(err, model.ErrFluxModelChanged), errors.Is(err, model.ErrFluxModelUnavailable):
+ 		fluxError(c, http.StatusConflict, err.Error())
+ 	case errors.Is(err, model.ErrFluxQuota):
+ 		fluxError(c, http.StatusPaymentRequired, "flux_room_budget_exhausted")
+@@ -254,16 +255,21 @@
+ 		fluxStoreError(c, err)
+ 		return
+ 	}
+-	if grant.ModelID != os.Getenv("TAVERN_FLUX_MODEL_ID") {
+-		fluxError(c, http.StatusConflict, "flux_model_changed")
+-		return
+-	}
+-	payer, err := model.ResolveTavernFluxPayer(grant.Subject)
+-	if err != nil {
+-		fluxStoreError(c, err)
+-		return
+-	}
+-	grant, err = model.ActivateTavernFluxIntent(model.DB, id, body.RoomID, body.InviterMXID, body.InviteEventID, payer, fluxNow())
++	payer, err := model.ResolveOAuthRelayUser(1, "pingxingxian", grant.Subject)
++	if errors.Is(err, model.ErrOAuthRelayIdentityDenied) {
++		fluxStoreError(c, model.ErrFluxForbidden)
++		return
++	}
++	if err != nil {
++		fluxStoreError(c, err)
++		return
++	}
++	// 兼容旧邀请默认型号；新的显式选择激活前仍须可用。活动邀请的幂等重放不切回旧型号。
++	if grant.Status == model.TavernFluxConfirmed && grant.ModelID != os.Getenv("TAVERN_FLUX_MODEL_ID") && fluxSelectableModel(c, payer, grant.ModelID) == 0 {
++		fluxStoreError(c, model.ErrFluxModelUnavailable)
++		return
++	}
++	grant, err = model.ActivateTavernFluxIntent(model.DB, id, body.RoomID, body.InviterMXID, body.InviteEventID, payer.Id, fluxNow())
+ 	if err != nil {
+ 		fluxStoreError(c, err)
+ 		return
+@@ -338,7 +344,7 @@
+ 		fluxStoreError(c, err)
+ 		return
+ 	}
+-	if payer.Id != grant.PayerID || grant.ModelID != os.Getenv("TAVERN_FLUX_MODEL_ID") {
++	if payer.Id != grant.PayerID {
+ 		fluxError(c, http.StatusForbidden, "flux_authorization_denied")
+ 		return
+ 	}
+diff --git a/controller/tavern_flux_native.go b/controller/tavern_flux_native.go
+--- a/controller/tavern_flux_native.go
++++ b/controller/tavern_flux_native.go
+@@ -5,6 +5,7 @@
+ 	"context"
+ 	"encoding/json"
+ 	"errors"
++	"fmt"
+ 	"io"
+ 	"mime"
+ 	"net"
+@@ -82,7 +83,7 @@
+ 	return value == "" || value == "null" || value == "[]"
+ }
+ 
+-func fluxTextInput(c *gin.Context, modelID string) (*fluxModelInput, int, int, bool) {
++func fluxTextInput(c *gin.Context, routeMarker string) (*fluxModelInput, int, int, bool) {
+ 	var body fluxModelInput
+ 	if !fluxDecode(c, &body) {
+ 		return nil, 0, 0, false
+@@ -93,7 +94,7 @@
+ 	} else if body.MaxCompletionTokens != nil && body.MaxTokens == nil {
+ 		maxOutput = *body.MaxCompletionTokens
+ 	}
+-	if body.Model != modelID || body.Stream || len(body.Messages) != 2 || maxOutput < 1 || maxOutput > fluxMaxOutputTokens ||
++	if body.Model != routeMarker || body.Stream || len(body.Messages) != 2 || maxOutput < 1 || maxOutput > fluxMaxOutputTokens ||
+ 		body.Messages[0].Role != "system" || body.Messages[1].Role != "user" ||
+ 		strings.TrimSpace(body.Messages[0].Content) == "" || strings.TrimSpace(body.Messages[1].Content) == "" ||
+ 		body.Temperature != nil && (*body.Temperature < 0 || *body.Temperature > 2) {
+@@ -178,7 +179,7 @@
+ }
+ 
+ // fluxNativeCompletion 只发一次受限纯文本调用；候选正文只在本函数缓冲，未结算不写响应。
+-func fluxNativeCompletion(c *gin.Context, provider *fluxChannel, input *fluxModelInput, inputBound, outputBound int) (*fluxModelOutput, *dto.OpenAIStandardUsage, error) {
++func fluxNativeCompletion(c *gin.Context, provider *fluxChannel, input *fluxModelInput, inputBound, outputBound int) (*fluxModelOutput, *dto.OpenAIStandardUsage, int, error) {
+ 	if provider.info.OpenAIStandardPolicy != "" {
+ 		// 原厂模型使用原生 Chat Completion 上限字段，避免使用旧的 max_tokens 形式。
+ 		input.MaxTokens = nil
+@@ -186,11 +187,11 @@
+ 	}
+ 	data, err := json.Marshal(input)
+ 	if err != nil {
+-		return nil, nil, errors.New("flux_model_encoding_failed")
++		return nil, nil, 0, errors.New("flux_model_encoding_failed")
+ 	}
+ 	request, err := http.NewRequestWithContext(c.Request.Context(), http.MethodPost, provider.endpoint, bytes.NewReader(data))
+ 	if err != nil {
+-		return nil, nil, errors.New("flux_model_request_invalid")
++		return nil, nil, 0, errors.New("flux_model_request_invalid")
+ 	}
+ 	request.GetBody = nil
+ 	request.Header.Set("Authorization", "Bearer "+provider.channel.Key)
+@@ -201,33 +202,33 @@
+ 	}
+ 	response, err := fluxNativeHTTP.Do(request)
+ 	if err != nil {
+-		return nil, nil, errors.New("flux_model_transport_failed")
++		return nil, nil, 0, errors.New("flux_model_transport_failed")
+ 	}
+ 	defer response.Body.Close()
+ 	mediaType, _, _ := mime.ParseMediaType(response.Header.Get("Content-Type"))
+ 	if response.StatusCode != http.StatusOK || mediaType != "application/json" {
+-		return nil, nil, errors.New("flux_model_http_rejected")
++		return nil, nil, response.StatusCode, errors.New("flux_model_http_rejected")
+ 	}
+ 	raw, err := io.ReadAll(io.LimitReader(response.Body, fluxMaxResponseBytes+1))
+ 	if err != nil || len(raw) > fluxMaxResponseBytes {
+-		return nil, nil, errors.New("flux_model_reply_unreadable")
++		return nil, nil, response.StatusCode, errors.New("flux_model_reply_unreadable")
+ 	}
+ 	var result fluxModelOutput
+ 	if json.Unmarshal(raw, &result) != nil || result.ID == "" || len(result.ID) > 256 || result.Object != "chat.completion" ||
+ 		result.Model != input.Model || result.ServiceTier != "" && result.ServiceTier != "default" || !fluxEmptyJSON(result.Error) ||
+ 		len(result.Choices) != 1 {
+-		return nil, nil, errors.New("flux_model_plain_text_reply_required")
++		return nil, nil, response.StatusCode, errors.New("flux_model_plain_text_reply_required")
+ 	}
+ 	choice := result.Choices[0]
+ 	if choice.Index != 0 || choice.Message.Role != "assistant" || strings.TrimSpace(choice.Message.Content) == "" ||
+ 		len(choice.Message.Content) > 16384 || choice.FinishReason != "stop" && choice.FinishReason != "length" ||
+ 		!fluxEmptyJSON(choice.Message.ToolCalls) || !fluxEmptyJSON(choice.Message.FunctionCall) {
+-		return nil, nil, errors.New("flux_model_plain_text_reply_required")
++		return nil, nil, response.StatusCode, errors.New("flux_model_plain_text_reply_required")
+ 	}
+ 	verified, err := service.ParseOpenAIStandardUsage(result.Usage, false)
+ 	if err != nil || verified.InputTokensTotal > inputBound || verified.OutputTokens > outputBound ||
+ 		verified.InputTokensTotal <= 0 || verified.OutputTokens <= 0 {
+-		return nil, nil, errors.New("flux_model_usage_unverifiable")
++		return nil, nil, response.StatusCode, errors.New("flux_model_usage_unverifiable")
+ 	}
+ 	var detail dto.Usage
+ 	if json.Unmarshal(result.Usage, &detail) != nil || detail.PromptTokensDetails.AudioTokens != 0 || detail.PromptTokensDetails.ImageTokens != 0 ||
+@@ -235,9 +236,9 @@
+ 		detail.InputTokens != 0 || detail.OutputTokens != 0 || detail.PromptCacheHitTokens != 0 ||
+ 		detail.PromptTokensDetails.CachedCreationTokens != 0 || detail.ClaudeCacheCreation5mTokens != 0 || detail.ClaudeCacheCreation1hTokens != 0 ||
+ 		detail.UsageSemantic != "" && detail.UsageSemantic != "openai" {
+-		return nil, nil, errors.New("flux_model_text_usage_required")
+-	}
+-	return &result, verified, nil
++		return nil, nil, response.StatusCode, errors.New("flux_model_text_usage_required")
++	}
++	return &result, verified, response.StatusCode, nil
+ }
+ 
+ // finishFluxNative 费率校验后的唯一钱包终态；断开请求不妨碍有界的结算或失败退款。
+@@ -247,20 +248,33 @@
+ 	return model.SettleTavernFluxWallet(model.DB.WithContext(ctx), grant.ID, grant.RoomID, eventID, int64(quota), fluxNow(), charged)
+ }
+ 
+-func failFluxNative(c *gin.Context, grant *model.TavernFluxGrant, eventID string, detected string) {
++// fluxNativeDiagnostic 仅保留稳定错误码、实际收到的供应商状态和耗时；禁止记录模型返回、聊天正文或凭据。
++func fluxNativeDiagnostic(c *gin.Context, code string, providerStatus int, elapsed time.Duration) gin.H {
++	ms := elapsed.Milliseconds()
++	logger.LogError(c, fmt.Sprintf("tavern_flux code=%s provider_status=%d elapsed_ms=%d", code, providerStatus, ms))
++	result := gin.H{"error": code, "elapsed_ms": ms}
++	if providerStatus != 0 {
++		result["provider_status"] = providerStatus
++	}
++	return result
++}
++
++func failFluxNative(c *gin.Context, grant *model.TavernFluxGrant, eventID, detected string, providerStatus int, elapsed time.Duration) {
++	diagnostic := fluxNativeDiagnostic(c, detected, providerStatus, elapsed)
+ 	if err := finishFluxNative(c, grant, eventID, 0, false); err != nil {
+-		logger.LogError(c, "flux_wallet_refund_unconfirmed")
+-		fluxError(c, http.StatusServiceUnavailable, "flux_wallet_refund_unconfirmed")
+-		return
+-	}
+-	fluxError(c, http.StatusBadGateway, detected)
++		fluxResult(c, http.StatusServiceUnavailable, fluxNativeDiagnostic(c, "flux_wallet_refund_unconfirmed", providerStatus, elapsed))
++		return
++	}
++	fluxResult(c, http.StatusBadGateway, diagnostic)
+ }
+ 
+ func runFluxNativeRelay(c *gin.Context, grant *model.TavernFluxGrant, payer *model.User, eventID string) {
+-	input, outputBound, inputBound, ok := fluxTextInput(c, grant.ModelID)
++	// Bot 固定模型字段只用于识别既有专用调用；供应商请求只使用房间实际授权型号。
++	input, outputBound, inputBound, ok := fluxTextInput(c, os.Getenv("TAVERN_FLUX_MODEL_ID"))
+ 	if !ok {
+ 		return
+ 	}
++	input.Model = grant.ModelID
+ 	provider, err := fluxNativeChannel(c, payer, grant.ModelID)
+ 	if err != nil {
+ 		fluxError(c, http.StatusServiceUnavailable, "flux_native_channel_unavailable")
+@@ -271,28 +285,29 @@
+ 		fluxError(c, http.StatusServiceUnavailable, "flux_native_price_unavailable")
+ 		return
+ 	}
+-	if err := model.ReserveTavernFluxWallet(model.DB.WithContext(c.Request.Context()), grant.ID, grant.RoomID, eventID, int64(reserved), fluxNow()); err != nil {
++	if err := model.ReserveTavernFluxWallet(model.DB.WithContext(c.Request.Context()), grant.ID, grant.RoomID, eventID, grant.ModelID, int64(reserved), fluxNow()); err != nil {
+ 		fluxStoreError(c, err)
+ 		return
+ 	}
+-	result, usage, err := fluxNativeCompletion(c, provider, input, inputBound, outputBound)
+-	if err != nil {
+-		failFluxNative(c, grant, eventID, err.Error())
++	started := time.Now()
++	result, usage, providerStatus, err := fluxNativeCompletion(c, provider, input, inputBound, outputBound)
++	elapsed := time.Since(started)
++	if err != nil {
++		failFluxNative(c, grant, eventID, err.Error(), providerStatus, elapsed)
+ 		return
+ 	}
+ 	quota, err := service.TavernFluxNativeTextQuota(c, provider.info, usage)
+ 	if err != nil {
+-		failFluxNative(c, grant, eventID, "flux_model_usage_unsettleable")
++		failFluxNative(c, grant, eventID, "flux_model_usage_unsettleable", providerStatus, elapsed)
+ 		return
+ 	}
+ 	if err := finishFluxNative(c, grant, eventID, quota, true); err != nil {
+ 		if errors.Is(err, model.ErrTavernFluxActualExceedsReservation) {
+-			fluxError(c, http.StatusBadGateway, "flux_unsettled_model_response")
++			fluxResult(c, http.StatusBadGateway, fluxNativeDiagnostic(c, "flux_unsettled_model_response", providerStatus, elapsed))
+ 			return
+ 		}
+ 		// 数据库结果未知时不擅自退款或给成功正文，保留原账供核对。
+-		logger.LogError(c, "flux_wallet_settlement_unconfirmed")
+-		fluxError(c, http.StatusServiceUnavailable, "flux_wallet_settlement_unconfirmed")
++		fluxResult(c, http.StatusServiceUnavailable, fluxNativeDiagnostic(c, "flux_wallet_settlement_unconfirmed", providerStatus, elapsed))
+ 		return
+ 	}
+ 	model.UpdateChannelUsedQuota(provider.channel.Id, quota)
+diff --git a/controller/tavern_flux_native_test.go b/controller/tavern_flux_native_test.go
+--- a/controller/tavern_flux_native_test.go
++++ b/controller/tavern_flux_native_test.go
+@@ -1,6 +1,7 @@
+ package controller
+ 
+ import (
++	"encoding/json"
+ 	"io"
+ 	"net/http"
+ 	"net/http/httptest"
+@@ -96,6 +97,11 @@
+ 	})}
+ 	r := gin.New()
+ 	r.POST("/tavern-flux/v1/chat/completions", TavernFluxAvailable(), TavernFluxServiceAuth(false), TavernFluxChatCompletion)
++	group := r.Group("/api/tavern-flux/intents", TavernFluxAvailable(), TavernFluxServiceAuth(true))
++	group.POST("/model-options", TavernFluxModelOptions)
++	group.POST("/set-model", SetTavernFluxModel)
++	group.POST("/invite", ConfirmTavernFluxOneClick)
++	group.POST("/:id/activate", ActivateTavernFluxIntent)
+ 	input := `{"model":"fixture-model","messages":[{"role":"system","content":"Role"},{"role":"user","content":"Hi"}],"max_tokens":8}`
+ 	call := func(event, payload string, want int) string {
+ 		t.Helper()
+@@ -134,7 +140,10 @@
+ 		t.Fatal("duplicate event invoked or charged again")
+ 	}
+ 	usage = ""
+-	call("$missing_usage", input, http.StatusBadGateway)
++	if body := call("$missing_usage", input, http.StatusBadGateway); !strings.Contains(body, `"error":"flux_model_usage_unverifiable"`) ||
++		!strings.Contains(body, `"provider_status":200`) || !strings.Contains(body, `"elapsed_ms":`) {
++		t.Fatal("missing sanitized gateway diagnostic", body)
++	}
+ 	if payerQuota(501) != 990 {
+ 		t.Fatal("unverified usage was charged")
+ 	}
+@@ -203,4 +212,107 @@
+ 	if err := db.Model(&model.Log{}).Where("type = ? AND user_id = ?", model.LogTypeConsume, 503).Count(&logsB).Error; err != nil || logsB != 2 {
+ 		t.Fatalf("second room must record only its two settled requests: %d %v", logsB, err)
+ 	}
++
++	// 用现有 SQLite 钱包和模拟供应商验证切换中的模型、报价和实扣均取同一快照。
++	t.Setenv("TAVERN_FLUX_MODEL_ID", "gpt-6-luna")
++	if err := ratio_setting.UpdateModelPriceByJSONString(`{"fixture-model":0.00002,"gpt-6-luna":0.00002,"gpt-6.1-terra":0.00004,"gpt-6.1-sol":0.00006}`); err != nil {
++		t.Fatal(err)
++	}
++	if err := db.Model(&model.Channel{}).Where("id = ?", 701).Update("models", "fixture-model,gpt-6-luna,gpt-6.1-terra,gpt-6.1-sol").Error; err != nil {
++		t.Fatal(err)
++	}
++	for _, id := range []string{"gpt-6-luna", "gpt-6.1-terra"} {
++		if err := db.Create(&model.Ability{Group: "default", Model: id, ChannelId: 701, Enabled: true}).Error; err != nil {
++			t.Fatal(err)
++		}
++	}
++	admin := func(path, body string, want int) string {
++		t.Helper()
++		req := httptest.NewRequest(http.MethodPost, "/api/tavern-flux/intents"+path, strings.NewReader(body))
++		req.Header.Set("Authorization", "Bearer "+strings.Repeat("i", 40))
++		req.Header.Set("Content-Type", "application/json")
++		out := httptest.NewRecorder()
++		r.ServeHTTP(out, req)
++		if out.Code != want {
++			t.Fatalf("%s = %d want %d: %s", path, out.Code, want, out.Body.String())
++		}
++		return out.Body.String()
++	}
++	room = "!flux-switch:matrix.pingxingxian.space"
++	scope := `{"room_id":"!flux-switch:matrix.pingxingxian.space","inviter_mxid":"@pl_501:matrix.pingxingxian.space","subject":"501"`
++	empty := admin("/model-options", scope+"}", http.StatusOK)
++	if !strings.Contains(empty, `"selected_model_id":"gpt-6-luna"`) || !strings.Contains(empty, `"can_edit":false`) ||
++		!strings.Contains(empty, `"gpt-6.1-terra"`) || strings.Contains(empty, "gpt-6.1-sol") {
++		t.Fatal("invalid pre-invite options", empty)
++	}
++	invite := scope + `,"room_label":"switch","limit_usd_micros":0,"request_id":"11111111111111111111111111111111"`
++	inviteLuna := invite + `,"model_id":"gpt-6-luna"}`
++	var clicked map[string]string
++	if err := json.Unmarshal([]byte(admin("/invite", inviteLuna, http.StatusOK)), &clicked); err != nil || clicked["status"] != "confirmed" {
++		t.Fatalf("cannot confirm explicit model: %v", err)
++	}
++	if wrong := admin("/invite", invite+`,"model_id":"gpt-6.1-terra"}`, http.StatusConflict); !strings.Contains(wrong, "flux_model_changed") {
++		t.Fatal(wrong)
++	}
++	activationBody := `{"room_id":"!flux-switch:matrix.pingxingxian.space","inviter_mxid":"@pl_501:matrix.pingxingxian.space","invite_event_id":"$choose"}`
++	admin("/"+clicked["intent_id"]+"/activate", activationBody, http.StatusOK)
++	otherScope := strings.ReplaceAll(scope, "501", "503")
++	admin("/model-options", otherScope+"}", http.StatusForbidden)
++	admin("/set-model", otherScope+`,"expected_model_id":"gpt-6-luna","model_id":"gpt-6.1-terra"}`, http.StatusForbidden)
++	admin("/set-model", scope+`,"expected_model_id":"gpt-6-luna","model_id":"gpt-6.1-sol"}`, http.StatusConflict)
++	afterInvite := admin("/model-options", scope+"}", http.StatusOK)
++	if !strings.Contains(afterInvite, `"can_edit":true`) {
++		t.Fatal(afterInvite)
++	}
++	editBody := scope + `,"expected_model_id":"gpt-6-luna","model_id":"gpt-6.1-terra"}`
++	var upstreamModels []string
++	var upstreamCode = http.StatusOK
++	fluxNativeHTTP = &http.Client{Transport: fluxFixtureTransport(func(req *http.Request) (*http.Response, error) {
++		var msg fluxModelInput
++		if err := json.NewDecoder(req.Body).Decode(&msg); err != nil {
++			t.Fatal(err)
++		}
++		upstreamModels = append(upstreamModels, msg.Model)
++		if len(upstreamModels) == 1 {
++			admin("/set-model", editBody, http.StatusOK)
++		}
++		raw := `{"id":"fixture-result","object":"chat.completion","model":"` + msg.Model + `","choices":[{"index":0,"message":{"role":"assistant","content":"meow"},"finish_reason":"stop"}]` + usage + `}`
++		if upstreamCode != http.StatusOK {
++			raw = "private fixture upstream body"
++		}
++		return &http.Response{StatusCode: upstreamCode, Body: io.NopCloser(strings.NewReader(raw)), Header: http.Header{"Content-Type": {"application/json"}}, Request: req}, nil
++	})}
++	input = strings.ReplaceAll(input, "fixture-model", "gpt-6-luna")
++	if held := call("$held-model", input, http.StatusOK); !strings.Contains(held, `"model":"gpt-6-luna"`) {
++		t.Fatal("held request incorrectly used new model", held)
++	}
++	if changed := call("$new-model", input, http.StatusOK); !strings.Contains(changed, `"model":"gpt-6.1-terra"`) {
++		t.Fatal("trusted path did not substitute room's new model", changed)
++	}
++	if len(upstreamModels) != 2 || upstreamModels[0] != "gpt-6-luna" || upstreamModels[1] != "gpt-6.1-terra" || payerQuota(501) != 960 || payerQuota(503) != 980 {
++		t.Fatalf("bad model/billing isolation: %v %d %d", upstreamModels, payerQuota(501), payerQuota(503))
++	}
++	var recorded []string
++	if err := db.Model(&model.Log{}).Where("type = ? AND user_id = ? AND model_name <> ?", model.LogTypeConsume, 501, "fixture-model").Order("id").Pluck("model_name", &recorded).Error; err != nil ||
++		len(recorded) != 2 || recorded[0] != upstreamModels[0] || recorded[1] != upstreamModels[1] {
++		t.Fatalf("held snapshot not preserved in consume log: %v %v", recorded, err)
++	}
++	admin("/set-model", editBody, http.StatusConflict)
++	admin("/invite", invite+"}", http.StatusOK)
++	admin("/invite", inviteLuna, http.StatusOK)
++	admin("/"+clicked["intent_id"]+"/activate", activationBody, http.StatusOK)
++	active := admin("/model-options", scope+"}", http.StatusOK)
++	if !strings.Contains(active, `"selected_model_id":"gpt-6.1-terra"`) {
++		t.Fatal("active invite retry reapplied original model", active)
++	}
++	var unaffected model.TavernFluxGrant
++	if err := db.Take(&unaffected, "id = ?", second.ID).Error; err != nil || unaffected.ModelID != "fixture-model" || unaffected.PayerID != 503 {
++		t.Fatal("editing another room changed payer or model")
++	}
++	call("$untrusted-model-selector", strings.ReplaceAll(input, "gpt-6-luna", "gpt-6.1-terra"), http.StatusBadRequest)
++	upstreamCode = http.StatusTooManyRequests
++	if result := call("$provider-rate-limit", input, http.StatusBadGateway); !strings.Contains(result, `"provider_status":429`) ||
++		!strings.Contains(result, "flux_model_http_rejected") || strings.Contains(result, "private fixture") || payerQuota(501) != 960 {
++		t.Fatal("HTTP rejection status or refunded wallet mismatch", result)
++	}
+ }
+diff --git a/controller/tavern_flux_one_click.go b/controller/tavern_flux_one_click.go
+--- a/controller/tavern_flux_one_click.go
++++ b/controller/tavern_flux_one_click.go
+@@ -2,7 +2,6 @@
+ 
+ import (
+ 	"encoding/json"
+-	"errors"
+ 	"io"
+ 	"math"
+ 	"net/http"
+@@ -21,38 +20,34 @@
+ var fluxInviteRequestID = regexp.MustCompile(`^[a-f0-9]{32}$`)
+ 
+ type fluxOneClickInput struct {
+-	room, inviter, subject, label, request *string
+-	limit                                  *int64
++	fluxRoomIdentity
++	label, request *string
++	limit          *int64
++	model          json.RawMessage
+ }
+ 
+-// decodeFluxOneClick 只接收明确、无重复、无未知且非空指针的字段；零必须显式确认。
+-func decodeFluxOneClick(c *gin.Context) (*fluxOneClickInput, bool) {
++// decodeExactFluxFields 检查键名、重复、额外数据及大小；各入口另明确允许缺失的字段和空值。
++func decodeExactFluxFields(c *gin.Context, fields map[string]any, optional string) bool {
+ 	if c.ContentType() != "application/json" {
+-		return nil, false
+-	}
+-	body := &fluxOneClickInput{}
+-	fields := map[string]any{
+-		"room_id": &body.room, "inviter_mxid": &body.inviter, "subject": &body.subject,
+-		"room_label": &body.label, "request_id": &body.request, "limit_usd_micros": &body.limit,
++		return false
+ 	}
+ 	dec := json.NewDecoder(http.MaxBytesReader(c.Writer, c.Request.Body, 8*1024))
+ 	start, err := dec.Token()
+ 	if err != nil || start != json.Delim('{') {
+-		return nil, false
++		return false
+ 	}
+ 	for dec.More() {
+ 		key, err := dec.Token()
+ 		name, ok := key.(string)
+ 		out := fields[name]
+ 		if err != nil || !ok || out == nil || dec.Decode(out) != nil {
+-			return nil, false
++			return false
+ 		}
+ 		delete(fields, name)
+ 	}
+ 	end, err := dec.Token()
+-	ok := err == nil && end == json.Delim('}') && len(fields) == 0 && dec.Decode(new(any)) == io.EOF &&
+-		body.room != nil && body.inviter != nil && body.subject != nil && body.label != nil && body.request != nil && body.limit != nil
+-	return body, ok
++	return err == nil && end == json.Delim('}') && (len(fields) == 0 || len(fields) == 1 && fields[optional] != nil) &&
++		dec.Decode(new(any)) == io.EOF
+ }
+ 
+ // fluxOneClickQuota 按当前原生单位和现有向下取整口径换算；正数小到不可表示时拒绝，不成为零。
+@@ -73,15 +68,20 @@
+ // ConfirmTavernFluxOneClick 只经 issuer 专用认证处理已由同源 Matrix 身份确认的邀请。
+ // 只绑定钱包和额度，不发 Matrix 成员事件，也不提前扣费。
+ func ConfirmTavernFluxOneClick(c *gin.Context) {
+-	body, ok := decodeFluxOneClick(c)
+-	if !ok {
++	body := &fluxOneClickInput{}
++	fields := body.fields()
++	fields["room_label"], fields["request_id"], fields["limit_usd_micros"], fields["model_id"] = &body.label, &body.request, &body.limit, &body.model
++	if !decodeExactFluxFields(c, fields, "model_id") || !body.valid() || body.label == nil || body.request == nil || body.limit == nil {
+ 		fluxError(c, http.StatusBadRequest, "flux_invalid_invite")
+ 		return
+ 	}
+ 	label := strings.TrimSpace(*body.label)
+-	if !fluxRoomID.MatchString(*body.room) || !fluxSubject.MatchString(*body.subject) ||
+-		*body.inviter != "@pl_"+*body.subject+":"+fluxMatrixServer || !fluxInviteRequestID.MatchString(*body.request) ||
+-		!utf8.ValidString(label) || len(label) > 128 || strings.IndexFunc(label, unicode.IsControl) >= 0 {
++	if !fluxInviteRequestID.MatchString(*body.request) || !utf8.ValidString(label) || len(label) > 128 || strings.IndexFunc(label, unicode.IsControl) >= 0 {
++		fluxError(c, http.StatusBadRequest, "flux_invalid_invite")
++		return
++	}
++	selected := os.Getenv("TAVERN_FLUX_MODEL_ID")
++	if len(body.model) != 0 && (json.Unmarshal(body.model, &selected) != nil || string(body.model) == "null" || !fluxModelID.MatchString(selected)) {
+ 		fluxError(c, http.StatusBadRequest, "flux_invalid_invite")
+ 		return
+ 	}
+@@ -90,17 +90,14 @@
+ 		fluxError(c, http.StatusBadRequest, "flux_invalid_quota_limit")
+ 		return
+ 	}
+-	payer, err := model.ResolveTavernFluxPayer(*body.subject)
+-	if errors.Is(err, model.ErrFluxForbidden) {
+-		fluxError(c, http.StatusForbidden, "flux_wallet_unavailable")
++	payer := fluxLookupPayer(c, *body.subject)
++	if payer == nil {
+ 		return
+ 	}
+-	if err != nil {
+-		fluxStoreError(c, err)
+-		return
+-	}
++	// 旧 Synapse 不传型号时仍以配置的默认型号发起；显式选择必须当前可定价。
++	modelAvailable := len(body.model) == 0 || fluxSelectableModel(c, payer, selected) != 0
+ 	g, err := model.ConfirmTavernFluxOneClick(model.DB.WithContext(c.Request.Context()), *body.room, *body.inviter,
+-		*body.subject, label, os.Getenv("TAVERN_FLUX_MODEL_ID"), *body.request, payer, limit, fluxNow())
++		*body.subject, label, selected, *body.request, payer.Id, limit, fluxNow(), modelAvailable)
+ 	if err != nil {
+ 		fluxStoreError(c, err)
+ 		return
+diff --git a/controller/tavern_flux_room_model.go b/controller/tavern_flux_room_model.go
+new file mode 100644
+--- /dev/null
++++ b/controller/tavern_flux_room_model.go
+@@ -0,0 +1,154 @@
++package controller
++
++import (
++	"errors"
++	"net/http"
++	"os"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/model"
++	"github.com/gin-gonic/gin"
++	"gorm.io/gorm"
++)
++
++type fluxRoomIdentity struct {
++	room, inviter, subject *string
++}
++
++func (i *fluxRoomIdentity) fields() map[string]any {
++	return map[string]any{"room_id": &i.room, "inviter_mxid": &i.inviter, "subject": &i.subject}
++}
++
++func (i *fluxRoomIdentity) valid() bool {
++	return i.room != nil && i.inviter != nil && i.subject != nil &&
++		fluxRoomID.MatchString(*i.room) && fluxSubject.MatchString(*i.subject) &&
++		*i.inviter == "@pl_"+*i.subject+":"+fluxMatrixServer
++}
++
++type fluxModelOption struct {
++	ID    string `json:"id"`
++	Label string `json:"label"`
++}
++
++var fluxPickerModels = [...]fluxModelOption{
++	{"gpt-6-luna", "GPT-6 Luna"},
++	{"gpt-6.1-terra", "GPT-6.1 Terra"},
++	{"gpt-6.1-sol", "GPT-6.1 Sol"},
++}
++
++// fluxLookupPayer 只解析当前已启用的主站绑定，不建账号、不读订阅，也不会写钱包。
++func fluxLookupPayer(c *gin.Context, subject string) *model.User {
++	payer, err := model.ResolveOAuthRelayUser(1, "pingxingxian", subject)
++	if errors.Is(err, model.ErrOAuthRelayIdentityDenied) {
++		fluxError(c, http.StatusForbidden, "flux_wallet_unavailable")
++		return nil
++	}
++	if err != nil {
++		fluxStoreError(c, err)
++		return nil
++	}
++	return payer
++}
++
++// fluxSelectableModel 返回已核价且当前付款组可用的专用渠道 ID；0 表示不可用，不调用供应商。
++func fluxSelectableModel(c *gin.Context, payer *model.User, id string) int {
++	for _, option := range fluxPickerModels {
++		if id == option.ID {
++			channel, err := fluxNativeChannel(c, payer, id)
++			if err == nil {
++				_, err = fluxReservation(c, channel.info, common.PreConsumedQuota, fluxMaxOutputTokens)
++				if err == nil {
++					return channel.channel.Id
++				}
++			}
++			return 0
++		}
++	}
++	return 0
++}
++
++func fluxActiveRoomForPayer(c *gin.Context, identity *fluxRoomIdentity, payer *model.User) (*model.TavernFluxGrant, bool) {
++	grant, err := model.GetTavernFluxActiveRoom(model.DB.WithContext(c.Request.Context()), *identity.room, fluxNow())
++	if errors.Is(err, gorm.ErrRecordNotFound) {
++		return nil, true
++	}
++	if err != nil {
++		fluxStoreError(c, err)
++		return nil, false
++	}
++	if grant.PayerID != payer.Id || grant.InviterMXID != *identity.inviter || grant.Subject != *identity.subject {
++		fluxStoreError(c, model.ErrFluxForbidden)
++		return nil, false
++	}
++	return grant, true
++}
++
++// TavernFluxModelOptions 返回发起人可选的已定价模型；活动房仅原授权付款人可读取、管理。
++func TavernFluxModelOptions(c *gin.Context) {
++	identity := &fluxRoomIdentity{}
++	if !decodeExactFluxFields(c, identity.fields(), "") || !identity.valid() {
++		fluxError(c, http.StatusBadRequest, "flux_invalid_invite")
++		return
++	}
++	payer := fluxLookupPayer(c, *identity.subject)
++	if payer == nil {
++		return
++	}
++	grant, ok := fluxActiveRoomForPayer(c, identity, payer)
++	if !ok {
++		return
++	}
++	options := make([]fluxModelOption, 0, len(fluxPickerModels))
++	selected, configured := "", os.Getenv("TAVERN_FLUX_MODEL_ID")
++	for _, option := range fluxPickerModels {
++		if fluxSelectableModel(c, payer, option.ID) != 0 {
++			options = append(options, option)
++			if option.ID == configured {
++				selected = configured
++			}
++		}
++	}
++	if grant != nil {
++		selected = grant.ModelID
++	}
++	fluxResult(c, http.StatusOK, gin.H{"options": options, "selected_model_id": selected, "can_edit": grant != nil})
++}
++
++// SetTavernFluxModel 比较旧选择再更新，不把请求变成新邀请，也不重置额度或过期时间。
++func SetTavernFluxModel(c *gin.Context) {
++	identity := &fluxRoomIdentity{}
++	var expected, next *string
++	fields := identity.fields()
++	fields["expected_model_id"], fields["model_id"] = &expected, &next
++	if !decodeExactFluxFields(c, fields, "") || !identity.valid() || next == nil || expected == nil ||
++		!fluxModelID.MatchString(*expected) || !fluxModelID.MatchString(*next) {
++		fluxError(c, http.StatusBadRequest, "flux_invalid_invite")
++		return
++	}
++	payer := fluxLookupPayer(c, *identity.subject)
++	if payer == nil {
++		return
++	}
++	grant, ok := fluxActiveRoomForPayer(c, identity, payer)
++	if !ok {
++		return
++	}
++	if grant == nil {
++		fluxError(c, http.StatusConflict, "flux_room_not_active")
++		return
++	}
++	if grant.ModelID != *expected {
++		fluxStoreError(c, model.ErrFluxModelChanged)
++		return
++	}
++	channelID := fluxSelectableModel(c, payer, *next)
++	if channelID == 0 {
++		fluxStoreError(c, model.ErrFluxModelUnavailable)
++		return
++	}
++	if err := model.SetTavernFluxRoomModel(model.DB.WithContext(c.Request.Context()), grant, *expected, *next, payer.Group, channelID, fluxNow()); err != nil {
++		fluxStoreError(c, err)
++		return
++	}
++	fluxResult(c, http.StatusOK, gin.H{"model_id": *next})
++}
+diff --git a/model/tavern_flux.go b/model/tavern_flux.go
+--- a/model/tavern_flux.go
++++ b/model/tavern_flux.go
+@@ -21,11 +21,13 @@
+ )
+ 
+ var (
+-	ErrFluxForbidden = errors.New("flux_authorization_denied")
+-	ErrFluxConflict  = errors.New("flux_room_already_authorized")
+-	ErrFluxInvalid   = errors.New("flux_invalid_authorization_state")
+-	ErrFluxDuplicate = errors.New("flux_event_already_registered")
+-	ErrFluxQuota     = errors.New("flux_room_budget_exhausted")
++	ErrFluxForbidden        = errors.New("flux_authorization_denied")
++	ErrFluxConflict         = errors.New("flux_room_already_authorized")
++	ErrFluxInvalid          = errors.New("flux_invalid_authorization_state")
++	ErrFluxModelChanged     = errors.New("flux_model_changed")
++	ErrFluxModelUnavailable = errors.New("flux_model_unavailable")
++	ErrFluxDuplicate        = errors.New("flux_event_already_registered")
++	ErrFluxQuota            = errors.New("flux_room_budget_exhausted")
+ )
+ 
+ // TavernFluxGrant 以同一行保存邀请意向、本人确认和房间激活；唯一活动房键阻止重入或替他人换付款账户。
+diff --git a/model/tavern_flux_one_click.go b/model/tavern_flux_one_click.go
+--- a/model/tavern_flux_one_click.go
++++ b/model/tavern_flux_one_click.go
+@@ -28,7 +28,7 @@
+ 
+ // ConfirmTavernFluxOneClick 仅供受信邀请入口，将首次确认和重试核对固定到同一已绑定钱包及原生上限。
+ // 默认零仅由此入口写入已确认状态；重试不续期，不接管现有活动房，不改变原付款人或额度。
+-func ConfirmTavernFluxOneClick(db *gorm.DB, room, inviter, subject, label, model, request string, payerID int, limit, now int64) (*TavernFluxGrant, error) {
++func ConfirmTavernFluxOneClick(db *gorm.DB, room, inviter, subject, label, model, request string, payerID int, limit, now int64, modelAvailable bool) (*TavernFluxGrant, error) {
+ 	if payerID <= 0 || limit < 0 || limit > TavernFluxMaxQuota {
+ 		return nil, ErrFluxInvalid
+ 	}
+@@ -50,13 +50,22 @@
+ 		if grant.RoomID != room || grant.InviterMXID != inviter || grant.Subject != subject {
+ 			return ErrFluxForbidden
+ 		}
+-		if grant.PayerID != payerID || grant.ModelID != model || grant.QuotaLimit != limit ||
++		if grant.PayerID != payerID || grant.QuotaLimit != limit ||
+ 			grant.Expired(now) || !grant.validAuthorizedLimit() {
+ 			return ErrFluxInvalid
+ 		}
+ 		if grant.Status != TavernFluxConfirmed && grant.Status != TavernFluxActive ||
+ 			grant.Status == TavernFluxActive && (grant.ActiveRoomID == nil || *grant.ActiveRoomID != room) {
+ 			return ErrFluxInvalid
++		}
++		// 已活动的同一邀请重放不得重新应用发起时的型号，也不要求旧型号仍可选。
++		if grant.Status == TavernFluxConfirmed {
++			if grant.ModelID != model {
++				return ErrFluxModelChanged
++			}
++			if !modelAvailable {
++				return ErrFluxModelUnavailable
++			}
+ 		}
+ 		var active TavernFluxGrant
+ 		err = tx.Select("id").Take(&active, "active_room_id = ? AND status = ? AND grant_expires_at > ?", room, TavernFluxActive, now).Error
+diff --git a/model/tavern_flux_one_click_test.go b/model/tavern_flux_one_click_test.go
+--- a/model/tavern_flux_one_click_test.go
++++ b/model/tavern_flux_one_click_test.go
+@@ -18,7 +18,7 @@
+ 	createFluxWalletUser(t, db, 22, 900, common.UserStatusEnabled)
+ 	makeGrant := func(room string, limit int64) *TavernFluxGrant {
+ 		t.Helper()
+-		g, err := ConfirmTavernFluxOneClick(db, room, inviter, "11", "Fixture", "model", request, 11, limit, n)
++		g, err := ConfirmTavernFluxOneClick(db, room, inviter, "11", "Fixture", "model", request, 11, limit, n, true)
+ 		mustFluxWallet(t, err)
+ 		if g.GrantExpiresAt != n+TavernFluxGrantTTL || g.IntentExpiresAt != n+TavernFluxIntentTTL || g.Status != TavernFluxConfirmed || g.QuotaLimit != limit {
+ 			t.Fatal("invalid grant", g)
+@@ -27,29 +27,29 @@
+ 	}
+ 	unlimited := makeGrant(room, 0)
+ 	capped := makeGrant(limited, 50)
+-	replay, err := ConfirmTavernFluxOneClick(db, room, inviter, "11", "Renamed", "model", request, 11, 0, n+10)
++	replay, err := ConfirmTavernFluxOneClick(db, room, inviter, "11", "Renamed", "model", request, 11, 0, n+10, true)
+ 	mustFluxWallet(t, err)
+ 	if replay.ID != unlimited.ID || replay.GrantExpiresAt != unlimited.GrantExpiresAt {
+ 		t.Fatal("replay renewed or replaced grant", replay)
+ 	}
+-	_, err = ConfirmTavernFluxOneClick(db, room, inviter, "11", "Fixture", "model", request, 22, 0, n)
++	_, err = ConfirmTavernFluxOneClick(db, room, inviter, "11", "Fixture", "model", request, 22, 0, n, true)
+ 	expectFluxWalletError(t, err, ErrFluxInvalid)
+ 	_, err = ActivateTavernFluxIntent(db, unlimited.ID, room, inviter, "$new", 11, n)
+ 	mustFluxWallet(t, err)
+ 	_, err = ActivateTavernFluxIntent(db, capped.ID, limited, inviter, "$new2", 11, n)
+ 	mustFluxWallet(t, err)
+-	_, err = ConfirmTavernFluxOneClick(db, room, inviter, "11", "Fixture", "model", request, 11, 0, n+TavernFluxGrantTTL)
++	_, err = ConfirmTavernFluxOneClick(db, room, inviter, "11", "Fixture", "model", request, 11, 0, n+TavernFluxGrantTTL, true)
+ 	expectFluxWalletError(t, err, ErrFluxInvalid)
+ 
+-	expectFluxWalletError(t, ReserveTavernFluxWallet(db, capped.ID, limited, "$cap", 51, n), ErrFluxQuota)
+-	expectFluxWalletError(t, ReserveTavernFluxWallet(db, unlimited.ID, room, "$big", TavernFluxMaxQuota+1, n), ErrFluxQuota)
+-	mustFluxWallet(t, ReserveTavernFluxWallet(db, unlimited.ID, room, "$msg", 650, n))
+-	expectFluxWalletError(t, ReserveTavernFluxWallet(db, unlimited.ID, room, "$msg", 50, n), ErrFluxDuplicate)
+-	expectFluxWalletError(t, ReserveTavernFluxWallet(db, unlimited.ID, room, "$wallet", 51, n), ErrFluxQuota)
++	expectFluxWalletError(t, ReserveTavernFluxWallet(db, capped.ID, limited, "$cap", "model", 51, n), ErrFluxQuota)
++	expectFluxWalletError(t, ReserveTavernFluxWallet(db, unlimited.ID, room, "$big", "model", TavernFluxMaxQuota+1, n), ErrFluxQuota)
++	mustFluxWallet(t, ReserveTavernFluxWallet(db, unlimited.ID, room, "$msg", "model", 650, n))
++	expectFluxWalletError(t, ReserveTavernFluxWallet(db, unlimited.ID, room, "$msg", "model", 50, n), ErrFluxDuplicate)
++	expectFluxWalletError(t, ReserveTavernFluxWallet(db, unlimited.ID, room, "$wallet", "model", 51, n), ErrFluxQuota)
+ 	assertFluxWalletBalance(t, db, 11, 50)
+ 	assertFluxWalletBalance(t, db, 22, 900)
+ 	mustFluxWallet(t, RevokeTavernFluxGrant(db, unlimited.ID, 11))
+-	expectFluxWalletError(t, ReserveTavernFluxWallet(db, unlimited.ID, room, "$revoked", 40, n), ErrFluxForbidden)
++	expectFluxWalletError(t, ReserveTavernFluxWallet(db, unlimited.ID, room, "$revoked", "model", 40, n), ErrFluxForbidden)
+ 	mustFluxWallet(t, SettleTavernFluxWallet(db, unlimited.ID, room, "$msg", 320, n, true))
+ 	mustFluxWallet(t, SettleTavernFluxWallet(db, unlimited.ID, room, "$msg", 320, n, true))
+ 	assertFluxWalletBalance(t, db, 11, 380)
+@@ -63,5 +63,5 @@
+ 	createFluxWalletGrant(t, db, legacy, oldRoom, 11, 0)
+ 	_, err = GetTavernFluxActiveRoom(db, oldRoom, n)
+ 	expectFluxWalletError(t, err, ErrFluxInvalid)
+-	expectFluxWalletError(t, ReserveTavernFluxWallet(db, legacy, oldRoom, "$legacy", 40, n), ErrFluxQuota)
++	expectFluxWalletError(t, ReserveTavernFluxWallet(db, legacy, oldRoom, "$legacy", "fixture", 40, n), ErrFluxQuota)
+ }
+diff --git a/model/tavern_flux_room_model.go b/model/tavern_flux_room_model.go
+new file mode 100644
+--- /dev/null
++++ b/model/tavern_flux_room_model.go
+@@ -0,0 +1,47 @@
++package model
++
++import (
++	"errors"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/constant"
++	"gorm.io/gorm"
++	"gorm.io/gorm/clause"
++)
++
++// SetTavernFluxRoomModel 只更新同一活动授权的型号。调用方须先核实新型号及付款人渠道；
++// expected 是操作者看到的旧型号，所有其他授权和费用字段保持不变。
++func SetTavernFluxRoomModel(db *gorm.DB, grant *TavernFluxGrant, expected, next, payerGroup string, channelID int, now int64) error {
++	if expected == "" || next == "" || grant.PayerID <= 0 || payerGroup == "" || channelID <= 0 || !grant.validAuthorizedLimit() {
++		return ErrFluxInvalid
++	}
++	// 检查旧型号和活动房键与更新合并，避免过期、撤销、替换授权或并发编辑覆盖原选择。
++	scope := db.Model(&TavernFluxGrant{}).Where(
++		"id = ? AND room_id = ? AND active_room_id = ? AND status = ? AND grant_expires_at > ? AND payer_id = ? AND model_id = ?",
++		grant.ID, grant.RoomID, grant.RoomID, TavernFluxActive, now, grant.PayerID, expected,
++	).Where(&TavernFluxGrant{InviterMXID: grant.InviterMXID, Subject: grant.Subject})
++	// 价格先核验；实际更新还须匹配核价时的用户组和仍启用的专用渠道能力。
++	group := clause.Eq{Column: clause.Column{Name: "group"}, Value: payerGroup}
++	dbScope := db.Session(&gorm.Session{NewDB: true})
++	scope = scope.
++		Where("EXISTS (?)", dbScope.Model(&User{}).Select("1").Where("id = ? AND status = ?", grant.PayerID, common.UserStatusEnabled).Where(group)).
++		Where("EXISTS (?)", dbScope.Model(&Ability{}).Select("1").Where("model = ? AND channel_id = ? AND enabled = ?", next, channelID, true).Where(group)).
++		Where("EXISTS (?)", dbScope.Model(&Channel{}).Select("1").Where("id = ? AND status = ? AND type = ?", channelID, common.ChannelStatusEnabled, constant.ChannelTypeOpenAI))
++	if expected == next {
++		// 同一选择的无写操作也要通过同一授权和旧型号核对。
++		var found TavernFluxGrant
++		err := scope.Select("id").Take(&found).Error
++		if errors.Is(err, gorm.ErrRecordNotFound) {
++			return ErrFluxModelChanged
++		}
++		return err
++	}
++	changed := scope.Update("model_id", next)
++	if changed.Error != nil {
++		return changed.Error
++	}
++	if changed.RowsAffected != 1 {
++		return ErrFluxModelChanged
++	}
++	return nil
++}
+diff --git a/model/tavern_flux_room_model_test.go b/model/tavern_flux_room_model_test.go
+new file mode 100644
+--- /dev/null
++++ b/model/tavern_flux_room_model_test.go
+@@ -0,0 +1,44 @@
++package model
++
++import (
++	"testing"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/constant"
++)
++
++func TestTavernFluxRoomModelRejectsStaleReservation(t *testing.T) {
++	db := newFluxWalletTestDB(t)
++	const n = fluxWalletTestNow
++	const room = "!room-model:example.test"
++	createFluxWalletUser(t, db, 71, 300, common.UserStatusEnabled)
++	createFluxWalletGrant(t, db, "change", room, 71, 200)
++	mustFluxWallet(t, db.AutoMigrate(&Channel{}, &Ability{}))
++	mustFluxWallet(t, db.Model(&User{}).Where("id = ?", 71).Update("group", "default").Error)
++	mustFluxWallet(t, db.Create(&Channel{Id: 9, Key: "fixture", Type: constant.ChannelTypeOpenAI, Status: common.ChannelStatusEnabled}).Error)
++	mustFluxWallet(t, db.Create(&Ability{Group: "default", Model: "new-model", ChannelId: 9, Enabled: true}).Error)
++	old, err := GetTavernFluxActiveRoom(db, room, n)
++	mustFluxWallet(t, err)
++	mustFluxWallet(t, ReserveTavernFluxWallet(db, old.ID, room, "held-before-edit", old.ModelID, 20, n))
++	mustFluxWallet(t, SetTavernFluxRoomModel(db, old, old.ModelID, "new-model", "default", 9, n))
++	expectFluxWalletError(t, SetTavernFluxRoomModel(db, old, old.ModelID, "third-model", "default", 9, n), ErrFluxModelChanged)
++	expectFluxWalletError(t, ReserveTavernFluxWallet(db, old.ID, room, "arrived-after-edit", old.ModelID, 30, n), ErrFluxModelChanged)
++	var invocationCount int64
++	mustFluxWallet(t, db.Model(&TavernFluxInvocation{}).Where("event_id = ?", "arrived-after-edit").Count(&invocationCount).Error)
++	if invocationCount != 0 {
++		t.Fatal("stale pre-reservation left a deduplication or billing record")
++	}
++	assertFluxWalletBalance(t, db, 71, 280)
++	assertFluxWalletGrant(t, db, old.ID, 20, 0)
++	newGrant, err := GetTavernFluxActiveRoom(db, room, n)
++	mustFluxWallet(t, err)
++	if newGrant.ModelID != "new-model" || newGrant.GrantExpiresAt != old.GrantExpiresAt || newGrant.PayerID != old.PayerID || newGrant.QuotaLimit != old.QuotaLimit {
++		t.Fatal("model switch changed another grant field")
++	}
++	mustFluxWallet(t, SettleTavernFluxWallet(db, old.ID, room, "held-before-edit", 10, n, true))
++	mustFluxWallet(t, ReserveTavernFluxWallet(db, old.ID, room, "arrived-after-edit", newGrant.ModelID, 30, n))
++	mustFluxWallet(t, SettleTavernFluxWallet(db, old.ID, room, "arrived-after-edit", 10, n, true))
++	assertFluxWalletBalance(t, db, 71, 280)
++	assertFluxWalletUsage(t, db, 71, 20, 2)
++	assertFluxWalletGrant(t, db, old.ID, 0, 20)
++}
+diff --git a/model/tavern_flux_wallet.go b/model/tavern_flux_wallet.go
+--- a/model/tavern_flux_wallet.go
++++ b/model/tavern_flux_wallet.go
+@@ -25,9 +25,9 @@
+ var ErrTavernFluxWalletBatchEnabled = errors.New("flux_wallet_batch_unavailable")
+ 
+ // ReserveTavernFluxWallet 原子预留一个 Matrix 房间事件额度，并立即从活动授权的付款人钱包占用同额。
+-// grantID、room、event 必须匹配本次授权和事件；amount、now 分别是 New API 原生整数额度与 Unix 秒。
+-func ReserveTavernFluxWallet(db *gorm.DB, grantID, room, event string, amount, now int64) error {
+-	if grantID == "" || room == "" || event == "" {
++// grantID、room、event 必须匹配本次授权和事件；expectedModel 固定本次报价和下游模型。
++func ReserveTavernFluxWallet(db *gorm.DB, grantID, room, event, expectedModel string, amount, now int64) error {
++	if grantID == "" || room == "" || event == "" || expectedModel == "" {
+ 		return ErrFluxInvalid
+ 	}
+ 	if amount <= 0 || amount > TavernFluxMaxQuota {
+@@ -53,17 +53,22 @@
+ 			"id = ? AND room_id = ? AND active_room_id = ? AND status = ? AND grant_expires_at > ? AND payer_id > 0",
+ 			grantID, room, room, TavernFluxActive, now,
+ 		)
+-		reserve := fluxReserveRoomBudget(active.Session(&gorm.Session{}), amount).
++		// 账本和预留同一事务；报价后已切换模型时回滚这条待写的事件，不扣钱包。
++		scope := active.Session(&gorm.Session{}).Where("model_id = ?", expectedModel)
++		reserve := fluxReserveRoomBudget(scope, amount).
+ 			Update("quota_reserved", gorm.Expr("quota_reserved + ?", amount))
+ 		if reserve.Error != nil {
+ 			return reserve.Error
+ 		}
+ 		var grant TavernFluxGrant
+-		if err := active.Select("payer_id").Take(&grant).Error; err != nil {
++		if err := active.Select("payer_id", "model_id").Take(&grant).Error; err != nil {
+ 			if errors.Is(err, gorm.ErrRecordNotFound) {
+ 				return ErrFluxForbidden
+ 			}
+ 			return err
++		}
++		if grant.ModelID != expectedModel {
++			return ErrFluxModelChanged
+ 		}
+ 		if reserve.RowsAffected != 1 {
+ 			return ErrFluxQuota
+diff --git a/model/tavern_flux_wallet_test.go b/model/tavern_flux_wallet_test.go
+--- a/model/tavern_flux_wallet_test.go
++++ b/model/tavern_flux_wallet_test.go
+@@ -111,21 +111,21 @@
+ 	createFluxWalletGrant(t, db, "second", b, 11, 300)
+ 	createFluxWalletGrant(t, db, "third", c, 22, 200)
+ 
+-	mustFluxWallet(t, ReserveTavernFluxWallet(db, "first", a, "e-a", 300, fluxWalletTestNow))
+-	mustFluxWallet(t, ReserveTavernFluxWallet(db, "second", b, "e-b", 200, fluxWalletTestNow))
+-	mustFluxWallet(t, ReserveTavernFluxWallet(db, "third", c, "e-c", 100, fluxWalletTestNow))
++	mustFluxWallet(t, ReserveTavernFluxWallet(db, "first", a, "e-a", "fixture", 300, fluxWalletTestNow))
++	mustFluxWallet(t, ReserveTavernFluxWallet(db, "second", b, "e-b", "fixture", 200, fluxWalletTestNow))
++	mustFluxWallet(t, ReserveTavernFluxWallet(db, "third", c, "e-c", "fixture", 100, fluxWalletTestNow))
+ 	assertFluxWalletBalance(t, db, 11, 500)
+ 	assertFluxWalletBalance(t, db, 22, 700)
+ 	assertFluxWalletBalance(t, db, 33, 500)
+-	expectFluxWalletError(t, ReserveTavernFluxWallet(db, "first", a, "e-a", 300, fluxWalletTestNow), ErrFluxDuplicate)
+-	expectFluxWalletError(t, ReserveTavernFluxWallet(db, "first", b, "wrong-room", 20, fluxWalletTestNow), ErrFluxForbidden)
++	expectFluxWalletError(t, ReserveTavernFluxWallet(db, "first", a, "e-a", "fixture", 300, fluxWalletTestNow), ErrFluxDuplicate)
++	expectFluxWalletError(t, ReserveTavernFluxWallet(db, "first", b, "wrong-room", "fixture", 20, fluxWalletTestNow), ErrFluxForbidden)
+ 	expectFluxWalletError(t, SettleTavernFluxWallet(db, "first", b, "e-b", 90, fluxWalletTestNow, true), ErrFluxInvalid)
+ 	assertFluxWalletGrant(t, db, "first", 300, 0)
+ 	assertFluxWalletGrant(t, db, "second", 200, 0)
+ 
+ 	mustFluxWallet(t, RevokeTavernFluxGrant(db, "first", 11))
+-	expectFluxWalletError(t, ReserveTavernFluxWallet(db, "first", a, "after-revoke", 10, fluxWalletTestNow), ErrFluxForbidden)
+-	expectFluxWalletError(t, ReserveTavernFluxWallet(db, "second", b, "over-room", 101, fluxWalletTestNow), ErrFluxQuota)
++	expectFluxWalletError(t, ReserveTavernFluxWallet(db, "first", a, "after-revoke", "fixture", 10, fluxWalletTestNow), ErrFluxForbidden)
++	expectFluxWalletError(t, ReserveTavernFluxWallet(db, "second", b, "over-room", "fixture", 101, fluxWalletTestNow), ErrFluxQuota)
+ 	// 已撤销房的在途记录仍归原授权与原付款账户，其他房保持独立且可用。
+ 	mustFluxWallet(t, SettleTavernFluxWallet(db, "first", a, "e-a", 120, fluxWalletTestNow, true))
+ 	mustFluxWallet(t, SettleTavernFluxWallet(db, "first", a, "e-a", 120, fluxWalletTestNow, true))
+@@ -133,7 +133,7 @@
+ 	mustFluxWallet(t, SettleTavernFluxWallet(db, "second", b, "e-b", 90, fluxWalletTestNow, true))
+ 	mustFluxWallet(t, SettleTavernFluxWallet(db, "third", c, "e-c", 0, fluxWalletTestNow, false))
+ 	mustFluxWallet(t, SettleTavernFluxWallet(db, "third", c, "e-c", 0, fluxWalletTestNow, false))
+-	mustFluxWallet(t, ReserveTavernFluxWallet(db, "second", b, "after-other-room-revoke", 10, fluxWalletTestNow))
++	mustFluxWallet(t, ReserveTavernFluxWallet(db, "second", b, "after-other-room-revoke", "fixture", 10, fluxWalletTestNow))
+ 	mustFluxWallet(t, SettleTavernFluxWallet(db, "second", b, "after-other-room-revoke", 0, fluxWalletTestNow, false))
+ 	assertFluxWalletBalance(t, db, 11, 790)
+ 	assertFluxWalletBalance(t, db, 22, 800)
+@@ -151,7 +151,7 @@
+ 	const room = "!cap:example.test"
+ 	createFluxWalletUser(t, db, 44, 500, common.UserStatusEnabled)
+ 	createFluxWalletGrant(t, db, "cap", room, 44, 300)
+-	mustFluxWallet(t, ReserveTavernFluxWallet(db, "cap", room, "over", 80, fluxWalletTestNow))
++	mustFluxWallet(t, ReserveTavernFluxWallet(db, "cap", room, "over", "fixture", 80, fluxWalletTestNow))
+ 	assertFluxWalletBalance(t, db, 44, 420)
+ 	expectFluxWalletError(t, SettleTavernFluxWallet(db, "cap", room, "over", 81, fluxWalletTestNow, true), ErrTavernFluxActualExceedsReservation)
+ 	expectFluxWalletError(t, SettleTavernFluxWallet(db, "cap", room, "over", 81, fluxWalletTestNow, true), ErrTavernFluxActualExceedsReservation)
+@@ -188,7 +188,7 @@
+ 		go func() {
+ 			ready.Done()
+ 			<-start
+-			output <- result{id, room, ReserveTavernFluxWallet(db, id, room, id, 70, fluxWalletTestNow)}
++			output <- result{id, room, ReserveTavernFluxWallet(db, id, room, id, "fixture", 70, fluxWalletTestNow)}
+ 		}()
+ 	}
+ 	ready.Wait()
+@@ -216,11 +216,11 @@
+ 	const room = "!batch:example.test"
+ 	createFluxWalletUser(t, db, 66, 200, common.UserStatusEnabled)
+ 	createFluxWalletGrant(t, db, "batch", room, 66, 200)
+-	mustFluxWallet(t, ReserveTavernFluxWallet(db, "batch", room, "pre-existing", 100, fluxWalletTestNow))
++	mustFluxWallet(t, ReserveTavernFluxWallet(db, "batch", room, "pre-existing", "fixture", 100, fluxWalletTestNow))
+ 	oldBatch := common.BatchUpdateEnabled
+ 	common.BatchUpdateEnabled = true
+ 	t.Cleanup(func() { common.BatchUpdateEnabled = oldBatch })
+-	expectFluxWalletError(t, ReserveTavernFluxWallet(db, "batch", room, "new", 30, fluxWalletTestNow), ErrTavernFluxWalletBatchEnabled)
++	expectFluxWalletError(t, ReserveTavernFluxWallet(db, "batch", room, "new", "fixture", 30, fluxWalletTestNow), ErrTavernFluxWalletBatchEnabled)
+ 	mustFluxWallet(t, SettleTavernFluxWallet(db, "batch", room, "pre-existing", 10, fluxWalletTestNow, true))
+ 	assertFluxWalletBalance(t, db, 66, 190)
+ 	assertFluxWalletUsage(t, db, 66, 10, 1)
+@@ -235,12 +235,12 @@
+ 	now := fluxWalletTestNow + fluxWalletStaleSeconds
+ 	for i := 0; i < fluxWalletRecoveryBatch+1; i++ {
+ 		event := fmt.Sprintf("stale-%02d", i)
+-		mustFluxWallet(t, ReserveTavernFluxWallet(db, "recover", room, event, 10, fluxWalletTestNow-int64(fluxWalletRecoveryBatch-i)))
++		mustFluxWallet(t, ReserveTavernFluxWallet(db, "recover", room, event, "fixture", 10, fluxWalletTestNow-int64(fluxWalletRecoveryBatch-i)))
+ 	}
+ 	// 正好十五分钟可退，少一秒不可退；旧版本 room-only reservation 不在钱包补偿范围。
+-	mustFluxWallet(t, ReserveTavernFluxWallet(db, "recover", room, "fresh", 10, fluxWalletTestNow+1))
++	mustFluxWallet(t, ReserveTavernFluxWallet(db, "recover", room, "fresh", "fixture", 10, fluxWalletTestNow+1))
+ 	mustFluxWallet(t, ReserveTavernFluxInvocation(db, "recover", room, "old-kind", 10, fluxWalletTestNow-100))
+-	mustFluxWallet(t, ReserveTavernFluxWallet(db, "recover", room, "paid", 10, fluxWalletTestNow-100))
++	mustFluxWallet(t, ReserveTavernFluxWallet(db, "recover", room, "paid", "fixture", 10, fluxWalletTestNow-100))
+ 	mustFluxWallet(t, SettleTavernFluxWallet(db, "recover", room, "paid", 7, now, true))
+ 	mustFluxWallet(t, RevokeTavernFluxGrant(db, "recover", 77))
+ 	assertFluxWalletBalance(t, db, 77, 193)
+diff --git a/router/tavern-flux-router.go b/router/tavern-flux-router.go
+--- a/router/tavern-flux-router.go
++++ b/router/tavern-flux-router.go
+@@ -12,6 +12,8 @@
+ 	issuer := flux.Group("/intents", controller.TavernFluxServiceAuth(true))
+ 	issuer.POST("", controller.CreateTavernFluxIntent)
+ 	issuer.POST("/invite", controller.ConfirmTavernFluxOneClick)
++	issuer.POST("/model-options", controller.TavernFluxModelOptions)
++	issuer.POST("/set-model", controller.SetTavernFluxModel)
+ 	issuer.GET("/:id", controller.GetTavernFluxIntent)
+ 	issuer.POST("/:id/activate", controller.ActivateTavernFluxIntent)
+ 	owner := flux.Group("", middleware.UserAuth())
+diff --git a/web/src/components/layout/Footer.jsx b/web/src/components/layout/Footer.jsx
+--- a/web/src/components/layout/Footer.jsx
++++ b/web/src/components/layout/Footer.jsx
+@@ -248,7 +248,7 @@
+       {/* 对应源码入口独立于自定义页脚；未登录也可访问，原上游署名保持不变。 */}
+       <div className='px-6 pb-4 text-center text-sm'>
+         <a
+-          href='https://github.com/ixiaoyy/parallellines-new-api/tree/main/releases/v0.13.2-pkce.12'
++          href='https://github.com/ixiaoyy/parallellines-new-api/tree/main/releases/v0.13.2-pkce.13'
+           target='_blank'
+           rel='noopener noreferrer'
+           className='!text-semi-color-primary hover:underline'

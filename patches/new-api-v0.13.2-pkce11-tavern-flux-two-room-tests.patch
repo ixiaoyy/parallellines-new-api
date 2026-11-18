@@ -1,0 +1,61 @@
+diff --git a/controller/tavern_flux_native_test.go b/controller/tavern_flux_native_test.go
+--- a/controller/tavern_flux_native_test.go
++++ b/controller/tavern_flux_native_test.go
+@@ -150,4 +150,57 @@
+ 	if err := db.Model(&model.Log{}).Where("type = ?", model.LogTypeConsume).Count(&consumeCount).Error; err != nil || consumeCount != 1 {
+ 		t.Fatalf("expected only one settled native log: %d %v", consumeCount, err)
+ 	}
++
++	// 两个房间各自走实际 HTTP 路由、原生价格及付款钱包，第三人始终不付款。
++	if err := db.Exec("DROP TRIGGER flux_fixture_fail_settlement").Error; err != nil {
++		t.Fatal(err)
++	}
++	firstRoom := room
++	if err := model.SettleTavernFluxWallet(db, grant.ID, firstRoom, "$unknown_settlement", 0, now, false); err != nil {
++		t.Fatal(err)
++	}
++	if err := db.Create(&model.User{Id: 503, Username: "second-payer", AffCode: "second-payer", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, Quota: 1000, Group: "default"}).Error; err != nil {
++		t.Fatal(err)
++	}
++	if err := db.Create(&model.UserOAuthBinding{UserId: 503, ProviderId: 1, ProviderUserId: "503"}).Error; err != nil {
++		t.Fatal(err)
++	}
++	secondRoom := "!flux-second:matrix.pingxingxian.space"
++	secondInviter := "@pl_503:matrix.pingxingxian.space"
++	second, err := model.CreateTavernFluxIntent(db, secondRoom, secondInviter, "503", "second room", "fixture-model", now)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if _, err := model.ConfirmTavernFluxIntent(db, second.ID, 503, 20, now); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := model.ActivateTavernFluxIntent(db, second.ID, secondRoom, secondInviter, "$second-invite", 503, now); err != nil {
++		t.Fatal(err)
++	}
++	room = secondRoom
++	call("$second-room-first", input, http.StatusOK)
++	if payerQuota(501) != 990 || payerQuota(503) != 990 || payerQuota(502) != 1000 {
++		t.Fatal("each room must charge only its inviter")
++	}
++
++	if err := model.RevokeTavernFluxGrant(db, grant.ID, 501); err != nil {
++		t.Fatal(err)
++	}
++	room = firstRoom
++	before := requests
++	call("$first-room-revoked", input, http.StatusForbidden)
++	if requests != before {
++		t.Fatal("revoked room reached the provider")
++	}
++	room = secondRoom
++	call("$second-room-still-active", input, http.StatusOK)
++	before = requests
++	call("$second-room-over-cap", input, http.StatusPaymentRequired)
++	if requests != before || payerQuota(501) != 990 || payerQuota(503) != 980 || payerQuota(502) != 1000 {
++		t.Fatal("revocation leaked across rooms or a hard cap was exceeded")
++	}
++	var logsB int64
++	if err := db.Model(&model.Log{}).Where("type = ? AND user_id = ?", model.LogTypeConsume, 503).Count(&logsB).Error; err != nil || logsB != 2 {
++		t.Fatalf("second room must record only its two settled requests: %d %v", logsB, err)
++	}
+ }

@@ -1,0 +1,294 @@
+diff --git a/model/tavern_flux_test.go b/model/tavern_flux_test.go
+new file mode 100644
+--- /dev/null
++++ b/model/tavern_flux_test.go
+@@ -0,0 +1,140 @@
++package model
++
++import (
++	"testing"
++
++	"github.com/glebarez/sqlite"
++	"gorm.io/gorm"
++	"gorm.io/gorm/logger"
++)
++
++func fluxTestDB(t *testing.T) *gorm.DB {
++	t.Helper()
++	db, err := gorm.Open(sqlite.Open("file:"+t.Name()+"?mode=memory&cache=shared"), &gorm.Config{TranslateError: true, Logger: logger.Default.LogMode(logger.Silent)})
++	if err != nil {
++		t.Fatal(err)
++	}
++	handle, err := db.DB()
++	if err != nil {
++		t.Fatal(err)
++	}
++	handle.SetMaxOpenConns(1)
++	t.Cleanup(func() { _ = handle.Close() })
++	if err := MigrateTavernFlux(db); err != nil {
++		t.Fatal(err)
++	}
++	return db
++}
++
++const fluxTestRoom = "!room:test"
++const fluxTestNow = int64(2_001_000)
++const fluxTestAlice = "@pl_11:test"
++const fluxTestBob = "@pl_12:test"
++
++func fluxTestIntent(t *testing.T, db *gorm.DB, user string, payer int, quota int64) *TavernFluxGrant {
++	t.Helper()
++	g, err := CreateTavernFluxIntent(db, fluxTestRoom, user, "test", "room", "model", fluxTestNow)
++	if err != nil || g.Status != TavernFluxPending || g.PayerID != 0 {
++		t.Fatalf("create: %#v %v", g, err)
++	}
++	if _, err := ActivateTavernFluxIntent(db, g.ID, fluxTestRoom, user, "$event", payer, fluxTestNow+1); err == nil {
++		t.Fatal("pending intent became active")
++	}
++	g, err = ConfirmTavernFluxIntent(db, g.ID, payer, quota, fluxTestNow+1)
++	if err != nil || g.Status != TavernFluxConfirmed {
++		t.Fatalf("confirm: %#v %v", g, err)
++	}
++	if _, err := ConfirmTavernFluxIntent(db, g.ID, payer, quota, fluxTestNow+2); err != nil {
++		t.Fatal("same confirmation was not idempotent", err)
++	}
++	if _, err := ConfirmTavernFluxIntent(db, g.ID, payer, quota+1, fluxTestNow+2); err != ErrFluxInvalid {
++		t.Fatal("changed confirmation unexpectedly overwrote limit", err)
++	}
++	return g
++}
++
++func TestTavernFluxIntentPreventsPayerOrRoomReplacement(t *testing.T) {
++	db := fluxTestDB(t)
++	a := fluxTestIntent(t, db, fluxTestAlice, 11, 100)
++	b := fluxTestIntent(t, db, fluxTestBob, 12, 100)
++	for _, check := range []struct {
++		room, inviter string
++		payer         int
++	}{
++		{"!other:test", fluxTestAlice, 11}, {fluxTestRoom, fluxTestBob, 11}, {fluxTestRoom, fluxTestAlice, 12},
++	} {
++		if _, err := ActivateTavernFluxIntent(db, a.ID, check.room, check.inviter, "$event", check.payer, fluxTestNow+3); err != ErrFluxForbidden {
++			t.Fatal("wrong identity or room activated", err)
++		}
++	}
++	for i := 0; i < 2; i++ {
++		if g, err := ActivateTavernFluxIntent(db, a.ID, fluxTestRoom, fluxTestAlice, "$event", 11, fluxTestNow+3); err != nil || g.Status != TavernFluxActive {
++			t.Fatalf("activation/replay: %#v %v", g, err)
++		}
++	}
++	if _, err := ActivateTavernFluxIntent(db, b.ID, fluxTestRoom, fluxTestBob, "$next", 12, fluxTestNow+4); err != ErrFluxConflict {
++		t.Fatal("other owner replaced the active payer", err)
++	}
++	if err := RevokeTavernFluxGrant(db, a.ID, 12); err == nil {
++		t.Fatal("nonpayer revoked grant")
++	}
++	if err := RevokeTavernFluxGrant(db, a.ID, 11); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := GetTavernFluxActiveRoom(db, fluxTestRoom, fluxTestNow+4); err == nil {
++		t.Fatal("revoked grant still authorizes")
++	}
++	if _, err := ActivateTavernFluxIntent(db, b.ID, fluxTestRoom, fluxTestBob, "$event", 12, fluxTestNow+4); err != ErrFluxConflict {
++		t.Fatal("an already consumed invitation event was accepted again", err)
++	}
++	if g, err := ActivateTavernFluxIntent(db, b.ID, fluxTestRoom, fluxTestBob, "$next", 12, fluxTestNow+4); err != nil || g.PayerID != 12 {
++		t.Fatalf("fresh authorization after revocation: %#v %v", g, err)
++	}
++}
++
++func TestTavernFluxReservationCapsAndDeduplicatesAfterRevocation(t *testing.T) {
++	db := fluxTestDB(t)
++	g := fluxTestIntent(t, db, fluxTestAlice, 11, 100)
++	now := fluxTestNow + 3
++	if _, err := ActivateTavernFluxIntent(db, g.ID, fluxTestRoom, fluxTestAlice, "$invite", 11, now); err != nil {
++		t.Fatal(err)
++	}
++	if err := ReserveTavernFluxInvocation(db, g.ID, fluxTestRoom, "$event", 80, now); err != nil {
++		t.Fatal(err)
++	}
++	if err := ReserveTavernFluxInvocation(db, g.ID, fluxTestRoom, "$event", 20, now); err != ErrFluxDuplicate {
++		t.Fatal("same event reserved twice", err)
++	}
++	if err := ReserveTavernFluxInvocation(db, g.ID, fluxTestRoom, "$next", 21, now); err != ErrFluxQuota {
++		t.Fatal("cap exceeded by concurrent reservation", err)
++	}
++	if err := FinishTavernFluxInvocation(db, g.ID, fluxTestRoom, "$event", 81, now, true); err != ErrFluxQuota {
++		t.Fatal("overreserved amount was settled", err)
++	}
++	if err := RevokeTavernFluxGrant(db, g.ID, 11); err != nil {
++		t.Fatal(err)
++	}
++	if err := ReserveTavernFluxInvocation(db, g.ID, fluxTestRoom, "$next", 20, now); err != ErrFluxQuota {
++		t.Fatal("revoked grant still reserved budget", err)
++	}
++	for i := 0; i < 2; i++ {
++		if err := FinishTavernFluxInvocation(db, g.ID, fluxTestRoom, "$event", 70, now, true); err != nil {
++			t.Fatal(err)
++		}
++	}
++	stored, err := GetTavernFluxGrant(db, g.ID, now)
++	if err != nil || stored.QuotaSpent != 70 || stored.QuotaReserved != 0 || stored.Status != TavernFluxRevoked {
++		t.Fatalf("wrong final ledger: %#v %v", stored, err)
++	}
++}
++
++func TestTavernFluxExpiredIntentCannotActivate(t *testing.T) {
++	db := fluxTestDB(t)
++	g := fluxTestIntent(t, db, fluxTestAlice, 11, 100)
++	if _, err := ActivateTavernFluxIntent(db, g.ID, fluxTestRoom, fluxTestAlice, "$event", 11, g.IntentExpiresAt); err != ErrFluxInvalid {
++		t.Fatal("expired intent activated", err)
++	}
++	if actual, err := GetTavernFluxGrant(db, g.ID, g.IntentExpiresAt); err != nil || actual.Status != TavernFluxExpired {
++		t.Fatalf("expired state not reflected: %#v %v", actual, err)
++	}
++}
+diff --git a/router/tavern_flux_integration_test.go b/router/tavern_flux_integration_test.go
+new file mode 100644
+--- /dev/null
++++ b/router/tavern_flux_integration_test.go
+@@ -0,0 +1,144 @@
++package router
++
++import (
++	"encoding/json"
++	"net/http"
++	"net/http/httptest"
++	"strconv"
++	"strings"
++	"testing"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/model"
++	"github.com/gin-contrib/sessions"
++	"github.com/gin-contrib/sessions/cookie"
++	"github.com/gin-gonic/gin"
++	"github.com/glebarez/sqlite"
++	"gorm.io/gorm"
++	"gorm.io/gorm/logger"
++)
++
++func TestTavernFluxAuthorizedInviteHTTP(t *testing.T) {
++	gin.SetMode(gin.TestMode)
++	issuer := strings.Repeat("i", 44)
++	bot := strings.Repeat("b", 44)
++	t.Setenv("MAIN_UNIFIED_WEB_LOGIN_ENABLED", "false")
++	t.Setenv("MAIN_OAUTH_ACCOUNT_SYNC_ENABLED", "false")
++	t.Setenv("TAVERN_FLUX_ENABLED", "true")
++	t.Setenv("TAVERN_FLUX_ISSUER_BEARER", issuer)
++	t.Setenv("TAVERN_FLUX_BOT_BEARER", bot)
++	t.Setenv("TAVERN_FLUX_MODEL_ID", "fixture-model")
++	db, err := gorm.Open(sqlite.Open("file:flux-router-fixtures?mode=memory&cache=shared"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
++	if err != nil {
++		t.Fatal(err)
++	}
++	old := model.DB
++	model.DB = db
++	handle, _ := db.DB()
++	handle.SetMaxOpenConns(1)
++	t.Cleanup(func() { model.DB = old; _ = handle.Close() })
++	if err := db.AutoMigrate(&model.CustomOAuthProvider{}, &model.UserOAuthBinding{}, &model.User{}); err != nil {
++		t.Fatal(err)
++	}
++	if err := model.MigrateTavernFlux(db); err != nil {
++		t.Fatal(err)
++	}
++	provider := model.CustomOAuthProvider{Id: 1, Name: "fixture", Slug: "pingxingxian", Enabled: true, UserIdField: "sub", UserInfoEndpoint: model.OAuthRelayUserInfoURL}
++	if err := db.Create(&provider).Error; err != nil {
++		t.Fatal(err)
++	}
++	for _, id := range []int{501, 502} {
++		subject := strconv.Itoa(id)
++		u := model.User{Id: id, Username: "fixture-" + subject, AffCode: subject, Role: common.RoleCommonUser, Status: common.UserStatusEnabled, Quota: 777}
++		if err := db.Create(&u).Error; err != nil {
++			t.Fatal(err)
++		}
++		if err := db.Create(&model.UserOAuthBinding{UserId: id, ProviderId: 1, ProviderUserId: subject}).Error; err != nil {
++			t.Fatal(err)
++		}
++	}
++	engine := gin.New()
++	engine.Use(sessions.Sessions("flux-fixture", cookie.NewStore([]byte(strings.Repeat("a", 32)))))
++	engine.GET("/fixture-login/:id", func(c *gin.Context) {
++		id, _ := strconv.Atoi(c.Param("id"))
++		s := sessions.Default(c)
++		s.Set("id", id)
++		s.Set("username", "fixture-"+strconv.Itoa(id))
++		s.Set("role", common.RoleCommonUser)
++		s.Set("status", common.UserStatusEnabled)
++		if err := s.Save(); err != nil {
++			t.Error(err)
++		}
++		c.Status(http.StatusNoContent)
++	})
++	setTavernFluxAPIRouter(engine.Group("/api"))
++	setTavernFluxRelayRouter(engine)
++
++	call := func(method, path, body string, headers map[string]string, session *http.Cookie, want int) *httptest.ResponseRecorder {
++		t.Helper()
++		r := httptest.NewRequest(method, path, strings.NewReader(body))
++		if body != "" {
++			r.Header.Set("Content-Type", "application/json")
++		}
++		for k, v := range headers {
++			r.Header.Set(k, v)
++		}
++		if session != nil {
++			r.AddCookie(session)
++		}
++		w := httptest.NewRecorder()
++		engine.ServeHTTP(w, r)
++		if w.Code != want {
++			t.Fatalf("%s %s: got %d wanted %d: %s", method, path, w.Code, want, w.Body.String())
++		}
++		return w
++	}
++
++	api := "/api/tavern-flux"
++	intent := `{"room_id":"!fixture:matrix.pingxingxian.space","inviter_mxid":"@pl_501:matrix.pingxingxian.space","subject":"501","room_label":"隔离房"}`
++	issuerHeaders := map[string]string{"Authorization": "Bearer " + issuer}
++	botHeaders := map[string]string{"Authorization": "Bearer " + bot, "X-Tavern-Room-Id": "!fixture:matrix.pingxingxian.space", "X-Tavern-Event-Id": "$message"}
++	call(http.MethodPost, api+"/intents", intent, botHeaders, nil, http.StatusUnauthorized)
++	created := call(http.MethodPost, api+"/intents", intent, issuerHeaders, nil, http.StatusCreated)
++	var result map[string]any
++	if err := json.Unmarshal(created.Body.Bytes(), &result); err != nil {
++		t.Fatal(err)
++	}
++	id, ok := result["intent_id"].(string)
++	if !ok || len(id) != 64 || result["status"] != model.TavernFluxPending {
++		t.Fatal("invalid intent result", result)
++	}
++	owner := call(http.MethodGet, "/fixture-login/501", "", nil, nil, http.StatusNoContent).Result().Cookies()[0]
++	other := call(http.MethodGet, "/fixture-login/502", "", nil, nil, http.StatusNoContent).Result().Cookies()[0]
++	ownerHeaders := map[string]string{"New-Api-User": "501"}
++	otherHeaders := map[string]string{"New-Api-User": "502"}
++	confirmPath := api + "/confirm/" + id
++	activationPath := api + "/intents/" + id + "/activate"
++	activation := `{"room_id":"!fixture:matrix.pingxingxian.space","inviter_mxid":"@pl_501:matrix.pingxingxian.space","invite_event_id":"$invite"}`
++	call(http.MethodPost, activationPath, activation, issuerHeaders, nil, http.StatusForbidden)
++	call(http.MethodGet, confirmPath, "", otherHeaders, other, http.StatusForbidden)
++	call(http.MethodPost, confirmPath, `{"quota_limit":0}`, ownerHeaders, owner, http.StatusBadRequest)
++	confirmation := call(http.MethodPost, confirmPath, `{"quota_limit":55}`, ownerHeaders, owner, http.StatusOK)
++	if strings.Contains(confirmation.Body.String(), "\"subject\"") || !strings.Contains(confirmation.Body.String(), `"quota_limit":55`) {
++		t.Fatal("confirmation did not preserve nonsecret scope", confirmation.Body.String())
++	}
++	call(http.MethodPost, activationPath, activation, issuerHeaders, nil, http.StatusOK)
++	call(http.MethodPost, activationPath, activation, issuerHeaders, nil, http.StatusOK)
++	listed := call(http.MethodGet, api+"/rooms", "", otherHeaders, other, http.StatusOK)
++	if strings.Contains(listed.Body.String(), id) {
++		t.Fatal("other account saw owner's room")
++	}
++	blocked := call(http.MethodPost, "/tavern-flux/v1/chat/completions", `{"model":"fixture-model"}`, botHeaders, nil, http.StatusServiceUnavailable)
++	if !strings.Contains(blocked.Body.String(), `"error":"flux_billing_hard_cap_unavailable"`) {
++		t.Fatal("unsafe or changed inference outcome", blocked.Body.String())
++	}
++	call(http.MethodDelete, api+"/rooms/"+id, "", otherHeaders, other, http.StatusNotFound)
++	call(http.MethodDelete, api+"/rooms/"+id, "", ownerHeaders, owner, http.StatusOK)
++	call(http.MethodPost, "/tavern-flux/v1/chat/completions", `{"model":"fixture-model"}`, botHeaders, nil, http.StatusNotFound)
++	var payer model.User
++	if err := db.First(&payer, "id = ?", 501).Error; err != nil || payer.Quota != 777 {
++		t.Fatalf("blocked route changed payer balance: %d %v", payer.Quota, err)
++	}
++	t.Setenv("TAVERN_FLUX_ENABLED", "false")
++	call(http.MethodPost, api+"/intents", intent, issuerHeaders, nil, http.StatusNotFound)
++}

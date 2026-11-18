@@ -1,0 +1,5106 @@
+{
+  "schema": 1,
+  "public_assets_only": true,
+  "file_count": 200,
+  "files": {
+    "assets/CardTable-D98udpSz.js": {
+      "bytes": 2944,
+      "sha256": "b1a3ded09209fe893a49b4450762e847838168408b83d05c54029ba533e33ca7"
+    },
+    "assets/CodeViewer-C5ScidnH.js": {
+      "bytes": 6023,
+      "sha256": "388142aa2c370a1c49eaaf3e613eb303d749a94f33303ced07a65e9cc9e6e4d2"
+    },
+    "assets/IllustrationConstruction-CvCMF4R3.js": {
+      "bytes": 20758,
+      "sha256": "8e8e70eb657cf2750812724c90ce57c78fa8f8d8351ebd91c2eba0e9d28177ec"
+    },
+    "assets/IllustrationNoResult-BciVunfe.js": {
+      "bytes": 13862,
+      "sha256": "03e267b879cb430c8e07b97809f599c09359630df49335d585d0d59ebc38d7ca"
+    },
+    "assets/JSONEditor-Blq2ysiA.js": {
+      "bytes": 8001,
+      "sha256": "c1e72f67573191ab314b09210d4f01cd5037444186ebcdc5acb60337f3f93f96"
+    },
+    "assets/KaTeX_AMS-Regular-BQhdFMY1.woff2": {
+      "bytes": 28076,
+      "sha256": "0cdd387c9590a1a9f9794560022dbb59654a7d86f187aa0c81495ad42d3a7308"
+    },
+    "assets/KaTeX_AMS-Regular-DMm9YOAa.woff": {
+      "bytes": 33516,
+      "sha256": "30da91e84c893f875e252689faebdc590b2871145e8adc7f9a9d4dbd8ce0b251"
+    },
+    "assets/KaTeX_AMS-Regular-DRggAlZN.ttf": {
+      "bytes": 63632,
+      "sha256": "68534840bcfdd2bffb6f0e8deb48684dd01e7f04ea2813267577afb906de1d13"
+    },
+    "assets/KaTeX_Caligraphic-Bold-ATXxdsX0.ttf": {
+      "bytes": 12368,
+      "sha256": "07d8e303ce4fc12b4bb54f1004170dd190a1f3db45d400fe68060df3e0897268"
+    },
+    "assets/KaTeX_Caligraphic-Bold-BEiXGLvX.woff": {
+      "bytes": 7716,
+      "sha256": "1ae6bd7475590e97e7f145a89e09ccde322f7a6bc0b91607b1c8b8ee28290fed"
+    },
+    "assets/KaTeX_Caligraphic-Bold-Dq_IR9rO.woff2": {
+      "bytes": 6912,
+      "sha256": "de7701e42cf1f4cf0b766c03fb27977207eee2f4fd5d76fa82188406da43ea4c"
+    },
+    "assets/KaTeX_Caligraphic-Regular-CTRA-rTL.woff": {
+      "bytes": 7656,
+      "sha256": "3398dd02302557a793f2863f88e02d96ce10df2abffa07c8e9fa90775116e65c"
+    },
+    "assets/KaTeX_Caligraphic-Regular-Di6jR-x-.woff2": {
+      "bytes": 6908,
+      "sha256": "5d53e70ad607c2352162dec9e0923fb54ecdafaccbf604cd8dcf7d00facb989b"
+    },
+    "assets/KaTeX_Caligraphic-Regular-wX97UBjC.ttf": {
+      "bytes": 12344,
+      "sha256": "ed0b74372feefcbb9c0666b2e210da37b7e49fa7fbbf3eeb11db5f693dacfbb7"
+    },
+    "assets/KaTeX_Fraktur-Bold-BdnERNNW.ttf": {
+      "bytes": 19584,
+      "sha256": "9163df9c7122432e6495b4229fa9071cf9ae86a758ae5efc4924ec2e1a6dbce1"
+    },
+    "assets/KaTeX_Fraktur-Bold-BsDP51OF.woff": {
+      "bytes": 13296,
+      "sha256": "9be7ceb88004ab8ad124082246fbfcca4091e36385d4ec6ed1df67375dad50fb"
+    },
+    "assets/KaTeX_Fraktur-Bold-CL6g_b3V.woff2": {
+      "bytes": 11348,
+      "sha256": "74444efd593c005e3f4573b44524704c0af0a937fe911cca9e94068d0d140d3f"
+    },
+    "assets/KaTeX_Fraktur-Regular-CB_wures.ttf": {
+      "bytes": 19572,
+      "sha256": "1e6f9579e90e2cac37f8f60a597c436e075c114385652b7cbeb0dec0421291b3"
+    },
+    "assets/KaTeX_Fraktur-Regular-CTYiF6lA.woff2": {
+      "bytes": 11316,
+      "sha256": "51814d270d06ff0255dba0799994fa4d8c84d11f09951d47595f4abb1f3602dc"
+    },
+    "assets/KaTeX_Fraktur-Regular-Dxdc4cR9.woff": {
+      "bytes": 13208,
+      "sha256": "5e28753be717dac97f559f49bc10be9cf3c124ddcabda6659d11cb68febc6463"
+    },
+    "assets/KaTeX_Main-Bold-Cx986IdX.woff2": {
+      "bytes": 25324,
+      "sha256": "0f60d1b897938ec918c8ce073092411baf9438f6739465693ff18b0f9d20b021"
+    },
+    "assets/KaTeX_Main-Bold-Jm3AIy58.woff": {
+      "bytes": 29912,
+      "sha256": "c76c5d696297d51b9cb1639c7da4334f0e7dec81b42b11213b5e25ef671bb822"
+    },
+    "assets/KaTeX_Main-Bold-waoOVXN0.ttf": {
+      "bytes": 51336,
+      "sha256": "138ac28d1663b3037e9c5f52371fa5c63d8324f4a38d22cd573e6ea3a3fd0cf8"
+    },
+    "assets/KaTeX_Main-BoldItalic-DxDJ3AOS.woff2": {
+      "bytes": 16780,
+      "sha256": "99cd42a3c072d918f2f44984a807cf7aa16e13545fd0875fc07c6c65f99e715b"
+    },
+    "assets/KaTeX_Main-BoldItalic-DzxPMmG6.ttf": {
+      "bytes": 32968,
+      "sha256": "70ee1f64a20f2048c21940ef46d0144fd215baa953ca69afd1e31e98544f708f"
+    },
+    "assets/KaTeX_Main-BoldItalic-SpSLRI95.woff": {
+      "bytes": 19412,
+      "sha256": "a6f7ec0d846ac7ad975adb8959c37ed49b94acbc4ae436db9ce9e20287e4a64c"
+    },
+    "assets/KaTeX_Main-Italic-3WenGoN9.ttf": {
+      "bytes": 33580,
+      "sha256": "0d85ae7cc30f23790a7f1a58c4a112fdca8aae769b6ba11429af1d98b1b6cb3a"
+    },
+    "assets/KaTeX_Main-Italic-BMLOBm91.woff": {
+      "bytes": 19676,
+      "sha256": "f1d6ef86f3b11a528bd5185199bd2443ecb2b0dead96d88674b5a2c12be24bdf"
+    },
+    "assets/KaTeX_Main-Italic-NWA7e6Wa.woff2": {
+      "bytes": 16988,
+      "sha256": "97479ca6cce906abc961ecac96faa5f9ca2e61b8e7670d475826bcdee9a7c267"
+    },
+    "assets/KaTeX_Main-Regular-B22Nviop.woff2": {
+      "bytes": 26272,
+      "sha256": "c2342cd8b869e01752a9321dc17213fc40d4d04c79688c1d43f2cf316abd7866"
+    },
+    "assets/KaTeX_Main-Regular-Dr94JaBh.woff": {
+      "bytes": 30772,
+      "sha256": "c6368d87e8a1a3a5d337623d83d8dc4b868f242a9ad476237d6f8d1e0f168cdc"
+    },
+    "assets/KaTeX_Main-Regular-ypZvNtVU.ttf": {
+      "bytes": 53580,
+      "sha256": "d0332f52868370fd83ae7fa46470f90c8f2eab2fcf12bc4f88080b340c95a830"
+    },
+    "assets/KaTeX_Math-BoldItalic-B3XSjfu4.ttf": {
+      "bytes": 31196,
+      "sha256": "f9377ab0271cda59af24bcffbd46a4d0c8a3572ffafdbb38de2ad5ea7b0d5ee5"
+    },
+    "assets/KaTeX_Math-BoldItalic-CZnvNsCZ.woff2": {
+      "bytes": 16400,
+      "sha256": "dc47344dbb6cb5b655c8460d561f4df5f501b90c804ad3c6cec65fe322351ab1"
+    },
+    "assets/KaTeX_Math-BoldItalic-iY-2wyZ7.woff": {
+      "bytes": 18668,
+      "sha256": "850c0af5c2238497febaf5e461d880bf458c341f42f4f330f1b1ab5698b1998e"
+    },
+    "assets/KaTeX_Math-Italic-DA0__PXp.woff": {
+      "bytes": 18748,
+      "sha256": "8a8d244581371912b8f3f5a23e2437cb2a59cd9bcaebb0346e722c05737a2571"
+    },
+    "assets/KaTeX_Math-Italic-flOr_0UB.ttf": {
+      "bytes": 31308,
+      "sha256": "08ce98e51b04d58945a301e639e02b6998af29fdfd61a7b8afdd07bbfc479d4a"
+    },
+    "assets/KaTeX_Math-Italic-t53AETM-.woff2": {
+      "bytes": 16440,
+      "sha256": "7af58c5ec8f132a2ddde9027c6d7814decce4d3b822a11192a42a20e2e973264"
+    },
+    "assets/KaTeX_SansSerif-Bold-CFMepnvq.ttf": {
+      "bytes": 24504,
+      "sha256": "1ece03f79f95277d57dc7f6b435a74e1379b0d46104a8530286b60ff49369ea0"
+    },
+    "assets/KaTeX_SansSerif-Bold-D1sUS0GD.woff2": {
+      "bytes": 12216,
+      "sha256": "e99ae51144bf1232efcc1bfe5add36262c6866b0faab24fa75740e1b98577a62"
+    },
+    "assets/KaTeX_SansSerif-Bold-DbIhKOiC.woff": {
+      "bytes": 14408,
+      "sha256": "ece03cfd83e22c212cdef66feb8442d25a083beb988db3f1883f3f9738d750ba"
+    },
+    "assets/KaTeX_SansSerif-Italic-C3H0VqGB.woff2": {
+      "bytes": 12028,
+      "sha256": "00b26ac825e2095056396e0553b8ac26d3f8ad158c3826e28b4c45b385c4714a"
+    },
+    "assets/KaTeX_SansSerif-Italic-DN2j7dab.woff": {
+      "bytes": 14112,
+      "sha256": "91ee67500cc0129aa0ace3ac5c61ff1692102f0f31d02b69347fba35dcb75bf2"
+    },
+    "assets/KaTeX_SansSerif-Italic-YYjJ1zSn.ttf": {
+      "bytes": 22364,
+      "sha256": "3931dd81faed86ba021bb2bbdc36f5bed9a38d6b4f4077aca59b265aa1b02083"
+    },
+    "assets/KaTeX_SansSerif-Regular-BNo7hRIc.ttf": {
+      "bytes": 19436,
+      "sha256": "f36ea897e19f4a2e571d1e900e4e3710e438deb05a842486045ba0a3e616a4ad"
+    },
+    "assets/KaTeX_SansSerif-Regular-CS6fqUqJ.woff": {
+      "bytes": 12316,
+      "sha256": "11e4dc8a6471ff6d6ee561d53d10fde8f7489e798257ff449c5d37c197435605"
+    },
+    "assets/KaTeX_SansSerif-Regular-DDBCnlJ7.woff2": {
+      "bytes": 10344,
+      "sha256": "68e8c73ef42afd3ccec58bf0fba302cce448938e7fc020a5e31f8a952eee1342"
+    },
+    "assets/KaTeX_Script-Regular-C5JkGWo-.ttf": {
+      "bytes": 16648,
+      "sha256": "1c67f068fea8bb09bf099c088b1cf64bd27516a6e07f4684344873564bb66a67"
+    },
+    "assets/KaTeX_Script-Regular-D3wIWfF6.woff2": {
+      "bytes": 9644,
+      "sha256": "036d4e95149b69ff9bcc0cd55771efeb25ffa3947293e69acd78d5ac328c684b"
+    },
+    "assets/KaTeX_Script-Regular-D5yQViql.woff": {
+      "bytes": 10588,
+      "sha256": "d96cdf2b3bdd4d64a8fd5f74a4c467f123a8a73931cd435889f08ffaf9bf947a"
+    },
+    "assets/KaTeX_Size1-Regular-C195tn64.woff": {
+      "bytes": 6496,
+      "sha256": "c943cc986384f59e86bea5fd7dc50a9c4dfe567a7c05eb40d6790720dead97c9"
+    },
+    "assets/KaTeX_Size1-Regular-Dbsnue_I.ttf": {
+      "bytes": 12228,
+      "sha256": "95b6d2f1a50173bfedb8c63e1d1c99b10427d0a4df4201cb44513b226951a22b"
+    },
+    "assets/KaTeX_Size1-Regular-mCD8mA8B.woff2": {
+      "bytes": 5468,
+      "sha256": "6b47c40166b6dbe21a5dfca7718413f2147fd2399be1ba605d8ad39cedf25dfe"
+    },
+    "assets/KaTeX_Size2-Regular-B7gKUWhC.ttf": {
+      "bytes": 11508,
+      "sha256": "a6b2099fb555c60e3a0db3a08842ebf1d732c6eb4e4bf44913613bed4fc4e39b"
+    },
+    "assets/KaTeX_Size2-Regular-Dy4dx90m.woff2": {
+      "bytes": 5208,
+      "sha256": "d04c54219f9eaec6d4d4fd42dfb28785975a4794d6b2fc71e566b9cd6db842dd"
+    },
+    "assets/KaTeX_Size2-Regular-oD1tc_U0.woff": {
+      "bytes": 6188,
+      "sha256": "2014c523c3210bcc166648c4d4cc57f05b747df07a24277bf71c51e67dc79e3d"
+    },
+    "assets/KaTeX_Size3-Regular-CTq5MqoE.woff": {
+      "bytes": 4420,
+      "sha256": "6ab6b62e9b62dae2c00dd90f791bd10950be0ecc3490d7d6045f51c2e8fe0949"
+    },
+    "assets/KaTeX_Size3-Regular-DgpXs0kz.ttf": {
+      "bytes": 7588,
+      "sha256": "500e04d54f0d51666332c9d2089aa803be22aa878eca539e59fa53c6e522b082"
+    },
+    "assets/KaTeX_Size4-Regular-BF-4gkZK.woff": {
+      "bytes": 5980,
+      "sha256": "99f9c6750b489c9462bf04900bd3f939df9b829339daaaaa99ef5495cdddea58"
+    },
+    "assets/KaTeX_Size4-Regular-DWFBv043.ttf": {
+      "bytes": 10364,
+      "sha256": "c647367d1dd4e162468717d020e1fc0f1dc5c26ebfdffbe55261713bf88c5877"
+    },
+    "assets/KaTeX_Size4-Regular-Dl5lxZxV.woff2": {
+      "bytes": 4928,
+      "sha256": "a4af7d414440a1c1790825cfb700cf9cf43b0f2c4b04f0ebc523011ad9853ec0"
+    },
+    "assets/KaTeX_Typewriter-Regular-C0xS9mPB.woff": {
+      "bytes": 16028,
+      "sha256": "e14fed02b1aba7ce9f5afd5844b5d0321b22351febc720e0de8b8723527609f7"
+    },
+    "assets/KaTeX_Typewriter-Regular-CO6r4hn1.woff2": {
+      "bytes": 13568,
+      "sha256": "71d517d67827787cfabdf186914cc3358eda539e37931941f2b2fd4a21f68c0b"
+    },
+    "assets/KaTeX_Typewriter-Regular-D3Ib7_Hf.ttf": {
+      "bytes": 27556,
+      "sha256": "f01f3e87d9c6a61c0c081ceb577abd864eb00a612f7ac1620dd6915fad2ef5aa"
+    },
+    "assets/LoginForm-CYqg2xNk.js": {
+      "bytes": 18628,
+      "sha256": "305f808880984244af5b1dca9a4f40956775891136d1cd01ca833bb89b78fac0"
+    },
+    "assets/MainRootRecovery-Q1noUvN7.js": {
+      "bytes": 2170,
+      "sha256": "92d8a9348d9dc392fa6b2cdec44e99b725220bb59cba58a6ace4bbe32c88e28a"
+    },
+    "assets/MainUnifiedLogin-pxCHMfyy.js": {
+      "bytes": 1323,
+      "sha256": "71e8876c7fc76497547eb4a78e73ac1673f7342492248e7a7d8651f934d7c0ff"
+    },
+    "assets/MarkdownRenderer-2RuIR85x.css": {
+      "bytes": 36158,
+      "sha256": "b9e1824f1d2587888b30879d51026cd24843df3012580355e194b0b72df47a60"
+    },
+    "assets/MarkdownRenderer-PJaNzeoj.js": {
+      "bytes": 968305,
+      "sha256": "d2b91af11f674b03fefd7cf1469d28c5a049e26a9bcc43733eac9100b5720d2e"
+    },
+    "assets/OAuth2Callback-BXQXblE5.js": {
+      "bytes": 1433,
+      "sha256": "9d779b903a5183131f76f48ab3c6648de27898a8a826cc7736cf11955f3325ea"
+    },
+    "assets/ParamOverrideEditorModal-fmtG1m9A.js": {
+      "bytes": 49744,
+      "sha256": "c46eff7be0cc9053ebd58e2808e228672ce114d39d1f2a9146d7e9ac2eb8a509"
+    },
+    "assets/PasswordResetConfirm-BmnhSwEP.js": {
+      "bytes": 3294,
+      "sha256": "ad09a2e5219da8f0fc54109b7b921affa0b8897a671e7514c7b9da827ea265c1"
+    },
+    "assets/PasswordResetForm-DDxo2wFl.js": {
+      "bytes": 2935,
+      "sha256": "e70f56bdb7c719eb3e44a8ffe4741f9622ae32268dad618492dae29332f52a2d"
+    },
+    "assets/PersonalSetting-CKS4MfUP.js": {
+      "bytes": 89960,
+      "sha256": "602119084cad6d15d076fbaaa583e5d32ff70102b2849f428c3406ef70ca3f47"
+    },
+    "assets/RegisterForm-59YnYlOv.js": {
+      "bytes": 13556,
+      "sha256": "7de07087e0261e861ec4843f91a180c7ff135c094d249c8fc82f5a7e2106f5cc"
+    },
+    "assets/RenderUtils-CxxGuPmT.js": {
+      "bytes": 647,
+      "sha256": "1ab761816817a4f0daf5967b0d9bc908a8dba784785051cba7667527943caf42"
+    },
+    "assets/TavernFluxConsent-e0hjKQIm.js": {
+      "bytes": 5584,
+      "sha256": "791c2d740835440de401def9b7a302bd2c589acaa22e6d079fdc105f2809774a"
+    },
+    "assets/WeChatIcon-BTXhx_XA.js": {
+      "bytes": 4388,
+      "sha256": "fb9306935e45b864f4ca5eaeb648f984140405f9385d9f077b6009f708484e8a"
+    },
+    "assets/_basePickBy-BjF34Weo.js": {
+      "bytes": 2626,
+      "sha256": "ce2145e9c66f3a291ec407be5e542e33fcc1c7aeb715d94201d798e0328c4602"
+    },
+    "assets/_baseUniq-vvqfQRZ7.js": {
+      "bytes": 11423,
+      "sha256": "818a5ad936a3b500eef9d0ce245c7bed35efe952028266720e6a2513b38f7416"
+    },
+    "assets/arc-DcUWhNZR.js": {
+      "bytes": 3432,
+      "sha256": "4a50b9c646e6a5f4d19cabb8c66ebe06b4049c2a5fe03dd8715f43c2f61419a8"
+    },
+    "assets/architectureDiagram-IEHRJDOE-DS4LfGSl.js": {
+      "bytes": 148520,
+      "sha256": "ca8079e2129b52d4de6c2172370e98920dab6f769278ab724137d68fcdc4fbee"
+    },
+    "assets/base64-C94kA9SO.js": {
+      "bytes": 571,
+      "sha256": "696d4694d24886209ddcb48ede7c723cc70366878bda07c59428f01d066170d7"
+    },
+    "assets/blockDiagram-JOT3LUYC-Cmh5lUXs.js": {
+      "bytes": 73006,
+      "sha256": "c10122ebc866a5ea7408183f014df5862d13f30ddd8806297872bb5f013574ac"
+    },
+    "assets/c4Diagram-VJAJSXHY-BJ4rm0TB.js": {
+      "bytes": 70335,
+      "sha256": "cd9fbcde006b5a2d821d668dcc2c092a8cc537db1d70f35092396ce0bc3821a3"
+    },
+    "assets/channel-CGhYItXD.js": {
+      "bytes": 117,
+      "sha256": "879231e70aec05e9463fb8d149763b1ed6b77ee3ba94a813ed027396dbc09fe1"
+    },
+    "assets/channel.constants-DXl_HJsd.js": {
+      "bytes": 2285,
+      "sha256": "c32b66bbb5df0e61eb601fc51f73235600c06efe5a355633be47a4a78f186df5"
+    },
+    "assets/chunk-4BMEZGHF-Bxkjs3Gn.js": {
+      "bytes": 301,
+      "sha256": "761fe75a98ff1e444a0fb9536379357b835a164e42775fec89d39df1cac2e9ef"
+    },
+    "assets/chunk-A2AXSNBT-B_V8T3sh.js": {
+      "bytes": 45135,
+      "sha256": "91cea22afad1ceae630933786517daee220a45162ba0877bd45798efd1680011"
+    },
+    "assets/chunk-AEK57VVT-DU7c5lfA.js": {
+      "bytes": 35076,
+      "sha256": "e0f04506e017989d7931633c2cb94333e7db326775cb7f2a8060022ada8536de"
+    },
+    "assets/chunk-D6G4REZN-CF39Avt_.js": {
+      "bytes": 1417,
+      "sha256": "d0e10b8fb060af21ca27f7de53f891ec08920950f2f42eaa23ec62a5672b0b94"
+    },
+    "assets/chunk-RZ5BOZE2-BZZ6lqZi.js": {
+      "bytes": 711,
+      "sha256": "93079bb87d4636eeb5d16a7bb2eff801172bf228e8ec48339f089f1e8d410045"
+    },
+    "assets/chunk-XZIHB7SX-qcucF-EZ.js": {
+      "bytes": 197,
+      "sha256": "fe1d985d0d7c69d954655fd5121cdc657aa4921bb33d785fd47d0d2c067ffb46"
+    },
+    "assets/circle-alert-D3EcuN-F.js": {
+      "bytes": 423,
+      "sha256": "25b3813bb88d98af9c873b5d3cd560ede80ac34f337f91a39cb0f61c79a4b845"
+    },
+    "assets/circle-check-big-DQ84xCRf.js": {
+      "bytes": 367,
+      "sha256": "d4f11b7e3a294b71e03f1396d0e44b5850477253a7b2a1cd213c0a29d6bce9cb"
+    },
+    "assets/circle-help-B7I7mQ3T.js": {
+      "bytes": 412,
+      "sha256": "8a5e6acb6351c18a8a8f91c89e3c782c56bb4f9a0b52edc7d8790a83cb9feb8d"
+    },
+    "assets/circle-x-vAJJIbFO.js": {
+      "bytes": 380,
+      "sha256": "eb7c017e0695528c05178016a31f3a525b9d8a419a41882af38f56e7202dda91"
+    },
+    "assets/classDiagram-GIVACNV2-CHKSufri.js": {
+      "bytes": 549,
+      "sha256": "b25384ca5fc516ce4c41510d88bdd69a57612be22724f61a5b8950e50f26bfb7"
+    },
+    "assets/classDiagram-v2-COTLJTTW-CHKSufri.js": {
+      "bytes": 549,
+      "sha256": "b25384ca5fc516ce4c41510d88bdd69a57612be22724f61a5b8950e50f26bfb7"
+    },
+    "assets/clock-hFa3B9fh.js": {
+      "bytes": 356,
+      "sha256": "f9cfd445726be60edda3e02b0761752c8115ffe3c575e8799e3197668378d861"
+    },
+    "assets/clone-BOGy2W29.js": {
+      "bytes": 96,
+      "sha256": "370a19caaea99ac3d8d0c34098f302d29ea9ec99c7203dcfbaf8ce64e91ca490"
+    },
+    "assets/coins-DDWlWXW5.js": {
+      "bytes": 836,
+      "sha256": "cf89d3b2b02c1e7ad133e8c3952310973f7dd5ab679ccd6ec08f4fe0e48c3ebb"
+    },
+    "assets/console.constants-vM8Yoc3p.js": {
+      "bytes": 560,
+      "sha256": "7cac101b6717d761e6250666b1f524dff0c14f9e4fd01c22c8c161e2831518c0"
+    },
+    "assets/copy-uXQIBEPI.js": {
+      "bytes": 409,
+      "sha256": "cc7c242af80c19ee9960369d7b73dbeb478cd9d6381ca42810cd5c82eb53b0b6"
+    },
+    "assets/cytoscape.esm-BY7v1xhs.js": {
+      "bytes": 438679,
+      "sha256": "f7b2b661431d4cdf496186d1d0d8446fe19fb40cb74baba5e613ff55ae9e26cb"
+    },
+    "assets/dagre-OKDRZEBW-CJbYnQ0k.js": {
+      "bytes": 11462,
+      "sha256": "9d8f0ae09aa2fa9ae9855827937804fa6e431fe81ce293c7a17e0e87f3cffacb"
+    },
+    "assets/dayjs.min-PIMVZRF8.js": {
+      "bytes": 7103,
+      "sha256": "2f7e779e5f15b0ab827b70c860b4d01e8c65a3d43eedd91d6150c0f517364f0e"
+    },
+    "assets/diagram-SSKATNLV-R4vn8GaV.js": {
+      "bytes": 6250,
+      "sha256": "3775b3077b833d3af8a517e24354a10f42b4f5cd351a2376c6ba039f10499efc"
+    },
+    "assets/diagram-VNBRO52H-29L5eX4w.js": {
+      "bytes": 3929,
+      "sha256": "6a38682a9554e5923d92a0bbe9f5e446b5ed16473db7449d59857137485729a8"
+    },
+    "assets/en-BPm8Qago.js": {
+      "bytes": 267319,
+      "sha256": "12b1267470624098f175030a7dbba968ac82adc2d5783db28c2f8fb7912042e3"
+    },
+    "assets/erDiagram-Q7BY3M3F-BD5D3uhq.js": {
+      "bytes": 25489,
+      "sha256": "aa7cd1de16a15c9873bf1fa07ea6e3092d8e4aa7b310708a411fd9fbcc6e0f50"
+    },
+    "assets/file-text-D8HcPqZ2.js": {
+      "bytes": 506,
+      "sha256": "73d7d8d761c0e1e5180bc537d5c302fa2010efd34b3d78f9e0767ab0ea689b08"
+    },
+    "assets/flowDiagram-4HSFHLVR-BVNChHKW.js": {
+      "bytes": 61028,
+      "sha256": "a1289dd110aa80a54595a61c89794c8be7f0bad3abdc649ce613d4b4a7e906aa"
+    },
+    "assets/fr-pLlviAnQ.js": {
+      "bytes": 286705,
+      "sha256": "2d806ac19bc232b7bfa16603335013b924b50c8d1b69965faa92c2c6ddb8e45e"
+    },
+    "assets/ganttDiagram-APWFNJXF-C6iDOW_y.js": {
+      "bytes": 62137,
+      "sha256": "d7af6bb844834ff0a5590b8901501367bfb84f37bff307c30bfccc315a083246"
+    },
+    "assets/gauge-CArruMlo.js": {
+      "bytes": 707,
+      "sha256": "583eb2122da9119a853425a4f62ea33a3154d07ca82747784b13281b1911466f"
+    },
+    "assets/gitGraphDiagram-7IBYFJ6S-CviY6gIE.js": {
+      "bytes": 24848,
+      "sha256": "d14721620e7a901b967a3be51cefd137247ce9f123f1bd2e0661008d12eb9fa1"
+    },
+    "assets/graph-01z46I22.js": {
+      "bytes": 5924,
+      "sha256": "3e8b7b44e151884dd965ed4eb363dff1f0307bd58ad9b2b0bade0bd2eac451f4"
+    },
+    "assets/i18n-CgI34beQ.js": {
+      "bytes": 60373,
+      "sha256": "7c11af5b87d3dd53f8d7dfd2f5f982e6b37260e12164868ac3f9c2a802992e11"
+    },
+    "assets/index-5jNrdt2X.js": {
+      "bytes": 178523,
+      "sha256": "b6e342422d6672c883b2bfd7fdff903da74bd4a2e44a4bec126b3c31c7dba622"
+    },
+    "assets/index-B6Kwv275.js": {
+      "bytes": 19496,
+      "sha256": "6147c12c0c3c0fe408d7dd733e8275c8e284848a61deafadebcabf012582cd50"
+    },
+    "assets/index-B8g5iE3A.js": {
+      "bytes": 4287368,
+      "sha256": "d83446be70be6f22a0f159deb6c283a0d4c4dad95b68891d453a9096e470fd85"
+    },
+    "assets/index-BFlWuuJB.js": {
+      "bytes": 1219,
+      "sha256": "2305587d67b34bec1d21115d0f1afee3340447b3aabbdf80d6e3a8ce373abdea"
+    },
+    "assets/index-BK3z4HYP.js": {
+      "bytes": 570,
+      "sha256": "382abac3db02a922939a997f3d4f614d19a226d4ee66b1b1519a27b55aea09ea"
+    },
+    "assets/index-BTlSDuDY.js": {
+      "bytes": 16811,
+      "sha256": "44090c10afb73a55c7d311ac3417c654cc62e5e1ead7cc5a4aea39efd091b07a"
+    },
+    "assets/index-BhL3s-_f.js": {
+      "bytes": 1943357,
+      "sha256": "4adac4a03880f76be4d08866a322593c412b332db43ea7d2ec88f4c94fb4e60d"
+    },
+    "assets/index-BtYAh3D6.js": {
+      "bytes": 51563,
+      "sha256": "0e1d5a4f19211cb2000cf3e658b9d09f5a18cc3419153e16028b90b7421b86a8"
+    },
+    "assets/index-BzMWK-Q-.js": {
+      "bytes": 2887,
+      "sha256": "3cdea6ab275d702245924602e3e528b08f1282efb5d6323746ebb56c215bcd16"
+    },
+    "assets/index-CG4fq5xp.js": {
+      "bytes": 38043,
+      "sha256": "9e16df7a218215e06655d60ea590a0e8c99da9eb06832fe499ad7d811cd82b69"
+    },
+    "assets/index-CQ4uUzp3.js": {
+      "bytes": 572,
+      "sha256": "5072e3408d231d631c71abd1177fd2cea072afa47da8cb142403caa8075b2d72"
+    },
+    "assets/index-CfjIumn2.js": {
+      "bytes": 9933,
+      "sha256": "175b1d3ca111c4273203ff8c15828d2da82742f207b80e45fd7430eba8f20f13"
+    },
+    "assets/index-Cj22If36.js": {
+      "bytes": 624,
+      "sha256": "99e65d3836f102dc660639eefb68928bb376bd19f630ad67bdfc2f52e79e7532"
+    },
+    "assets/index-D-TruK0B.js": {
+      "bytes": 3171,
+      "sha256": "545f342f9cbe11fb883e433e2caf168bcc8d3592fe1647b5b905461a47b81ada"
+    },
+    "assets/index-DAtmXB3p.js": {
+      "bytes": 47573,
+      "sha256": "a67ab0f69528896ae30e13651552afef96bbb23ee23931346e4438f968e74b9a"
+    },
+    "assets/index-DjdDwixI.js": {
+      "bytes": 77311,
+      "sha256": "274076a7b6f061d6b0946b6a665238938f20e82677f23e933faa1528e15659ad"
+    },
+    "assets/index-Djr_OOPv.css": {
+      "bytes": 636633,
+      "sha256": "6613db01b0ab3927dcecfe0c7a13aa05e5b70c55a93e5cdf6155774e530a2d93"
+    },
+    "assets/index-IoRTfdEo.js": {
+      "bytes": 363241,
+      "sha256": "c18a4e93d38c7868a91b5b796edf0e0dc4e3eb9a7235ec4b86a4ddcaa13fc40d"
+    },
+    "assets/index-JFlku7Dv.js": {
+      "bytes": 7942,
+      "sha256": "7b08f1aefb9d6ac76ed65081d0a6f702952e4c676a889c0dcd865b1e7d785ae8"
+    },
+    "assets/index-MzC14Vxt.js": {
+      "bytes": 54860,
+      "sha256": "bfcda04fd1db1ef6f3bd7c4e19f3f00ee2ed13212dea04a0661d7ec5e95e189f"
+    },
+    "assets/index-NHGKjISG.js": {
+      "bytes": 94870,
+      "sha256": "19a9ab6bf1ac1fb9d1b8ad3753c3bedfd2809687a8493adedb2ac9296ad6e9ab"
+    },
+    "assets/index-OTUewFbA.js": {
+      "bytes": 19005,
+      "sha256": "a2fcb2a4215c96b2ed6b2c3cfacbd5db5f278c1b7ccaf8601f24510f6687d08b"
+    },
+    "assets/index-Zv9_IHRL.js": {
+      "bytes": 41302,
+      "sha256": "48217476d09f158fc93a3d646817a5148c00b1bc9342df97c6c6ea669a271446"
+    },
+    "assets/index-hQuTbTUt.js": {
+      "bytes": 34922,
+      "sha256": "3d867033ccf60a33220920673a4f8fb1e867d96f621cd20772b6023317575922"
+    },
+    "assets/index-svCNlpyi.js": {
+      "bytes": 19949,
+      "sha256": "39152a0336692e83872200be9c227381aecf59ebbb003e0aca634df8fcb31708"
+    },
+    "assets/index-u9vIL1fp.js": {
+      "bytes": 16617,
+      "sha256": "e529907ed14a574e7646ad6046d33fd404446a53b9bdd1e29b7fa672e6a3d62f"
+    },
+    "assets/infoDiagram-PH2N3AL5-Cj6pulW9.js": {
+      "bytes": 879,
+      "sha256": "c2c30f298c9c2f77dbb792761f240d56312a6b7f64eb7baa626d93bffe885e6f"
+    },
+    "assets/init-Gi6I4Gst.js": {
+      "bytes": 147,
+      "sha256": "379fa880c14ad48f43b0c23ff56b30b2b808e8460fd9f9cad8bf7cb278c5b814"
+    },
+    "assets/ja-BHINgQDv.js": {
+      "bytes": 297711,
+      "sha256": "cd6dd733a2d3a0324408c77425f2f1f8383364714b8faae9103861e4d8735545"
+    },
+    "assets/journeyDiagram-U35MCT3I-BBiw9hhf.js": {
+      "bytes": 22891,
+      "sha256": "ace73da3cca022b1153b99ca1cd543051075e880530089eb76362b0be5ac3141"
+    },
+    "assets/kanban-definition-NDS4AKOZ-BOpfqAjU.js": {
+      "bytes": 20734,
+      "sha256": "15abb8df4961ad7ecb8e0f40aee64fe358b7c13e2ac900c5585ff8ea053c1429"
+    },
+    "assets/layout-69zd7rRl.js": {
+      "bytes": 27217,
+      "sha256": "a1d3126c1e7ef592d2ba31ae9d98195b54e75d6a7cc899c81e02958e6f1bc543"
+    },
+    "assets/linear-DgG8sfwU.js": {
+      "bytes": 10180,
+      "sha256": "876fe1b1f7fce69da82d31a719639719cf4c7ba2583dc4634fa1ef74dd405ae5"
+    },
+    "assets/mindmap-definition-ALO5MXBD-BbOxc1SI.js": {
+      "bytes": 101146,
+      "sha256": "7ad9c5c5dd30de8097fce538847ac36706d9fc42b2d77079927f2953f560d78a"
+    },
+    "assets/ordinal-Cboi1Yqb.js": {
+      "bytes": 1189,
+      "sha256": "71be569ce2355b7f256a834b3a4c11668fe80a880b3587c1b3b14e9e5dedf478"
+    },
+    "assets/palette-CGXVCzpY.js": {
+      "bytes": 683,
+      "sha256": "827e7ed1999caa59fec6f0ff5545c101218716f4d4b6bd380d56c745a7148969"
+    },
+    "assets/passkey-FLQbWFlb.js": {
+      "bytes": 2654,
+      "sha256": "85c9adaff52e5d6c674caa0fb5fe0d47e2be29181ce3eb507595ea1b454f17a5"
+    },
+    "assets/pause-CYysR7xw.js": {
+      "bytes": 919,
+      "sha256": "b24ba9f97d4d823b1c6319b21c3e9ed55e9f7cab9c87f80a0f572cee3956a34c"
+    },
+    "assets/pieDiagram-IB7DONF6-D0dTqKbq.js": {
+      "bytes": 5166,
+      "sha256": "c9fa50a0c6404de072ee7ac07f66089cff9e4616b07ccbe650af4b7cf2d7518d"
+    },
+    "assets/quadrantDiagram-7GDLP6J5-BqLADgAs.js": {
+      "bytes": 34478,
+      "sha256": "1c5add94cb255c828fdf8191576943187acc5afb236b26fb91b6b046d4d88cfd"
+    },
+    "assets/quota-DQd7Umfp.js": {
+      "bytes": 579,
+      "sha256": "64f9914ae66c5fd2c06e7e4b5b76c812f30ae94d19dd5e81b03f3241ad9a552f"
+    },
+    "assets/radar-MK3ICKWK-wgHJsRWp.js": {
+      "bytes": 314649,
+      "sha256": "a40a54212014c895c1125f992c871551e2513a8bb5e0e4c75342d614b0626764"
+    },
+    "assets/react-components-DI1J3X4J.js": {
+      "bytes": 27825,
+      "sha256": "68335470a734ed0fa4714d041cf2d26bb0d2b7cb22b226ac284d064479cf6ee6"
+    },
+    "assets/react-core-C71RtjlW.js": {
+      "bytes": 163881,
+      "sha256": "79043a6bd2a447a66ed4978ec5b183beedc4d47aff80ef35792c9ebc231a165a"
+    },
+    "assets/refresh-cw-CcUPjGo_.js": {
+      "bytes": 494,
+      "sha256": "7d683ff659d2d5bfa9532504c4cf8b5635497ab905951cb91033e88beb0aa316"
+    },
+    "assets/requestRuleExpr-9fIDSOOv.js": {
+      "bytes": 6861,
+      "sha256": "3504788add1347939d8592c6236a5c693b2659eb207448a4c2ce4a0e2fc11611"
+    },
+    "assets/requirementDiagram-KVF5MWMF-xXnMv52C.js": {
+      "bytes": 30414,
+      "sha256": "4ae0544858aa62ad0320cd2b9d7b32d3f1ee119c1ddb20f5740fa3766055fc68"
+    },
+    "assets/ru-DGGPgkCO.js": {
+      "bytes": 370434,
+      "sha256": "6cbe9984483048176f716756731a00d38a9c2408a5701f31e2ecd9d91d81e389"
+    },
+    "assets/sankeyDiagram-QLVOVGJD-DkNH_R3k.js": {
+      "bytes": 22869,
+      "sha256": "0ec427eb23c9cdb44ea120bbe73bfb8652f3ff1741fb72ea881a3c6835ab273b"
+    },
+    "assets/save-BQyB3tTD.js": {
+      "bytes": 500,
+      "sha256": "c6c47652b813bebf6cb7b56f2220fb87d1be6691b9aabd42c56cf839a71ff850"
+    },
+    "assets/semi-ui-CuRZLQb2.js": {
+      "bytes": 1818042,
+      "sha256": "4739e5bc683030a0438b18c29e5a905dbdc984c3bdcf62e373571ac5d08ef586"
+    },
+    "assets/semi-ui-yRXI6evF.css": {
+      "bytes": 582682,
+      "sha256": "2a8dc9cd1a2c237dd290976d00bea49e0ca86eb32e7978e8d7c29c74b2b68585"
+    },
+    "assets/sequenceDiagram-X6HHIX6F-CIMxusYS.js": {
+      "bytes": 88760,
+      "sha256": "a1470b84d6673997e6e99f06699a6a7027e4ed0aeb303f0fde657965a29f5626"
+    },
+    "assets/sparkles-BLcoYy7U.js": {
+      "bytes": 681,
+      "sha256": "d49328364983cbbed9d57da9614f0119da2b41bf0de9286e030f932f12edfad6"
+    },
+    "assets/stateDiagram-DGXRK772-B-PuS-ek.js": {
+      "bytes": 10840,
+      "sha256": "2430f7880469c5f1ad5369f6b1164064d3f00b314f0c3a07b8b3603c7d1ce2b4"
+    },
+    "assets/stateDiagram-v2-YXO3MK2T-BGI8r4RR.js": {
+      "bytes": 552,
+      "sha256": "2fdbfcdbd45cf7be7f819c03722f2ae41714842b3ff4ece3a0a5db47313d67dc"
+    },
+    "assets/timeline-definition-BDJGKUSR-ERuBBlp_.js": {
+      "bytes": 23833,
+      "sha256": "f8675ebef031b23b2b6fc32dc50050804bbe02b05ea0cf648214ecee7615dab4"
+    },
+    "assets/token-clobpcgA.js": {
+      "bytes": 1395,
+      "sha256": "4f025d1e58b66078fe26c74fdc845bbef731c51b24f574675011dec37758458b"
+    },
+    "assets/tools-Cc3rnZtW.js": {
+      "bytes": 77436,
+      "sha256": "a0f82566d52d4d7d32dcbf10b507287af544246a3edf0cf643dabee62226b123"
+    },
+    "assets/triangle-alert-BjQveemZ.js": {
+      "bytes": 1641,
+      "sha256": "6a9790471da77d8b7d6af7ae06aec6f83e4a2c5b07c32ed6cd0baddd3c819d27"
+    },
+    "assets/useSecureVerification-nfvT_cGz.js": {
+      "bytes": 9342,
+      "sha256": "679bbc07e39c8333332e9e7bbc4c2e75a544a93e0f3bbfd3cc5a4e6342c26d0b"
+    },
+    "assets/useTableCompactMode-BaJ5yJY6.js": {
+      "bytes": 2708,
+      "sha256": "0627d47d7f2d9e545be70f69a3536419bf0d79e84fc26ef8446cf883181054ce"
+    },
+    "assets/useTokenKeys-CpZ-T9V2.js": {
+      "bytes": 578,
+      "sha256": "9cfd7fe79dc5e2a3787d3a2baf5602aceec42405bfef811b10c4c5dc786b13ae"
+    },
+    "assets/user-check-BnwZgiVN.js": {
+      "bytes": 2021,
+      "sha256": "6437529febd83aa67989a05f51cce5aaaa0cc9a4f0372edfebb12c2658bc6915"
+    },
+    "assets/users-A6Z4Acee.js": {
+      "bytes": 479,
+      "sha256": "80ee3493146b2b7a5089fa682a4b3b7778ba85ba6df228501d40900845b45938"
+    },
+    "assets/vi-jereBtB0.js": {
+      "bytes": 315102,
+      "sha256": "d4ab87067bbbb9ef8a00073bab89712523f5bfd92968de3f5f1f43db2a81a760"
+    },
+    "assets/wallet-CLtklAq4.js": {
+      "bytes": 459,
+      "sha256": "e9fef4ed2a96287a560998d24e355cde86382830694e067444ef2acff4d8044d"
+    },
+    "assets/x-kGz6cbGI.js": {
+      "bytes": 327,
+      "sha256": "61af6eb9a00b27ae91d4c742fe50110a41bf6186edb082137ebfef95173387e1"
+    },
+    "assets/xychartDiagram-VJFVF3MP-JGW1qEUT.js": {
+      "bytes": 38911,
+      "sha256": "13c7de6fc51e1a337d6a95c21fbad7da271187ad22272eafef5a5638d2dbc934"
+    },
+    "assets/zap-Cf7NDETk.js": {
+      "bytes": 435,
+      "sha256": "300382355ade38de01fabdbc6f4815471268507d03af24a288402e9a6ef8ddc7"
+    },
+    "assets/zh-TW-D4QaPLki.js": {
+      "bytes": 231008,
+      "sha256": "0bdbbb597560e2fad947b171bedeb22ac890874da12630b03e39c8f310042cdb"
+    },
+    "azure_model_name.png": {
+      "bytes": 256912,
+      "sha256": "84b932315cc40da0bfa209c2ea1997b50a6b29059573a64aa27095bf323769d4"
+    },
+    "cover-4.webp": {
+      "bytes": 54144,
+      "sha256": "d85216e8afdf67a0ec66df07110fa824c1a0529605118543ed98c0f4e087ab6b"
+    },
+    "favicon.ico": {
+      "bytes": 15406,
+      "sha256": "a6fdd69f10c17855cdc83856e4fb6680779db14dcc75a1a2716ebdfe4f2f2097"
+    },
+    "index.html": {
+      "bytes": 1702,
+      "sha256": "3e417566c2f28f37961f27e39bf3fe10dd7a3131a5e84f97023154adf5d7ad2b"
+    },
+    "logo.png": {
+      "bytes": 9597,
+      "sha256": "32132a307cad98d7f93b0384de87411f087bb34c148c932dcd5eea92101cbec3"
+    },
+    "pay-apple.png": {
+      "bytes": 1597,
+      "sha256": "b6d1a84203a757c2ebd312c16c53690120c290e96199943057279d4c2a788c85"
+    },
+    "pay-card.png": {
+      "bytes": 3685,
+      "sha256": "0274a950b26656769a3d97b82f3ab256388f8460ba75699f7b606084b2cdb143"
+    },
+    "pay-google.png": {
+      "bytes": 4644,
+      "sha256": "1c8a05d3618bdf7a85a0d32022f73c786597dafdf4cd9235b7e525fe3e51ee78"
+    },
+    "ratio.png": {
+      "bytes": 143438,
+      "sha256": "61cc0ee3c629d7779b7752c152b627a136fac1dab28e1ce2f4c355c195245fe6"
+    },
+    "robots.txt": {
+      "bytes": 67,
+      "sha256": "90d24bc3bf698ac1e173739502298ccca72adf1f564fab05f484b8c48d1cadd2"
+    }
+  },
+  "references": [
+    {
+      "from": "assets/CardTable-D98udpSz.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/CardTable-D98udpSz.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/CardTable-D98udpSz.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/CardTable-D98udpSz.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/CodeViewer-C5ScidnH.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/CodeViewer-C5ScidnH.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/CodeViewer-C5ScidnH.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/CodeViewer-C5ScidnH.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/CodeViewer-C5ScidnH.js",
+      "target": "assets/copy-uXQIBEPI.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/IllustrationConstruction-CvCMF4R3.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/IllustrationNoResult-BciVunfe.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/JSONEditor-Blq2ysiA.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/JSONEditor-Blq2ysiA.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/JSONEditor-Blq2ysiA.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/LoginForm-CYqg2xNk.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/LoginForm-CYqg2xNk.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/LoginForm-CYqg2xNk.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/LoginForm-CYqg2xNk.js",
+      "target": "assets/passkey-FLQbWFlb.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/LoginForm-CYqg2xNk.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/LoginForm-CYqg2xNk.js",
+      "target": "assets/WeChatIcon-BTXhx_XA.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/LoginForm-CYqg2xNk.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/LoginForm-CYqg2xNk.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/MainRootRecovery-Q1noUvN7.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/MainRootRecovery-Q1noUvN7.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/MainRootRecovery-Q1noUvN7.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/MainRootRecovery-Q1noUvN7.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/MainRootRecovery-Q1noUvN7.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/MainRootRecovery-Q1noUvN7.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/MainUnifiedLogin-pxCHMfyy.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/MainUnifiedLogin-pxCHMfyy.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/MainUnifiedLogin-pxCHMfyy.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/MainUnifiedLogin-pxCHMfyy.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/MainUnifiedLogin-pxCHMfyy.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/MainUnifiedLogin-pxCHMfyy.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_AMS-Regular-BQhdFMY1.woff2",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_AMS-Regular-DMm9YOAa.woff",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_AMS-Regular-DRggAlZN.ttf",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_Caligraphic-Bold-Dq_IR9rO.woff2",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_Caligraphic-Bold-BEiXGLvX.woff",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_Caligraphic-Bold-ATXxdsX0.ttf",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_Caligraphic-Regular-Di6jR-x-.woff2",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_Caligraphic-Regular-CTRA-rTL.woff",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_Caligraphic-Regular-wX97UBjC.ttf",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_Fraktur-Bold-CL6g_b3V.woff2",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_Fraktur-Bold-BsDP51OF.woff",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_Fraktur-Bold-BdnERNNW.ttf",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_Fraktur-Regular-CTYiF6lA.woff2",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_Fraktur-Regular-Dxdc4cR9.woff",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_Fraktur-Regular-CB_wures.ttf",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_Main-Bold-Cx986IdX.woff2",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_Main-Bold-Jm3AIy58.woff",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_Main-Bold-waoOVXN0.ttf",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_Main-BoldItalic-DxDJ3AOS.woff2",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_Main-BoldItalic-SpSLRI95.woff",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_Main-BoldItalic-DzxPMmG6.ttf",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_Main-Italic-NWA7e6Wa.woff2",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_Main-Italic-BMLOBm91.woff",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_Main-Italic-3WenGoN9.ttf",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_Main-Regular-B22Nviop.woff2",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_Main-Regular-Dr94JaBh.woff",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_Main-Regular-ypZvNtVU.ttf",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_Math-BoldItalic-CZnvNsCZ.woff2",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_Math-BoldItalic-iY-2wyZ7.woff",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_Math-BoldItalic-B3XSjfu4.ttf",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_Math-Italic-t53AETM-.woff2",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_Math-Italic-DA0__PXp.woff",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_Math-Italic-flOr_0UB.ttf",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_SansSerif-Bold-D1sUS0GD.woff2",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_SansSerif-Bold-DbIhKOiC.woff",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_SansSerif-Bold-CFMepnvq.ttf",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_SansSerif-Italic-C3H0VqGB.woff2",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_SansSerif-Italic-DN2j7dab.woff",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_SansSerif-Italic-YYjJ1zSn.ttf",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_SansSerif-Regular-DDBCnlJ7.woff2",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_SansSerif-Regular-CS6fqUqJ.woff",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_SansSerif-Regular-BNo7hRIc.ttf",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_Script-Regular-D3wIWfF6.woff2",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_Script-Regular-D5yQViql.woff",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_Script-Regular-C5JkGWo-.ttf",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_Size1-Regular-mCD8mA8B.woff2",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_Size1-Regular-C195tn64.woff",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_Size1-Regular-Dbsnue_I.ttf",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_Size2-Regular-Dy4dx90m.woff2",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_Size2-Regular-oD1tc_U0.woff",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_Size2-Regular-B7gKUWhC.ttf",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_Size3-Regular-CTq5MqoE.woff",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_Size3-Regular-DgpXs0kz.ttf",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_Size4-Regular-Dl5lxZxV.woff2",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_Size4-Regular-BF-4gkZK.woff",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_Size4-Regular-DWFBv043.ttf",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_Typewriter-Regular-CO6r4hn1.woff2",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_Typewriter-Regular-C0xS9mPB.woff",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-2RuIR85x.css",
+      "target": "assets/KaTeX_Typewriter-Regular-D3Ib7_Hf.ttf",
+      "kind": "css"
+    },
+    {
+      "from": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "target": "assets/dayjs.min-PIMVZRF8.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "target": "assets/dagre-OKDRZEBW-CJbYnQ0k.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "target": "assets/c4Diagram-VJAJSXHY-BJ4rm0TB.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "target": "assets/flowDiagram-4HSFHLVR-BVNChHKW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "target": "assets/flowDiagram-4HSFHLVR-BVNChHKW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "target": "assets/erDiagram-Q7BY3M3F-BD5D3uhq.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "target": "assets/gitGraphDiagram-7IBYFJ6S-CviY6gIE.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "target": "assets/ganttDiagram-APWFNJXF-C6iDOW_y.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "target": "assets/infoDiagram-PH2N3AL5-Cj6pulW9.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "target": "assets/pieDiagram-IB7DONF6-D0dTqKbq.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "target": "assets/quadrantDiagram-7GDLP6J5-BqLADgAs.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "target": "assets/xychartDiagram-VJFVF3MP-JGW1qEUT.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "target": "assets/requirementDiagram-KVF5MWMF-xXnMv52C.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "target": "assets/sequenceDiagram-X6HHIX6F-CIMxusYS.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "target": "assets/classDiagram-GIVACNV2-CHKSufri.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "target": "assets/classDiagram-v2-COTLJTTW-CHKSufri.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "target": "assets/stateDiagram-DGXRK772-B-PuS-ek.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "target": "assets/stateDiagram-v2-YXO3MK2T-BGI8r4RR.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "target": "assets/journeyDiagram-U35MCT3I-BBiw9hhf.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "target": "assets/flowDiagram-4HSFHLVR-BVNChHKW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "target": "assets/timeline-definition-BDJGKUSR-ERuBBlp_.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "target": "assets/mindmap-definition-ALO5MXBD-BbOxc1SI.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "target": "assets/kanban-definition-NDS4AKOZ-BOpfqAjU.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "target": "assets/sankeyDiagram-QLVOVGJD-DkNH_R3k.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "target": "assets/diagram-VNBRO52H-29L5eX4w.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "target": "assets/diagram-SSKATNLV-R4vn8GaV.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "target": "assets/blockDiagram-JOT3LUYC-Cmh5lUXs.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "target": "assets/architectureDiagram-IEHRJDOE-DS4LfGSl.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/OAuth2Callback-BXQXblE5.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/OAuth2Callback-BXQXblE5.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/OAuth2Callback-BXQXblE5.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/OAuth2Callback-BXQXblE5.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/OAuth2Callback-BXQXblE5.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/OAuth2Callback-BXQXblE5.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/ParamOverrideEditorModal-fmtG1m9A.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/ParamOverrideEditorModal-fmtG1m9A.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/ParamOverrideEditorModal-fmtG1m9A.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/ParamOverrideEditorModal-fmtG1m9A.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/PasswordResetConfirm-BmnhSwEP.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/PasswordResetConfirm-BmnhSwEP.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/PasswordResetConfirm-BmnhSwEP.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/PasswordResetConfirm-BmnhSwEP.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/PasswordResetConfirm-BmnhSwEP.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/PasswordResetConfirm-BmnhSwEP.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/PasswordResetForm-DDxo2wFl.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/PasswordResetForm-DDxo2wFl.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/PasswordResetForm-DDxo2wFl.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/PasswordResetForm-DDxo2wFl.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/PasswordResetForm-DDxo2wFl.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/PasswordResetForm-DDxo2wFl.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/PersonalSetting-CKS4MfUP.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/PersonalSetting-CKS4MfUP.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/PersonalSetting-CKS4MfUP.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/PersonalSetting-CKS4MfUP.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/PersonalSetting-CKS4MfUP.js",
+      "target": "assets/passkey-FLQbWFlb.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/PersonalSetting-CKS4MfUP.js",
+      "target": "assets/coins-DDWlWXW5.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/PersonalSetting-CKS4MfUP.js",
+      "target": "assets/users-A6Z4Acee.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/PersonalSetting-CKS4MfUP.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/PersonalSetting-CKS4MfUP.js",
+      "target": "assets/CodeViewer-C5ScidnH.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/PersonalSetting-CKS4MfUP.js",
+      "target": "assets/useSecureVerification-nfvT_cGz.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/PersonalSetting-CKS4MfUP.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/PersonalSetting-CKS4MfUP.js",
+      "target": "assets/copy-uXQIBEPI.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/RegisterForm-59YnYlOv.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/RegisterForm-59YnYlOv.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/RegisterForm-59YnYlOv.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/RegisterForm-59YnYlOv.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/RegisterForm-59YnYlOv.js",
+      "target": "assets/WeChatIcon-BTXhx_XA.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/RegisterForm-59YnYlOv.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/RegisterForm-59YnYlOv.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/RenderUtils-CxxGuPmT.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/RenderUtils-CxxGuPmT.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/TavernFluxConsent-e0hjKQIm.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/TavernFluxConsent-e0hjKQIm.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/TavernFluxConsent-e0hjKQIm.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/TavernFluxConsent-e0hjKQIm.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/TavernFluxConsent-e0hjKQIm.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/TavernFluxConsent-e0hjKQIm.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/WeChatIcon-BTXhx_XA.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/WeChatIcon-BTXhx_XA.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/_basePickBy-BjF34Weo.js",
+      "target": "assets/_baseUniq-vvqfQRZ7.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/_basePickBy-BjF34Weo.js",
+      "target": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/_basePickBy-BjF34Weo.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/_baseUniq-vvqfQRZ7.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/_baseUniq-vvqfQRZ7.js",
+      "target": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/arc-DcUWhNZR.js",
+      "target": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/architectureDiagram-IEHRJDOE-DS4LfGSl.js",
+      "target": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/architectureDiagram-IEHRJDOE-DS4LfGSl.js",
+      "target": "assets/chunk-4BMEZGHF-Bxkjs3Gn.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/architectureDiagram-IEHRJDOE-DS4LfGSl.js",
+      "target": "assets/chunk-XZIHB7SX-qcucF-EZ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/architectureDiagram-IEHRJDOE-DS4LfGSl.js",
+      "target": "assets/radar-MK3ICKWK-wgHJsRWp.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/architectureDiagram-IEHRJDOE-DS4LfGSl.js",
+      "target": "assets/cytoscape.esm-BY7v1xhs.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/architectureDiagram-IEHRJDOE-DS4LfGSl.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/architectureDiagram-IEHRJDOE-DS4LfGSl.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/architectureDiagram-IEHRJDOE-DS4LfGSl.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/architectureDiagram-IEHRJDOE-DS4LfGSl.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/architectureDiagram-IEHRJDOE-DS4LfGSl.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/architectureDiagram-IEHRJDOE-DS4LfGSl.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/architectureDiagram-IEHRJDOE-DS4LfGSl.js",
+      "target": "assets/dayjs.min-PIMVZRF8.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/architectureDiagram-IEHRJDOE-DS4LfGSl.js",
+      "target": "assets/_baseUniq-vvqfQRZ7.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/architectureDiagram-IEHRJDOE-DS4LfGSl.js",
+      "target": "assets/_basePickBy-BjF34Weo.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/architectureDiagram-IEHRJDOE-DS4LfGSl.js",
+      "target": "assets/clone-BOGy2W29.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/blockDiagram-JOT3LUYC-Cmh5lUXs.js",
+      "target": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/blockDiagram-JOT3LUYC-Cmh5lUXs.js",
+      "target": "assets/clone-BOGy2W29.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/blockDiagram-JOT3LUYC-Cmh5lUXs.js",
+      "target": "assets/graph-01z46I22.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/blockDiagram-JOT3LUYC-Cmh5lUXs.js",
+      "target": "assets/channel-CGhYItXD.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/blockDiagram-JOT3LUYC-Cmh5lUXs.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/blockDiagram-JOT3LUYC-Cmh5lUXs.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/blockDiagram-JOT3LUYC-Cmh5lUXs.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/blockDiagram-JOT3LUYC-Cmh5lUXs.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/blockDiagram-JOT3LUYC-Cmh5lUXs.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/blockDiagram-JOT3LUYC-Cmh5lUXs.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/blockDiagram-JOT3LUYC-Cmh5lUXs.js",
+      "target": "assets/dayjs.min-PIMVZRF8.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/blockDiagram-JOT3LUYC-Cmh5lUXs.js",
+      "target": "assets/_baseUniq-vvqfQRZ7.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/c4Diagram-VJAJSXHY-BJ4rm0TB.js",
+      "target": "assets/chunk-D6G4REZN-CF39Avt_.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/c4Diagram-VJAJSXHY-BJ4rm0TB.js",
+      "target": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/c4Diagram-VJAJSXHY-BJ4rm0TB.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/c4Diagram-VJAJSXHY-BJ4rm0TB.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/c4Diagram-VJAJSXHY-BJ4rm0TB.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/c4Diagram-VJAJSXHY-BJ4rm0TB.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/c4Diagram-VJAJSXHY-BJ4rm0TB.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/c4Diagram-VJAJSXHY-BJ4rm0TB.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/c4Diagram-VJAJSXHY-BJ4rm0TB.js",
+      "target": "assets/dayjs.min-PIMVZRF8.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/channel-CGhYItXD.js",
+      "target": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/chunk-4BMEZGHF-Bxkjs3Gn.js",
+      "target": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/chunk-A2AXSNBT-B_V8T3sh.js",
+      "target": "assets/chunk-RZ5BOZE2-BZZ6lqZi.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/chunk-A2AXSNBT-B_V8T3sh.js",
+      "target": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/chunk-AEK57VVT-DU7c5lfA.js",
+      "target": "assets/chunk-RZ5BOZE2-BZZ6lqZi.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/chunk-AEK57VVT-DU7c5lfA.js",
+      "target": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/chunk-D6G4REZN-CF39Avt_.js",
+      "target": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/chunk-RZ5BOZE2-BZZ6lqZi.js",
+      "target": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/chunk-XZIHB7SX-qcucF-EZ.js",
+      "target": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/circle-alert-D3EcuN-F.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/circle-check-big-DQ84xCRf.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/circle-help-B7I7mQ3T.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/circle-x-vAJJIbFO.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/classDiagram-GIVACNV2-CHKSufri.js",
+      "target": "assets/chunk-A2AXSNBT-B_V8T3sh.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/classDiagram-GIVACNV2-CHKSufri.js",
+      "target": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/classDiagram-GIVACNV2-CHKSufri.js",
+      "target": "assets/chunk-RZ5BOZE2-BZZ6lqZi.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/classDiagram-GIVACNV2-CHKSufri.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/classDiagram-GIVACNV2-CHKSufri.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/classDiagram-GIVACNV2-CHKSufri.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/classDiagram-GIVACNV2-CHKSufri.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/classDiagram-GIVACNV2-CHKSufri.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/classDiagram-GIVACNV2-CHKSufri.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/classDiagram-GIVACNV2-CHKSufri.js",
+      "target": "assets/dayjs.min-PIMVZRF8.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/classDiagram-v2-COTLJTTW-CHKSufri.js",
+      "target": "assets/chunk-A2AXSNBT-B_V8T3sh.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/classDiagram-v2-COTLJTTW-CHKSufri.js",
+      "target": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/classDiagram-v2-COTLJTTW-CHKSufri.js",
+      "target": "assets/chunk-RZ5BOZE2-BZZ6lqZi.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/classDiagram-v2-COTLJTTW-CHKSufri.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/classDiagram-v2-COTLJTTW-CHKSufri.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/classDiagram-v2-COTLJTTW-CHKSufri.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/classDiagram-v2-COTLJTTW-CHKSufri.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/classDiagram-v2-COTLJTTW-CHKSufri.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/classDiagram-v2-COTLJTTW-CHKSufri.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/classDiagram-v2-COTLJTTW-CHKSufri.js",
+      "target": "assets/dayjs.min-PIMVZRF8.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/clock-hFa3B9fh.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/clone-BOGy2W29.js",
+      "target": "assets/_baseUniq-vvqfQRZ7.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/coins-DDWlWXW5.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/console.constants-vM8Yoc3p.js",
+      "target": "assets/dayjs.min-PIMVZRF8.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/copy-uXQIBEPI.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/dagre-OKDRZEBW-CJbYnQ0k.js",
+      "target": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/dagre-OKDRZEBW-CJbYnQ0k.js",
+      "target": "assets/graph-01z46I22.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/dagre-OKDRZEBW-CJbYnQ0k.js",
+      "target": "assets/layout-69zd7rRl.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/dagre-OKDRZEBW-CJbYnQ0k.js",
+      "target": "assets/_baseUniq-vvqfQRZ7.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/dagre-OKDRZEBW-CJbYnQ0k.js",
+      "target": "assets/clone-BOGy2W29.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/dagre-OKDRZEBW-CJbYnQ0k.js",
+      "target": "assets/_basePickBy-BjF34Weo.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/dagre-OKDRZEBW-CJbYnQ0k.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/dagre-OKDRZEBW-CJbYnQ0k.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/dagre-OKDRZEBW-CJbYnQ0k.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/dagre-OKDRZEBW-CJbYnQ0k.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/dagre-OKDRZEBW-CJbYnQ0k.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/dagre-OKDRZEBW-CJbYnQ0k.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/dagre-OKDRZEBW-CJbYnQ0k.js",
+      "target": "assets/dayjs.min-PIMVZRF8.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/dayjs.min-PIMVZRF8.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/diagram-SSKATNLV-R4vn8GaV.js",
+      "target": "assets/chunk-4BMEZGHF-Bxkjs3Gn.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/diagram-SSKATNLV-R4vn8GaV.js",
+      "target": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/diagram-SSKATNLV-R4vn8GaV.js",
+      "target": "assets/radar-MK3ICKWK-wgHJsRWp.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/diagram-SSKATNLV-R4vn8GaV.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/diagram-SSKATNLV-R4vn8GaV.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/diagram-SSKATNLV-R4vn8GaV.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/diagram-SSKATNLV-R4vn8GaV.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/diagram-SSKATNLV-R4vn8GaV.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/diagram-SSKATNLV-R4vn8GaV.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/diagram-SSKATNLV-R4vn8GaV.js",
+      "target": "assets/dayjs.min-PIMVZRF8.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/diagram-SSKATNLV-R4vn8GaV.js",
+      "target": "assets/_baseUniq-vvqfQRZ7.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/diagram-SSKATNLV-R4vn8GaV.js",
+      "target": "assets/_basePickBy-BjF34Weo.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/diagram-SSKATNLV-R4vn8GaV.js",
+      "target": "assets/clone-BOGy2W29.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/diagram-VNBRO52H-29L5eX4w.js",
+      "target": "assets/chunk-4BMEZGHF-Bxkjs3Gn.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/diagram-VNBRO52H-29L5eX4w.js",
+      "target": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/diagram-VNBRO52H-29L5eX4w.js",
+      "target": "assets/radar-MK3ICKWK-wgHJsRWp.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/diagram-VNBRO52H-29L5eX4w.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/diagram-VNBRO52H-29L5eX4w.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/diagram-VNBRO52H-29L5eX4w.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/diagram-VNBRO52H-29L5eX4w.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/diagram-VNBRO52H-29L5eX4w.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/diagram-VNBRO52H-29L5eX4w.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/diagram-VNBRO52H-29L5eX4w.js",
+      "target": "assets/dayjs.min-PIMVZRF8.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/diagram-VNBRO52H-29L5eX4w.js",
+      "target": "assets/_baseUniq-vvqfQRZ7.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/diagram-VNBRO52H-29L5eX4w.js",
+      "target": "assets/_basePickBy-BjF34Weo.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/diagram-VNBRO52H-29L5eX4w.js",
+      "target": "assets/clone-BOGy2W29.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/erDiagram-Q7BY3M3F-BD5D3uhq.js",
+      "target": "assets/chunk-RZ5BOZE2-BZZ6lqZi.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/erDiagram-Q7BY3M3F-BD5D3uhq.js",
+      "target": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/erDiagram-Q7BY3M3F-BD5D3uhq.js",
+      "target": "assets/channel-CGhYItXD.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/erDiagram-Q7BY3M3F-BD5D3uhq.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/erDiagram-Q7BY3M3F-BD5D3uhq.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/erDiagram-Q7BY3M3F-BD5D3uhq.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/erDiagram-Q7BY3M3F-BD5D3uhq.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/erDiagram-Q7BY3M3F-BD5D3uhq.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/erDiagram-Q7BY3M3F-BD5D3uhq.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/erDiagram-Q7BY3M3F-BD5D3uhq.js",
+      "target": "assets/dayjs.min-PIMVZRF8.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/file-text-D8HcPqZ2.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/flowDiagram-4HSFHLVR-BVNChHKW.js",
+      "target": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/flowDiagram-4HSFHLVR-BVNChHKW.js",
+      "target": "assets/chunk-RZ5BOZE2-BZZ6lqZi.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/flowDiagram-4HSFHLVR-BVNChHKW.js",
+      "target": "assets/channel-CGhYItXD.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/flowDiagram-4HSFHLVR-BVNChHKW.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/flowDiagram-4HSFHLVR-BVNChHKW.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/flowDiagram-4HSFHLVR-BVNChHKW.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/flowDiagram-4HSFHLVR-BVNChHKW.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/flowDiagram-4HSFHLVR-BVNChHKW.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/flowDiagram-4HSFHLVR-BVNChHKW.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/flowDiagram-4HSFHLVR-BVNChHKW.js",
+      "target": "assets/dayjs.min-PIMVZRF8.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/ganttDiagram-APWFNJXF-C6iDOW_y.js",
+      "target": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/ganttDiagram-APWFNJXF-C6iDOW_y.js",
+      "target": "assets/dayjs.min-PIMVZRF8.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/ganttDiagram-APWFNJXF-C6iDOW_y.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/ganttDiagram-APWFNJXF-C6iDOW_y.js",
+      "target": "assets/linear-DgG8sfwU.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/ganttDiagram-APWFNJXF-C6iDOW_y.js",
+      "target": "assets/init-Gi6I4Gst.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/ganttDiagram-APWFNJXF-C6iDOW_y.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/ganttDiagram-APWFNJXF-C6iDOW_y.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/ganttDiagram-APWFNJXF-C6iDOW_y.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/ganttDiagram-APWFNJXF-C6iDOW_y.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/ganttDiagram-APWFNJXF-C6iDOW_y.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/gauge-CArruMlo.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/gitGraphDiagram-7IBYFJ6S-CviY6gIE.js",
+      "target": "assets/chunk-4BMEZGHF-Bxkjs3Gn.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/gitGraphDiagram-7IBYFJ6S-CviY6gIE.js",
+      "target": "assets/chunk-XZIHB7SX-qcucF-EZ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/gitGraphDiagram-7IBYFJ6S-CviY6gIE.js",
+      "target": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/gitGraphDiagram-7IBYFJ6S-CviY6gIE.js",
+      "target": "assets/radar-MK3ICKWK-wgHJsRWp.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/gitGraphDiagram-7IBYFJ6S-CviY6gIE.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/gitGraphDiagram-7IBYFJ6S-CviY6gIE.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/gitGraphDiagram-7IBYFJ6S-CviY6gIE.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/gitGraphDiagram-7IBYFJ6S-CviY6gIE.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/gitGraphDiagram-7IBYFJ6S-CviY6gIE.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/gitGraphDiagram-7IBYFJ6S-CviY6gIE.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/gitGraphDiagram-7IBYFJ6S-CviY6gIE.js",
+      "target": "assets/dayjs.min-PIMVZRF8.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/gitGraphDiagram-7IBYFJ6S-CviY6gIE.js",
+      "target": "assets/_baseUniq-vvqfQRZ7.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/gitGraphDiagram-7IBYFJ6S-CviY6gIE.js",
+      "target": "assets/_basePickBy-BjF34Weo.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/gitGraphDiagram-7IBYFJ6S-CviY6gIE.js",
+      "target": "assets/clone-BOGy2W29.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/graph-01z46I22.js",
+      "target": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/graph-01z46I22.js",
+      "target": "assets/_baseUniq-vvqfQRZ7.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/i18n-CgI34beQ.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/i18n-CgI34beQ.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-5jNrdt2X.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-5jNrdt2X.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-5jNrdt2X.js",
+      "target": "assets/useTableCompactMode-BaJ5yJY6.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-5jNrdt2X.js",
+      "target": "assets/CardTable-D98udpSz.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-5jNrdt2X.js",
+      "target": "assets/IllustrationNoResult-BciVunfe.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-5jNrdt2X.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-5jNrdt2X.js",
+      "target": "assets/channel.constants-DXl_HJsd.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-5jNrdt2X.js",
+      "target": "assets/index-BTlSDuDY.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-5jNrdt2X.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-5jNrdt2X.js",
+      "target": "assets/ParamOverrideEditorModal-fmtG1m9A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-5jNrdt2X.js",
+      "target": "assets/token-clobpcgA.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-5jNrdt2X.js",
+      "target": "assets/JSONEditor-Blq2ysiA.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-5jNrdt2X.js",
+      "target": "assets/useSecureVerification-nfvT_cGz.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-5jNrdt2X.js",
+      "target": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-5jNrdt2X.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-5jNrdt2X.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-5jNrdt2X.js",
+      "target": "assets/passkey-FLQbWFlb.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-5jNrdt2X.js",
+      "target": "assets/dayjs.min-PIMVZRF8.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B6Kwv275.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B6Kwv275.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B6Kwv275.js",
+      "target": "assets/useTableCompactMode-BaJ5yJY6.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B6Kwv275.js",
+      "target": "assets/CardTable-D98udpSz.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B6Kwv275.js",
+      "target": "assets/IllustrationNoResult-BciVunfe.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B6Kwv275.js",
+      "target": "assets/user-check-BnwZgiVN.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B6Kwv275.js",
+      "target": "assets/circle-help-B7I7mQ3T.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B6Kwv275.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B6Kwv275.js",
+      "target": "assets/file-text-D8HcPqZ2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B6Kwv275.js",
+      "target": "assets/palette-CGXVCzpY.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B6Kwv275.js",
+      "target": "assets/copy-uXQIBEPI.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B6Kwv275.js",
+      "target": "assets/clock-hFa3B9fh.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B6Kwv275.js",
+      "target": "assets/circle-check-big-DQ84xCRf.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B6Kwv275.js",
+      "target": "assets/circle-alert-D3EcuN-F.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B6Kwv275.js",
+      "target": "assets/circle-x-vAJJIbFO.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B6Kwv275.js",
+      "target": "assets/pause-CYysR7xw.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B6Kwv275.js",
+      "target": "assets/console.constants-vM8Yoc3p.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B6Kwv275.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B6Kwv275.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B6Kwv275.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B6Kwv275.js",
+      "target": "assets/dayjs.min-PIMVZRF8.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B8g5iE3A.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B8g5iE3A.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B8g5iE3A.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B8g5iE3A.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B8g5iE3A.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B8g5iE3A.js",
+      "target": "assets/en-BPm8Qago.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B8g5iE3A.js",
+      "target": "assets/fr-pLlviAnQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B8g5iE3A.js",
+      "target": "assets/zh-TW-D4QaPLki.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B8g5iE3A.js",
+      "target": "assets/ru-DGGPgkCO.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B8g5iE3A.js",
+      "target": "assets/ja-BHINgQDv.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B8g5iE3A.js",
+      "target": "assets/vi-jereBtB0.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B8g5iE3A.js",
+      "target": "assets/index-CG4fq5xp.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B8g5iE3A.js",
+      "target": "assets/RegisterForm-59YnYlOv.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B8g5iE3A.js",
+      "target": "assets/LoginForm-CYqg2xNk.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B8g5iE3A.js",
+      "target": "assets/MainUnifiedLogin-pxCHMfyy.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B8g5iE3A.js",
+      "target": "assets/MainRootRecovery-Q1noUvN7.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B8g5iE3A.js",
+      "target": "assets/TavernFluxConsent-e0hjKQIm.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B8g5iE3A.js",
+      "target": "assets/index-IoRTfdEo.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B8g5iE3A.js",
+      "target": "assets/PasswordResetForm-DDxo2wFl.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B8g5iE3A.js",
+      "target": "assets/PasswordResetConfirm-BmnhSwEP.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B8g5iE3A.js",
+      "target": "assets/index-5jNrdt2X.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B8g5iE3A.js",
+      "target": "assets/index-hQuTbTUt.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B8g5iE3A.js",
+      "target": "assets/index-u9vIL1fp.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B8g5iE3A.js",
+      "target": "assets/index-BtYAh3D6.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B8g5iE3A.js",
+      "target": "assets/index-Zv9_IHRL.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B8g5iE3A.js",
+      "target": "assets/index-BFlWuuJB.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B8g5iE3A.js",
+      "target": "assets/index-Cj22If36.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B8g5iE3A.js",
+      "target": "assets/index-B6Kwv275.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B8g5iE3A.js",
+      "target": "assets/index-MzC14Vxt.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B8g5iE3A.js",
+      "target": "assets/index-svCNlpyi.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B8g5iE3A.js",
+      "target": "assets/index-DAtmXB3p.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B8g5iE3A.js",
+      "target": "assets/index-NHGKjISG.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B8g5iE3A.js",
+      "target": "assets/index-DjdDwixI.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B8g5iE3A.js",
+      "target": "assets/index-OTUewFbA.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B8g5iE3A.js",
+      "target": "assets/OAuth2Callback-BXQXblE5.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B8g5iE3A.js",
+      "target": "assets/PersonalSetting-CKS4MfUP.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B8g5iE3A.js",
+      "target": "assets/index-CfjIumn2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B8g5iE3A.js",
+      "target": "assets/index-JFlku7Dv.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B8g5iE3A.js",
+      "target": "assets/index-BhL3s-_f.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B8g5iE3A.js",
+      "target": "assets/index-BzMWK-Q-.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B8g5iE3A.js",
+      "target": "assets/index-CQ4uUzp3.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-B8g5iE3A.js",
+      "target": "assets/index-BK3z4HYP.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-BFlWuuJB.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-BFlWuuJB.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-BFlWuuJB.js",
+      "target": "assets/useTokenKeys-CpZ-T9V2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-BFlWuuJB.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-BFlWuuJB.js",
+      "target": "assets/token-clobpcgA.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-BFlWuuJB.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-BFlWuuJB.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-BFlWuuJB.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-BK3z4HYP.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-BK3z4HYP.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-BK3z4HYP.js",
+      "target": "assets/index-D-TruK0B.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-BK3z4HYP.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-BK3z4HYP.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-BK3z4HYP.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-BK3z4HYP.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-BK3z4HYP.js",
+      "target": "assets/IllustrationConstruction-CvCMF4R3.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-BK3z4HYP.js",
+      "target": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-BK3z4HYP.js",
+      "target": "assets/dayjs.min-PIMVZRF8.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-BTlSDuDY.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-BhL3s-_f.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-BhL3s-_f.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-BhL3s-_f.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-BhL3s-_f.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-BhL3s-_f.js",
+      "target": "assets/IllustrationConstruction-CvCMF4R3.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-BhL3s-_f.js",
+      "target": "assets/refresh-cw-CcUPjGo_.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-BhL3s-_f.js",
+      "target": "assets/gauge-CArruMlo.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-BhL3s-_f.js",
+      "target": "assets/copy-uXQIBEPI.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-BhL3s-_f.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-BhL3s-_f.js",
+      "target": "assets/circle-help-B7I7mQ3T.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-BhL3s-_f.js",
+      "target": "assets/wallet-CLtklAq4.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-BhL3s-_f.js",
+      "target": "assets/zap-Cf7NDETk.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-BhL3s-_f.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-BtYAh3D6.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-BtYAh3D6.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-BtYAh3D6.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-BtYAh3D6.js",
+      "target": "assets/refresh-cw-CcUPjGo_.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-BtYAh3D6.js",
+      "target": "assets/sparkles-BLcoYy7U.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-BtYAh3D6.js",
+      "target": "assets/wallet-CLtklAq4.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-BtYAh3D6.js",
+      "target": "assets/coins-DDWlWXW5.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-BtYAh3D6.js",
+      "target": "assets/zap-Cf7NDETk.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-BtYAh3D6.js",
+      "target": "assets/users-A6Z4Acee.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-BtYAh3D6.js",
+      "target": "assets/copy-uXQIBEPI.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-BtYAh3D6.js",
+      "target": "assets/IllustrationNoResult-BciVunfe.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-BtYAh3D6.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-BtYAh3D6.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-BtYAh3D6.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-BzMWK-Q-.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-BzMWK-Q-.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-BzMWK-Q-.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-BzMWK-Q-.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-BzMWK-Q-.js",
+      "target": "assets/IllustrationConstruction-CvCMF4R3.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-BzMWK-Q-.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-BzMWK-Q-.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-CG4fq5xp.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-CG4fq5xp.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-CG4fq5xp.js",
+      "target": "assets/useTableCompactMode-BaJ5yJY6.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-CG4fq5xp.js",
+      "target": "assets/CardTable-D98udpSz.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-CG4fq5xp.js",
+      "target": "assets/IllustrationNoResult-BciVunfe.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-CG4fq5xp.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-CG4fq5xp.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-CG4fq5xp.js",
+      "target": "assets/quota-DQd7Umfp.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-CG4fq5xp.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-CG4fq5xp.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-CQ4uUzp3.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-CQ4uUzp3.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-CQ4uUzp3.js",
+      "target": "assets/index-D-TruK0B.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-CQ4uUzp3.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-CQ4uUzp3.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-CQ4uUzp3.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-CQ4uUzp3.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-CQ4uUzp3.js",
+      "target": "assets/IllustrationConstruction-CvCMF4R3.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-CQ4uUzp3.js",
+      "target": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-CQ4uUzp3.js",
+      "target": "assets/dayjs.min-PIMVZRF8.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-CfjIumn2.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-CfjIumn2.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-CfjIumn2.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-CfjIumn2.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-CfjIumn2.js",
+      "target": "assets/circle-check-big-DQ84xCRf.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-CfjIumn2.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-CfjIumn2.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-Cj22If36.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-Cj22If36.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-Cj22If36.js",
+      "target": "assets/useTokenKeys-CpZ-T9V2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-Cj22If36.js",
+      "target": "assets/token-clobpcgA.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-Cj22If36.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-Cj22If36.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-Cj22If36.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-Cj22If36.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-D-TruK0B.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-D-TruK0B.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-D-TruK0B.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-D-TruK0B.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-D-TruK0B.js",
+      "target": "assets/IllustrationConstruction-CvCMF4R3.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-D-TruK0B.js",
+      "target": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-DAtmXB3p.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-DAtmXB3p.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-DAtmXB3p.js",
+      "target": "assets/useTableCompactMode-BaJ5yJY6.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-DAtmXB3p.js",
+      "target": "assets/CardTable-D98udpSz.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-DAtmXB3p.js",
+      "target": "assets/IllustrationNoResult-BciVunfe.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-DAtmXB3p.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-DAtmXB3p.js",
+      "target": "assets/RenderUtils-CxxGuPmT.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-DAtmXB3p.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-DAtmXB3p.js",
+      "target": "assets/channel.constants-DXl_HJsd.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-DAtmXB3p.js",
+      "target": "assets/JSONEditor-Blq2ysiA.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-DAtmXB3p.js",
+      "target": "assets/save-BQyB3tTD.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-DAtmXB3p.js",
+      "target": "assets/x-kGz6cbGI.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-DAtmXB3p.js",
+      "target": "assets/file-text-D8HcPqZ2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-DAtmXB3p.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-DAtmXB3p.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-DjdDwixI.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-DjdDwixI.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-DjdDwixI.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-DjdDwixI.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-DjdDwixI.js",
+      "target": "assets/base64-C94kA9SO.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-DjdDwixI.js",
+      "target": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-DjdDwixI.js",
+      "target": "assets/CodeViewer-C5ScidnH.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-DjdDwixI.js",
+      "target": "assets/triangle-alert-BjQveemZ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-DjdDwixI.js",
+      "target": "assets/x-kGz6cbGI.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-DjdDwixI.js",
+      "target": "assets/refresh-cw-CcUPjGo_.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-DjdDwixI.js",
+      "target": "assets/copy-uXQIBEPI.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-DjdDwixI.js",
+      "target": "assets/user-check-BnwZgiVN.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-DjdDwixI.js",
+      "target": "assets/users-A6Z4Acee.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-DjdDwixI.js",
+      "target": "assets/sparkles-BLcoYy7U.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-DjdDwixI.js",
+      "target": "assets/zap-Cf7NDETk.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-DjdDwixI.js",
+      "target": "assets/circle-check-big-DQ84xCRf.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-DjdDwixI.js",
+      "target": "assets/circle-x-vAJJIbFO.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-DjdDwixI.js",
+      "target": "assets/clock-hFa3B9fh.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-DjdDwixI.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-DjdDwixI.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-DjdDwixI.js",
+      "target": "assets/dayjs.min-PIMVZRF8.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-IoRTfdEo.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-IoRTfdEo.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-IoRTfdEo.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-IoRTfdEo.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-IoRTfdEo.js",
+      "target": "assets/ParamOverrideEditorModal-fmtG1m9A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-IoRTfdEo.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-IoRTfdEo.js",
+      "target": "assets/dayjs.min-PIMVZRF8.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-IoRTfdEo.js",
+      "target": "assets/IllustrationNoResult-BciVunfe.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-IoRTfdEo.js",
+      "target": "assets/triangle-alert-BjQveemZ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-IoRTfdEo.js",
+      "target": "assets/save-BQyB3tTD.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-IoRTfdEo.js",
+      "target": "assets/circle-help-B7I7mQ3T.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-IoRTfdEo.js",
+      "target": "assets/gauge-CArruMlo.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-IoRTfdEo.js",
+      "target": "assets/requestRuleExpr-9fIDSOOv.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-IoRTfdEo.js",
+      "target": "assets/CardTable-D98udpSz.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-IoRTfdEo.js",
+      "target": "assets/zap-Cf7NDETk.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-IoRTfdEo.js",
+      "target": "assets/palette-CGXVCzpY.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-IoRTfdEo.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-JFlku7Dv.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-JFlku7Dv.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-JFlku7Dv.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-JFlku7Dv.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-JFlku7Dv.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-JFlku7Dv.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-MzC14Vxt.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-MzC14Vxt.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-MzC14Vxt.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-MzC14Vxt.js",
+      "target": "assets/IllustrationNoResult-BciVunfe.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-MzC14Vxt.js",
+      "target": "assets/RenderUtils-CxxGuPmT.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-MzC14Vxt.js",
+      "target": "assets/copy-uXQIBEPI.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-MzC14Vxt.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-MzC14Vxt.js",
+      "target": "assets/requestRuleExpr-9fIDSOOv.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-MzC14Vxt.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-MzC14Vxt.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-NHGKjISG.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-NHGKjISG.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-NHGKjISG.js",
+      "target": "assets/useTableCompactMode-BaJ5yJY6.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-NHGKjISG.js",
+      "target": "assets/CardTable-D98udpSz.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-NHGKjISG.js",
+      "target": "assets/IllustrationNoResult-BciVunfe.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-NHGKjISG.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-NHGKjISG.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-NHGKjISG.js",
+      "target": "assets/index-BTlSDuDY.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-NHGKjISG.js",
+      "target": "assets/x-kGz6cbGI.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-NHGKjISG.js",
+      "target": "assets/save-BQyB3tTD.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-NHGKjISG.js",
+      "target": "assets/circle-alert-D3EcuN-F.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-NHGKjISG.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-NHGKjISG.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-OTUewFbA.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-OTUewFbA.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-OTUewFbA.js",
+      "target": "assets/useTableCompactMode-BaJ5yJY6.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-OTUewFbA.js",
+      "target": "assets/CardTable-D98udpSz.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-OTUewFbA.js",
+      "target": "assets/IllustrationNoResult-BciVunfe.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-OTUewFbA.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-OTUewFbA.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-OTUewFbA.js",
+      "target": "assets/quota-DQd7Umfp.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-OTUewFbA.js",
+      "target": "assets/clock-hFa3B9fh.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-OTUewFbA.js",
+      "target": "assets/refresh-cw-CcUPjGo_.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-OTUewFbA.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-OTUewFbA.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-Zv9_IHRL.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-Zv9_IHRL.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-Zv9_IHRL.js",
+      "target": "assets/useTableCompactMode-BaJ5yJY6.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-Zv9_IHRL.js",
+      "target": "assets/CardTable-D98udpSz.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-Zv9_IHRL.js",
+      "target": "assets/IllustrationNoResult-BciVunfe.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-Zv9_IHRL.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-Zv9_IHRL.js",
+      "target": "assets/sparkles-BLcoYy7U.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-Zv9_IHRL.js",
+      "target": "assets/circle-alert-D3EcuN-F.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-Zv9_IHRL.js",
+      "target": "assets/console.constants-vM8Yoc3p.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-Zv9_IHRL.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-Zv9_IHRL.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-Zv9_IHRL.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-Zv9_IHRL.js",
+      "target": "assets/dayjs.min-PIMVZRF8.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-hQuTbTUt.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-hQuTbTUt.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-hQuTbTUt.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-hQuTbTUt.js",
+      "target": "assets/useTableCompactMode-BaJ5yJY6.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-hQuTbTUt.js",
+      "target": "assets/CardTable-D98udpSz.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-hQuTbTUt.js",
+      "target": "assets/IllustrationNoResult-BciVunfe.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-hQuTbTUt.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-hQuTbTUt.js",
+      "target": "assets/quota-DQd7Umfp.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-hQuTbTUt.js",
+      "target": "assets/base64-C94kA9SO.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-hQuTbTUt.js",
+      "target": "assets/token-clobpcgA.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-hQuTbTUt.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-hQuTbTUt.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-svCNlpyi.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-svCNlpyi.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-svCNlpyi.js",
+      "target": "assets/useTableCompactMode-BaJ5yJY6.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-svCNlpyi.js",
+      "target": "assets/CardTable-D98udpSz.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-svCNlpyi.js",
+      "target": "assets/IllustrationNoResult-BciVunfe.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-svCNlpyi.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-svCNlpyi.js",
+      "target": "assets/channel.constants-DXl_HJsd.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-svCNlpyi.js",
+      "target": "assets/circle-help-B7I7mQ3T.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-svCNlpyi.js",
+      "target": "assets/sparkles-BLcoYy7U.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-svCNlpyi.js",
+      "target": "assets/file-text-D8HcPqZ2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-svCNlpyi.js",
+      "target": "assets/pause-CYysR7xw.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-svCNlpyi.js",
+      "target": "assets/circle-x-vAJJIbFO.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-svCNlpyi.js",
+      "target": "assets/clock-hFa3B9fh.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-svCNlpyi.js",
+      "target": "assets/circle-check-big-DQ84xCRf.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-svCNlpyi.js",
+      "target": "assets/console.constants-vM8Yoc3p.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-svCNlpyi.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-svCNlpyi.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-svCNlpyi.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-svCNlpyi.js",
+      "target": "assets/dayjs.min-PIMVZRF8.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-u9vIL1fp.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-u9vIL1fp.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-u9vIL1fp.js",
+      "target": "assets/useTableCompactMode-BaJ5yJY6.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-u9vIL1fp.js",
+      "target": "assets/CardTable-D98udpSz.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-u9vIL1fp.js",
+      "target": "assets/IllustrationNoResult-BciVunfe.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-u9vIL1fp.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-u9vIL1fp.js",
+      "target": "assets/quota-DQd7Umfp.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-u9vIL1fp.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-u9vIL1fp.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/index-u9vIL1fp.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/infoDiagram-PH2N3AL5-Cj6pulW9.js",
+      "target": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/infoDiagram-PH2N3AL5-Cj6pulW9.js",
+      "target": "assets/radar-MK3ICKWK-wgHJsRWp.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/infoDiagram-PH2N3AL5-Cj6pulW9.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/infoDiagram-PH2N3AL5-Cj6pulW9.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/infoDiagram-PH2N3AL5-Cj6pulW9.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/infoDiagram-PH2N3AL5-Cj6pulW9.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/infoDiagram-PH2N3AL5-Cj6pulW9.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/infoDiagram-PH2N3AL5-Cj6pulW9.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/infoDiagram-PH2N3AL5-Cj6pulW9.js",
+      "target": "assets/dayjs.min-PIMVZRF8.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/infoDiagram-PH2N3AL5-Cj6pulW9.js",
+      "target": "assets/_baseUniq-vvqfQRZ7.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/infoDiagram-PH2N3AL5-Cj6pulW9.js",
+      "target": "assets/_basePickBy-BjF34Weo.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/infoDiagram-PH2N3AL5-Cj6pulW9.js",
+      "target": "assets/clone-BOGy2W29.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/journeyDiagram-U35MCT3I-BBiw9hhf.js",
+      "target": "assets/chunk-D6G4REZN-CF39Avt_.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/journeyDiagram-U35MCT3I-BBiw9hhf.js",
+      "target": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/journeyDiagram-U35MCT3I-BBiw9hhf.js",
+      "target": "assets/arc-DcUWhNZR.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/journeyDiagram-U35MCT3I-BBiw9hhf.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/journeyDiagram-U35MCT3I-BBiw9hhf.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/journeyDiagram-U35MCT3I-BBiw9hhf.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/journeyDiagram-U35MCT3I-BBiw9hhf.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/journeyDiagram-U35MCT3I-BBiw9hhf.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/journeyDiagram-U35MCT3I-BBiw9hhf.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/journeyDiagram-U35MCT3I-BBiw9hhf.js",
+      "target": "assets/dayjs.min-PIMVZRF8.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/kanban-definition-NDS4AKOZ-BOpfqAjU.js",
+      "target": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/kanban-definition-NDS4AKOZ-BOpfqAjU.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/kanban-definition-NDS4AKOZ-BOpfqAjU.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/kanban-definition-NDS4AKOZ-BOpfqAjU.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/kanban-definition-NDS4AKOZ-BOpfqAjU.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/kanban-definition-NDS4AKOZ-BOpfqAjU.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/kanban-definition-NDS4AKOZ-BOpfqAjU.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/kanban-definition-NDS4AKOZ-BOpfqAjU.js",
+      "target": "assets/dayjs.min-PIMVZRF8.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/layout-69zd7rRl.js",
+      "target": "assets/graph-01z46I22.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/layout-69zd7rRl.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/layout-69zd7rRl.js",
+      "target": "assets/_baseUniq-vvqfQRZ7.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/layout-69zd7rRl.js",
+      "target": "assets/_basePickBy-BjF34Weo.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/layout-69zd7rRl.js",
+      "target": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/linear-DgG8sfwU.js",
+      "target": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/linear-DgG8sfwU.js",
+      "target": "assets/init-Gi6I4Gst.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/mindmap-definition-ALO5MXBD-BbOxc1SI.js",
+      "target": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/mindmap-definition-ALO5MXBD-BbOxc1SI.js",
+      "target": "assets/cytoscape.esm-BY7v1xhs.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/mindmap-definition-ALO5MXBD-BbOxc1SI.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/mindmap-definition-ALO5MXBD-BbOxc1SI.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/mindmap-definition-ALO5MXBD-BbOxc1SI.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/mindmap-definition-ALO5MXBD-BbOxc1SI.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/mindmap-definition-ALO5MXBD-BbOxc1SI.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/mindmap-definition-ALO5MXBD-BbOxc1SI.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/mindmap-definition-ALO5MXBD-BbOxc1SI.js",
+      "target": "assets/dayjs.min-PIMVZRF8.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/ordinal-Cboi1Yqb.js",
+      "target": "assets/init-Gi6I4Gst.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/palette-CGXVCzpY.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/pause-CYysR7xw.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/pieDiagram-IB7DONF6-D0dTqKbq.js",
+      "target": "assets/chunk-4BMEZGHF-Bxkjs3Gn.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/pieDiagram-IB7DONF6-D0dTqKbq.js",
+      "target": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/pieDiagram-IB7DONF6-D0dTqKbq.js",
+      "target": "assets/radar-MK3ICKWK-wgHJsRWp.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/pieDiagram-IB7DONF6-D0dTqKbq.js",
+      "target": "assets/arc-DcUWhNZR.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/pieDiagram-IB7DONF6-D0dTqKbq.js",
+      "target": "assets/ordinal-Cboi1Yqb.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/pieDiagram-IB7DONF6-D0dTqKbq.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/pieDiagram-IB7DONF6-D0dTqKbq.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/pieDiagram-IB7DONF6-D0dTqKbq.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/pieDiagram-IB7DONF6-D0dTqKbq.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/pieDiagram-IB7DONF6-D0dTqKbq.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/pieDiagram-IB7DONF6-D0dTqKbq.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/pieDiagram-IB7DONF6-D0dTqKbq.js",
+      "target": "assets/dayjs.min-PIMVZRF8.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/pieDiagram-IB7DONF6-D0dTqKbq.js",
+      "target": "assets/_baseUniq-vvqfQRZ7.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/pieDiagram-IB7DONF6-D0dTqKbq.js",
+      "target": "assets/_basePickBy-BjF34Weo.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/pieDiagram-IB7DONF6-D0dTqKbq.js",
+      "target": "assets/clone-BOGy2W29.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/pieDiagram-IB7DONF6-D0dTqKbq.js",
+      "target": "assets/init-Gi6I4Gst.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/quadrantDiagram-7GDLP6J5-BqLADgAs.js",
+      "target": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/quadrantDiagram-7GDLP6J5-BqLADgAs.js",
+      "target": "assets/linear-DgG8sfwU.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/quadrantDiagram-7GDLP6J5-BqLADgAs.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/quadrantDiagram-7GDLP6J5-BqLADgAs.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/quadrantDiagram-7GDLP6J5-BqLADgAs.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/quadrantDiagram-7GDLP6J5-BqLADgAs.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/quadrantDiagram-7GDLP6J5-BqLADgAs.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/quadrantDiagram-7GDLP6J5-BqLADgAs.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/quadrantDiagram-7GDLP6J5-BqLADgAs.js",
+      "target": "assets/dayjs.min-PIMVZRF8.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/quadrantDiagram-7GDLP6J5-BqLADgAs.js",
+      "target": "assets/init-Gi6I4Gst.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/quota-DQd7Umfp.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/radar-MK3ICKWK-wgHJsRWp.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/radar-MK3ICKWK-wgHJsRWp.js",
+      "target": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/radar-MK3ICKWK-wgHJsRWp.js",
+      "target": "assets/_baseUniq-vvqfQRZ7.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/radar-MK3ICKWK-wgHJsRWp.js",
+      "target": "assets/_basePickBy-BjF34Weo.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/radar-MK3ICKWK-wgHJsRWp.js",
+      "target": "assets/clone-BOGy2W29.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/react-components-DI1J3X4J.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/refresh-cw-CcUPjGo_.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/requirementDiagram-KVF5MWMF-xXnMv52C.js",
+      "target": "assets/chunk-RZ5BOZE2-BZZ6lqZi.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/requirementDiagram-KVF5MWMF-xXnMv52C.js",
+      "target": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/requirementDiagram-KVF5MWMF-xXnMv52C.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/requirementDiagram-KVF5MWMF-xXnMv52C.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/requirementDiagram-KVF5MWMF-xXnMv52C.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/requirementDiagram-KVF5MWMF-xXnMv52C.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/requirementDiagram-KVF5MWMF-xXnMv52C.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/requirementDiagram-KVF5MWMF-xXnMv52C.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/requirementDiagram-KVF5MWMF-xXnMv52C.js",
+      "target": "assets/dayjs.min-PIMVZRF8.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/sankeyDiagram-QLVOVGJD-DkNH_R3k.js",
+      "target": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/sankeyDiagram-QLVOVGJD-DkNH_R3k.js",
+      "target": "assets/ordinal-Cboi1Yqb.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/sankeyDiagram-QLVOVGJD-DkNH_R3k.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/sankeyDiagram-QLVOVGJD-DkNH_R3k.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/sankeyDiagram-QLVOVGJD-DkNH_R3k.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/sankeyDiagram-QLVOVGJD-DkNH_R3k.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/sankeyDiagram-QLVOVGJD-DkNH_R3k.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/sankeyDiagram-QLVOVGJD-DkNH_R3k.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/sankeyDiagram-QLVOVGJD-DkNH_R3k.js",
+      "target": "assets/dayjs.min-PIMVZRF8.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/sankeyDiagram-QLVOVGJD-DkNH_R3k.js",
+      "target": "assets/init-Gi6I4Gst.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/save-BQyB3tTD.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/semi-ui-CuRZLQb2.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/sequenceDiagram-X6HHIX6F-CIMxusYS.js",
+      "target": "assets/chunk-D6G4REZN-CF39Avt_.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/sequenceDiagram-X6HHIX6F-CIMxusYS.js",
+      "target": "assets/chunk-XZIHB7SX-qcucF-EZ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/sequenceDiagram-X6HHIX6F-CIMxusYS.js",
+      "target": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/sequenceDiagram-X6HHIX6F-CIMxusYS.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/sequenceDiagram-X6HHIX6F-CIMxusYS.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/sequenceDiagram-X6HHIX6F-CIMxusYS.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/sequenceDiagram-X6HHIX6F-CIMxusYS.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/sequenceDiagram-X6HHIX6F-CIMxusYS.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/sequenceDiagram-X6HHIX6F-CIMxusYS.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/sequenceDiagram-X6HHIX6F-CIMxusYS.js",
+      "target": "assets/dayjs.min-PIMVZRF8.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/sparkles-BLcoYy7U.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/stateDiagram-DGXRK772-B-PuS-ek.js",
+      "target": "assets/chunk-AEK57VVT-DU7c5lfA.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/stateDiagram-DGXRK772-B-PuS-ek.js",
+      "target": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/stateDiagram-DGXRK772-B-PuS-ek.js",
+      "target": "assets/graph-01z46I22.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/stateDiagram-DGXRK772-B-PuS-ek.js",
+      "target": "assets/layout-69zd7rRl.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/stateDiagram-DGXRK772-B-PuS-ek.js",
+      "target": "assets/chunk-RZ5BOZE2-BZZ6lqZi.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/stateDiagram-DGXRK772-B-PuS-ek.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/stateDiagram-DGXRK772-B-PuS-ek.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/stateDiagram-DGXRK772-B-PuS-ek.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/stateDiagram-DGXRK772-B-PuS-ek.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/stateDiagram-DGXRK772-B-PuS-ek.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/stateDiagram-DGXRK772-B-PuS-ek.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/stateDiagram-DGXRK772-B-PuS-ek.js",
+      "target": "assets/dayjs.min-PIMVZRF8.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/stateDiagram-DGXRK772-B-PuS-ek.js",
+      "target": "assets/_baseUniq-vvqfQRZ7.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/stateDiagram-DGXRK772-B-PuS-ek.js",
+      "target": "assets/_basePickBy-BjF34Weo.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/stateDiagram-v2-YXO3MK2T-BGI8r4RR.js",
+      "target": "assets/chunk-AEK57VVT-DU7c5lfA.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/stateDiagram-v2-YXO3MK2T-BGI8r4RR.js",
+      "target": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/stateDiagram-v2-YXO3MK2T-BGI8r4RR.js",
+      "target": "assets/chunk-RZ5BOZE2-BZZ6lqZi.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/stateDiagram-v2-YXO3MK2T-BGI8r4RR.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/stateDiagram-v2-YXO3MK2T-BGI8r4RR.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/stateDiagram-v2-YXO3MK2T-BGI8r4RR.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/stateDiagram-v2-YXO3MK2T-BGI8r4RR.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/stateDiagram-v2-YXO3MK2T-BGI8r4RR.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/stateDiagram-v2-YXO3MK2T-BGI8r4RR.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/stateDiagram-v2-YXO3MK2T-BGI8r4RR.js",
+      "target": "assets/dayjs.min-PIMVZRF8.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/timeline-definition-BDJGKUSR-ERuBBlp_.js",
+      "target": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/timeline-definition-BDJGKUSR-ERuBBlp_.js",
+      "target": "assets/arc-DcUWhNZR.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/timeline-definition-BDJGKUSR-ERuBBlp_.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/timeline-definition-BDJGKUSR-ERuBBlp_.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/timeline-definition-BDJGKUSR-ERuBBlp_.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/timeline-definition-BDJGKUSR-ERuBBlp_.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/timeline-definition-BDJGKUSR-ERuBBlp_.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/timeline-definition-BDJGKUSR-ERuBBlp_.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/timeline-definition-BDJGKUSR-ERuBBlp_.js",
+      "target": "assets/dayjs.min-PIMVZRF8.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/token-clobpcgA.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/tools-Cc3rnZtW.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/triangle-alert-BjQveemZ.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/useSecureVerification-nfvT_cGz.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/useSecureVerification-nfvT_cGz.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/useSecureVerification-nfvT_cGz.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/useSecureVerification-nfvT_cGz.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/useSecureVerification-nfvT_cGz.js",
+      "target": "assets/passkey-FLQbWFlb.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/useTableCompactMode-BaJ5yJY6.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/useTableCompactMode-BaJ5yJY6.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/useTableCompactMode-BaJ5yJY6.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/useTableCompactMode-BaJ5yJY6.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/useTokenKeys-CpZ-T9V2.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/useTokenKeys-CpZ-T9V2.js",
+      "target": "assets/token-clobpcgA.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/useTokenKeys-CpZ-T9V2.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/useTokenKeys-CpZ-T9V2.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/useTokenKeys-CpZ-T9V2.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/user-check-BnwZgiVN.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/users-A6Z4Acee.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/wallet-CLtklAq4.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/x-kGz6cbGI.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/xychartDiagram-VJFVF3MP-JGW1qEUT.js",
+      "target": "assets/MarkdownRenderer-PJaNzeoj.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/xychartDiagram-VJFVF3MP-JGW1qEUT.js",
+      "target": "assets/init-Gi6I4Gst.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/xychartDiagram-VJFVF3MP-JGW1qEUT.js",
+      "target": "assets/ordinal-Cboi1Yqb.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/xychartDiagram-VJFVF3MP-JGW1qEUT.js",
+      "target": "assets/linear-DgG8sfwU.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/xychartDiagram-VJFVF3MP-JGW1qEUT.js",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/xychartDiagram-VJFVF3MP-JGW1qEUT.js",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/xychartDiagram-VJFVF3MP-JGW1qEUT.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/xychartDiagram-VJFVF3MP-JGW1qEUT.js",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/xychartDiagram-VJFVF3MP-JGW1qEUT.js",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/xychartDiagram-VJFVF3MP-JGW1qEUT.js",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/xychartDiagram-VJFVF3MP-JGW1qEUT.js",
+      "target": "assets/dayjs.min-PIMVZRF8.js",
+      "kind": "js"
+    },
+    {
+      "from": "assets/zap-Cf7NDETk.js",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "js"
+    },
+    {
+      "from": "index.html",
+      "target": "logo.png",
+      "kind": "html"
+    },
+    {
+      "from": "index.html",
+      "target": "assets/index-B8g5iE3A.js",
+      "kind": "html"
+    },
+    {
+      "from": "index.html",
+      "target": "assets/react-core-C71RtjlW.js",
+      "kind": "html"
+    },
+    {
+      "from": "index.html",
+      "target": "assets/semi-ui-CuRZLQb2.js",
+      "kind": "html"
+    },
+    {
+      "from": "index.html",
+      "target": "assets/i18n-CgI34beQ.js",
+      "kind": "html"
+    },
+    {
+      "from": "index.html",
+      "target": "assets/tools-Cc3rnZtW.js",
+      "kind": "html"
+    },
+    {
+      "from": "index.html",
+      "target": "assets/react-components-DI1J3X4J.js",
+      "kind": "html"
+    },
+    {
+      "from": "index.html",
+      "target": "assets/semi-ui-yRXI6evF.css",
+      "kind": "html"
+    },
+    {
+      "from": "index.html",
+      "target": "assets/index-Djr_OOPv.css",
+      "kind": "html"
+    }
+  ],
+  "external_reference_count": 0,
+  "nonliteral_dynamic_imports": 0
+}

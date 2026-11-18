@@ -1,0 +1,137 @@
+diff --git a/web/src/App.jsx b/web/src/App.jsx
+--- a/web/src/App.jsx
++++ b/web/src/App.jsx
+@@ -33,6 +33,7 @@
+ const LoginForm = lazy(() => import('./components/auth/LoginForm'));
+ const MainUnifiedLogin = lazy(() => import('./components/auth/MainUnifiedLogin'));
+ const MainRootRecovery = lazy(() => import('./components/auth/MainRootRecovery'));
++const TavernFluxConsent = lazy(() => import('./pages/TavernFluxConsent'));
+ const Setting = lazy(() => import('./pages/Setting'));
+ const PasswordResetForm = lazy(
+   () => import('./components/auth/PasswordResetForm'),
+@@ -121,6 +122,7 @@
+             }
+           />
+           <Route path='/root-recovery' element={<MainRootRecovery />} />
++          <Route path='/tavern-flux/authorize' element={<TavernFluxConsent />} />
+           <Route path='/forbidden' element={<Forbidden />} />
+           <Route
+             path='/console/models'
+diff --git a/web/src/pages/TavernFluxConsent.jsx b/web/src/pages/TavernFluxConsent.jsx
+new file mode 100644
+--- /dev/null
++++ b/web/src/pages/TavernFluxConsent.jsx
+@@ -0,0 +1,113 @@
++import React, { useEffect, useRef, useState } from 'react';
++import { Banner, Button, Card, Input, Space, Typography } from '@douyinfe/semi-ui';
++import { useTranslation } from 'react-i18next';
++import { useSearchParams } from 'react-router-dom';
++import { API } from '../helpers/api';
++
++const ENDPOINT = '/api/tavern-flux';
++const INTENT = /^[A-Za-z0-9_-]{16,128}$/;
++const STATES = new Set(['pending', 'confirmed', 'active', 'revoked', 'expired', 'exhausted']);
++const REQUEST = { timeout: 12000, skipErrorHandler: true };
++
++/** 只接受计费端返回的当前房间授权，不从页面参数推断付款人。 */
++function valid(data, id) {
++  if (data?.intent_id !== id || !STATES.has(data.status) || typeof data.room_id !== 'string' ||
++      !data.room_id.startsWith('!') || typeof data.model_id !== 'string' ||
++      !Number.isFinite(data.quota_per_unit) || data.quota_per_unit <= 0 ||
++      !Number.isSafeInteger(data.quota_max) || data.quota_max <= 0) throw new Error('invalid room grant');
++  return data;
++}
++
++export default function TavernFluxConsent() {
++  const { i18n } = useTranslation();
++  const tr = (zh, en) => /^zh(?:[-_]|$)/i.test(i18n.resolvedLanguage || i18n.language || '') ? zh : en;
++  const [params] = useSearchParams();
++  const id = params.get('intent_id') || '';
++  const [view, setView] = useState(null);
++  const [amount, setAmount] = useState('');
++  const [error, setError] = useState('');
++  const [busy, setBusy] = useState(false);
++  const action = useRef(null);
++  const endpoint = `${ENDPOINT}/confirm/${encodeURIComponent(id)}`;
++  useEffect(() => {
++    if (!INTENT.test(id)) return undefined;
++    const controller = new AbortController();
++    setView(null);
++    setError('');
++    API.get(endpoint, { ...REQUEST, signal: controller.signal, disableDuplicate: true })
++      .then(({ data }) => { if (!controller.signal.aborted) setView(valid(data, id)); })
++      .catch((err) => {
++        if (!controller.signal.aborted) setError(err.response?.status === 401 ? 'login' : 'unavailable');
++      });
++    return () => { controller.abort(); action.current?.abort(); };
++  }, [endpoint, id]);
++
++  const scale = view?.quota_per_unit;
++  const nativeLimit = /^\d+(?:\.\d{1,6})?$/.test(amount) && Number.isFinite(scale) && scale > 0
++    ? Math.floor(Number(amount) * scale) : 0;
++  const limitOK = Number.isSafeInteger(nativeLimit) && nativeLimit > 0 && nativeLimit <= view?.quota_max;
++  const amountText = (quota) => `$${(quota / scale).toLocaleString(i18n.resolvedLanguage, { maximumFractionDigits: 6 })}`;
++  const submit = async (event, revoke = false) => {
++    event.preventDefault();
++    if (!view || action.current || (!revoke && (!limitOK || view.status !== 'pending'))) return;
++    const controller = new AbortController();
++    action.current = controller;
++    setBusy(true);
++    setError('');
++    try {
++      if (revoke) {
++        // 只能由同一 New API 登录态撤销自己当前这个房间的授权。
++        await API.delete(`${ENDPOINT}/rooms/${encodeURIComponent(id)}`, { ...REQUEST, signal: controller.signal });
++        if (!controller.signal.aborted) setView({ ...view, status: 'revoked' });
++      } else {
++        const { data } = await API.post(endpoint, { quota_limit: nativeLimit }, { ...REQUEST, signal: controller.signal });
++        if (!controller.signal.aborted) setView(valid(data, id));
++      }
++    } catch (err) {
++      if (!controller.signal.aborted) setError(err.response?.status === 401 ? 'login' : 'action');
++    } finally {
++      if (action.current === controller) action.current = null;
++      if (!controller.signal.aborted) setBusy(false);
++    }
++  };
++
++  const actual = view?.intent_id === id && view;
++  return (
++    <main className='w-full mx-auto px-4 pt-20 pb-8' style={{ maxWidth: 680 }}>
++      <Card>
++        <Space vertical align='start' spacing='medium'>
++          <Typography.Title heading={3}>{tr('为 Flux 房间授权额度', 'Approve quota for Flux')}</Typography.Title>
++          {!INTENT.test(id) && <Banner type='danger' closeIcon={null} description={tr('授权链接无效。', 'This link is invalid.')} />}
++          {error && <Banner type='warning' closeIcon={null} description={error === 'login'
++            ? tr('请用发出邀请的主站账号登录 New API，再刷新此页。', 'Sign in to New API as the inviter, then refresh this page.')
++            : error === 'action'
++              ? tr('未能确认操作结果。请刷新查看最新授权状态。', 'Could not confirm the result. Refresh to check the authorization.')
++              : tr('无法读取授权。请核对登录账号，或返回聊天频道重新发起。', 'Could not read this authorization. Verify your account or start again in Chat Rooms.')} />}
++          {error === 'login' && <a href='/login' target='_blank' rel='noopener noreferrer'>{tr('登录 New API', 'Sign in to New API')}</a>}
++          {!actual && !error && INTENT.test(id) && <p role='status'>{tr('正在读取房间授权…', 'Loading room authorization…')}</p>}
++          {actual && <>
++            <dl>
++              <dt>{tr('房间', 'Room')}</dt><dd>{view.room_label || view.room_id}</dd>
++              <dt>{tr('模型', 'Model')}</dt><dd>{view.model_id}</dd>
++              {Number.isSafeInteger(view.quota_limit) && view.quota_limit > 0 && <>
++                <dt>{tr('本房间上限', 'Room limit')}</dt><dd>{amountText(view.quota_limit)}</dd>
++              </>}
++            </dl>
++            {view.status === 'pending' && <form onSubmit={submit}>
++              <p>{tr('本房间任何成员 @Flux，都会使用你的 New API 钱包额度，不使用订阅额度。授权只对这个房间生效，可在此页撤销。', 'Any member mentioning Flux in this room uses your New API wallet balance, not subscription quota. This only applies to this room. You can revoke it here.')}</p>
++              <label htmlFor='tavern-flux-limit'>{tr('本房间上限', 'Room limit')} (USD)</label>
++              <Input id='tavern-flux-limit' inputMode='decimal' value={amount} onChange={setAmount} disabled={busy} />
++              <p>{tr('此页可设最高：', 'Maximum allowed: ')}{amountText(view.quota_max)}{tr('。批准后 24 小时内有效。', '. Authorization is valid for 24 hours.')}</p>
++              {limitOK && <p>{tr('确认上限：', 'Confirm limit: ')}{amountText(nativeLimit)}</p>}
++              <Button htmlType='submit' type='primary' disabled={!limitOK || busy} loading={busy}>{tr('确认使用我的钱包额度', 'Use my wallet balance')}</Button>
++            </form>}
++            {view.status === 'confirmed' && <p role='status'>{tr('额度已确认。请回到原邀请弹窗启用 Flux。', 'Limit confirmed. Return to the invite dialog to activate Flux.')}</p>}
++            {view.status === 'active' && <p role='status'>{tr('Flux 已在此房间启用。撤销后不再接受新的模型请求。', 'Flux is active in this room. Revoking stops new model requests.')}</p>}
++            {['active', 'confirmed', 'exhausted'].includes(view.status) && <Button type='danger' disabled={busy} onClick={(event) => submit(event, true)}>{tr('撤销本房间授权', 'Revoke this room’s authorization')}</Button>}
++            {['revoked', 'expired', 'exhausted'].includes(view.status) && <p role='status'>{tr('此授权已停用，不会发起新的模型请求。', 'This authorization is inactive. No new requests will be made.')}</p>}
++          </>}
++        </Space>
++      </Card>
++    </main>
++  );
++}

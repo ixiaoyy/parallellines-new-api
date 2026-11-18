@@ -1,0 +1,252 @@
+diff --git a/model/tavern_flux_wallet.go b/model/tavern_flux_wallet.go
+new file mode 100644
+--- /dev/null
++++ b/model/tavern_flux_wallet.go
+@@ -0,0 +1,247 @@
++package model
++
++import (
++	"errors"
++	"fmt"
++
++	"github.com/QuantumNous/new-api/common"
++	"gorm.io/gorm"
++	"gorm.io/gorm/clause"
++)
++
++const (
++	fluxWalletReserved            = "wallet_reserved"
++	fluxWalletSettled             = "wallet_settled"
++	fluxWalletFailed              = "wallet_failed"
++	fluxWalletRejected            = "wallet_rejected"
++	fluxWalletStaleSeconds  int64 = 15 * 60
++	fluxWalletRecoveryBatch       = 8
++)
++
++// 只有已确认提交的超限拒绝与退款才返回该标记。
++var ErrTavernFluxActualExceedsReservation = errors.New("flux_actual_exceeds_wallet_reservation")
++
++// 普通批扣待处理金额不在数据库钱包内，开启时不能证明 Flux 的预留可用余额。
++var ErrTavernFluxWalletBatchEnabled = errors.New("flux_wallet_batch_unavailable")
++
++// ReserveTavernFluxWallet 原子预留一个 Matrix 房间事件额度，并立即从活动授权的付款人钱包占用同额。
++// grantID、room、event 必须匹配本次授权和事件；amount、now 分别是 New API 原生整数额度与 Unix 秒。
++func ReserveTavernFluxWallet(db *gorm.DB, grantID, room, event string, amount, now int64) error {
++	if grantID == "" || room == "" || event == "" {
++		return ErrFluxInvalid
++	}
++	if amount <= 0 || amount > TavernFluxMaxQuota {
++		return ErrFluxQuota
++	}
++	// 不更改普通计费的批扣设置，且不阻止已有预留结算或退回。
++	if common.BatchUpdateEnabled {
++		return ErrTavernFluxWalletBatchEnabled
++	}
++	var payerID int
++	err := db.Transaction(func(tx *gorm.DB) error {
++		// 先以事件唯一键写入，避免回放及 SQLite 读快照升级的竞态。
++		// wallet 专用状态防止只占用过房间额度的记录冒用退款。
++		entry := TavernFluxInvocation{RoomID: room, EventID: event, GrantID: grantID, Reserved: amount, State: fluxWalletReserved, CreatedAt: now}
++		insert := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&entry)
++		if insert.Error != nil {
++			return insert.Error
++		}
++		if insert.RowsAffected != 1 {
++			return ErrFluxDuplicate
++		}
++		active := tx.Model(&TavernFluxGrant{}).Where(
++			"id = ? AND room_id = ? AND active_room_id = ? AND status = ? AND grant_expires_at > ? AND payer_id > 0",
++			grantID, room, room, TavernFluxActive, now,
++		)
++		reserve := active.Session(&gorm.Session{}).Where("quota_spent + quota_reserved <= quota_limit - ?", amount).
++			Update("quota_reserved", gorm.Expr("quota_reserved + ?", amount))
++		if reserve.Error != nil {
++			return reserve.Error
++		}
++		var grant TavernFluxGrant
++		if err := active.Select("payer_id").Take(&grant).Error; err != nil {
++			if errors.Is(err, gorm.ErrRecordNotFound) {
++				return ErrFluxForbidden
++			}
++			return err
++		}
++		if reserve.RowsAffected != 1 {
++			return ErrFluxQuota
++		}
++
++		// 同一付款人多个房间共享这条原子钱包条件更新；不从缓存读余额或改订阅。
++		credit := tx.Model(&User{}).Where("id = ? AND status = ?", grant.PayerID, common.UserStatusEnabled)
++		wallet := credit.Session(&gorm.Session{}).Where("quota >= ?", amount).Update("quota", gorm.Expr("quota - ?", amount))
++		if wallet.Error != nil {
++			return wallet.Error
++		}
++		if wallet.RowsAffected != 1 {
++			var user User
++			if err := credit.Select("id").Take(&user).Error; err != nil {
++				if errors.Is(err, gorm.ErrRecordNotFound) {
++					return ErrFluxForbidden
++				}
++				return err
++			}
++			return ErrFluxQuota
++		}
++		payerID = grant.PayerID
++		return nil
++	})
++	if err != nil {
++		return err
++	}
++	invalidateTavernFluxWallet(payerID)
++	return nil
++}
++
++// SettleTavernFluxWallet 原子结算已预留的房间事件并退回差额。
++// charged=false 时 actual 必须为零；超过预留则提交退款与拒绝，再返回专用错误。
++func SettleTavernFluxWallet(db *gorm.DB, grantID, room, event string, actual, now int64, charged bool) error {
++	_, err := settleTavernFluxWallet(db, grantID, room, event, actual, now, charged)
++	return err
++}
++
++type fluxWalletSettlement struct {
++	changed          bool
++	terminalConflict bool
++}
++
++// settleTavernFluxWallet 复用同一事务；已终结冲突用于补偿跳过竞态，不吞掉其他账本异常。
++func settleTavernFluxWallet(db *gorm.DB, grantID, room, event string, actual, now int64, charged bool) (fluxWalletSettlement, error) {
++	if grantID == "" || room == "" || event == "" || actual < 0 || !charged && actual != 0 {
++		return fluxWalletSettlement{}, ErrFluxInvalid
++	}
++	target := fluxWalletFailed
++	if charged {
++		target = fluxWalletSettled
++	}
++	var payerID int
++	var rejected bool
++	var result fluxWalletSettlement
++	err := db.Transaction(func(tx *gorm.DB) error {
++		// 先抢唯一事件的 reserved -> terminal 条件写，锁顺序与预留一致。
++		// 只记录真正扣除的实际额度；禁止把超限结果伪装成正常结算或追加扣费。
++		invocation := tx.Model(&TavernFluxInvocation{}).Where("room_id = ? AND event_id = ? AND grant_id = ?", room, event, grantID)
++		claim := invocation.Session(&gorm.Session{}).Where("state = ?", fluxWalletReserved).Updates(map[string]any{
++			"state":        gorm.Expr("CASE WHEN reserved < ? THEN ? ELSE ? END", actual, fluxWalletRejected, target),
++			"actual":       gorm.Expr("CASE WHEN reserved < ? THEN 0 ELSE ? END", actual, actual),
++			"completed_at": now,
++		})
++		if claim.Error != nil {
++			return claim.Error
++		}
++		var entry TavernFluxInvocation
++		if err := invocation.Take(&entry).Error; err != nil {
++			if errors.Is(err, gorm.ErrRecordNotFound) {
++				return ErrFluxInvalid
++			}
++			return err
++		}
++		if claim.RowsAffected != 1 {
++			if entry.State == target && entry.Actual == actual {
++				return nil
++			}
++			if entry.State == fluxWalletRejected && charged && actual > entry.Reserved {
++				rejected = true
++				return nil
++			}
++			switch entry.State {
++			case fluxWalletSettled, fluxWalletFailed, fluxWalletRejected:
++				result.terminalConflict = true
++			}
++			return ErrFluxInvalid
++		}
++		if entry.Reserved <= 0 || entry.Reserved > TavernFluxMaxQuota || entry.Actual < 0 || entry.Actual > entry.Reserved {
++			return ErrFluxInvalid
++		}
++		rejected = entry.State == fluxWalletRejected
++
++		// 即使原房已撤销、过期或换了付款人，仍只结算原 grant 和原始付款人。
++		grantQuery := tx.Model(&TavernFluxGrant{}).Where("id = ? AND room_id = ? AND payer_id > 0", grantID, room)
++		counters := grantQuery.Session(&gorm.Session{}).Where("quota_reserved >= ? AND quota_spent <= quota_limit - ?", entry.Reserved, entry.Actual).
++			Updates(map[string]any{
++				"quota_reserved": gorm.Expr("quota_reserved - ?", entry.Reserved),
++				"quota_spent":    gorm.Expr("quota_spent + ?", entry.Actual),
++			})
++		if counters.Error != nil {
++			return counters.Error
++		}
++		if counters.RowsAffected != 1 {
++			return ErrFluxInvalid
++		}
++		refund := entry.Reserved - entry.Actual
++		if refund > 0 || entry.State == fluxWalletSettled {
++			var grant TavernFluxGrant
++			if err := grantQuery.Select("payer_id").Take(&grant).Error; err != nil {
++				return err
++			}
++			updates := make(map[string]any, 3)
++			if refund > 0 {
++				updates["quota"] = gorm.Expr("quota + ?", refund)
++				payerID = grant.PayerID
++			}
++			// 原生用户汇总仅计一次成功结算；不对失败、拒绝或重放重复累计。
++			if entry.State == fluxWalletSettled {
++				updates["used_quota"] = gorm.Expr("used_quota + ?", entry.Actual)
++				updates["request_count"] = gorm.Expr("request_count + 1")
++			}
++			// 即使付款人后来被软删除，原账号仍是这笔结算的唯一归属。
++			wallet := tx.Unscoped().Model(&User{}).Where("id = ?", grant.PayerID).Updates(updates)
++			if wallet.Error != nil {
++				return wallet.Error
++			}
++			if wallet.RowsAffected != 1 {
++				return ErrFluxInvalid
++			}
++		}
++		result.changed = true
++		return nil
++	})
++	if err != nil {
++		return fluxWalletSettlement{terminalConflict: result.terminalConflict}, err
++	}
++	invalidateTavernFluxWallet(payerID)
++	if rejected {
++		return result, ErrTavernFluxActualExceedsReservation
++	}
++	return result, nil
++}
++
++// RecoverStaleTavernFluxWallet 单次最多尝试八笔已过十五分钟的钱包预留，退回原付款人并保留去重记录。
++// 返回本批实际完成的退款数；停止于第一个非终态竞争错误，剩余记录由下一次获准执行处理。
++func RecoverStaleTavernFluxWallet(db *gorm.DB, now int64) (int, error) {
++	if now < fluxWalletStaleSeconds {
++		return 0, ErrFluxInvalid
++	}
++	var pending []TavernFluxInvocation
++	if err := db.Select("grant_id", "room_id", "event_id").
++		Where("state = ? AND created_at <= ?", fluxWalletReserved, now-fluxWalletStaleSeconds).
++		Order("created_at ASC, room_id ASC, event_id ASC").Limit(fluxWalletRecoveryBatch).Find(&pending).Error; err != nil {
++		return 0, err
++	}
++	recovered := 0
++	for _, entry := range pending {
++		// 正常返回模型正文前已经结算。这里只处理长时间未结算、且仍留在预留状态的事件。
++		outcome, err := settleTavernFluxWallet(db, entry.GrantID, entry.RoomID, entry.EventID, 0, now, false)
++		if err != nil {
++			if outcome.terminalConflict && errors.Is(err, ErrFluxInvalid) {
++				continue
++			}
++			return recovered, err
++		}
++		if outcome.changed {
++			recovered++
++		}
++	}
++	return recovered, nil
++}
++
++// invalidateTavernFluxWallet 提交后只失效实际有余额变动的付款人；缓存错误不能冒充事务失败。
++func invalidateTavernFluxWallet(payerID int) {
++	if payerID > 0 {
++		if err := invalidateUserCache(payerID); err != nil {
++			common.SysLog(fmt.Sprintf("Tavern Flux wallet cache invalidation failed: payer_id=%d", payerID))
++		}
++	}
++}

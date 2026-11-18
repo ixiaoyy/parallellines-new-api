@@ -1,0 +1,54 @@
+{
+  "application_version": "v0.13.2-pkce.11",
+  "status": "prepared-wallet-billing-candidate-unpublished",
+  "production_ready": false,
+  "front_end_dist_frozen": true,
+  "paid_inference_ready": false,
+  "go_version": "1.26.1",
+  "platform": "linux/amd64",
+  "base_application_version": "v0.13.2-pkce.10",
+  "upstream_commit": "bee339d279ccecbf8c8a89e14ddbbd902f78bd5d",
+  "patches": [
+    {
+      "file": "patches/new-api-v0.13.2-pkce11-tavern-flux-gateway.patch",
+      "sha256": "551efd1e952ae002417048c5fb78de4c73df2e338080cd059bd1e6365a76d84e"
+    },
+    {
+      "file": "patches/new-api-v0.13.2-pkce11-tavern-flux-tests.patch",
+      "sha256": "d64f61b5dbcba9d3cda894f5b989abe3c6ada9dc060f6b0604d893e7b5461ac3"
+    },
+    {
+      "file": "patches/new-api-v0.13.2-pkce11-tavern-flux-consent-ui.patch",
+      "sha256": "5e8e3313a7288be876d2560f49ba4f86d07c942fa007c8b602b6e1721f1cf2ee"
+    },
+    {
+      "file": "patches/new-api-v0.13.2-pkce11-tavern-flux-wallet.patch",
+      "sha256": "1a59b72b7a84b21a6db1edbbc9544450e57ebfb5215c9262106949794299151f"
+    },
+    {
+      "file": "patches/new-api-v0.13.2-pkce11-tavern-flux-wallet-tests.patch",
+      "sha256": "5fde2e315ee543d77dbe6a78a673a8b21ef9c72796b54cd135fa1018a3611588"
+    },
+    {
+      "file": "patches/new-api-v0.13.2-pkce11-tavern-flux-native-relay.patch",
+      "sha256": "3ada3c470d8652b8ac6c6e0450b261378aa0e4641f188f99d6d8b5d278da2342"
+    },
+    {
+      "file": "patches/new-api-v0.13.2-pkce11-tavern-flux-recovery.patch",
+      "sha256": "000e8dca1b0fa7db4ae04ca0440fdb5b7e16142f018bb04d1b085a7547994c08"
+    },
+    {
+      "file": "patches/new-api-v0.13.2-pkce11-tavern-flux-two-room-tests.patch",
+      "sha256": "cd32391bb8af6d1d1fce3e0512c314cdb98958755c261180107a70efa09240c4"
+    }
+  ],
+  "base_release_lock": "releases/v0.13.2-pkce.10/upstream.lock.json",
+  "base_release_lock_sha256": "926256806f7fdbae29cc5f3c933f2bfd1e3d7ad2d5f08bac02ce05caba05ece7",
+  "base_source_manifest": "releases/v0.13.2-pkce.10/source-files.json",
+  "base_source_manifest_sha256": "420ff331bb7262890e28f1bd9983864349a1fbe8c83df575f484a4c73ed6131f",
+  "source_manifest": "releases/v0.13.2-pkce.11/source-files.json",
+  "source_manifest_sha256": "c300a7b353e00505f3f34005d8c93d38f85c94abd3e6322a0633efcb006308d3",
+  "frontend_manifest": "releases/v0.13.2-pkce.11/frontend-assets.json",
+  "frontend_source_identity": "4a1c6bdb61634dca7e00fc9416b56491cc77aa531bbb114bd5654342ec7972e0",
+  "frontend_manifest_sha256": "2e197d3c7d384a55c5c01fa91571da17757b7245e1f5dfaee3fc3ed5b6d987c5"
+}

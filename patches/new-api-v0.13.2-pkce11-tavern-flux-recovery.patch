@@ -1,0 +1,73 @@
+diff --git a/main.go b/main.go
+--- a/main.go
++++ b/main.go
+@@ -92,6 +92,7 @@
+ 
+ 	// 热更新配置
+ 	go model.SyncOptions(common.SyncFrequency)
++	defer controller.StartTavernFluxWalletRecovery()()
+ 
+ 	// 数据看板
+ 	go model.UpdateQuotaData()
+diff --git a/model/tavern_flux.go b/model/tavern_flux.go
+--- a/model/tavern_flux.go
++++ b/model/tavern_flux.go
+@@ -54,8 +54,8 @@
+ 	GrantID     string `gorm:"type:varchar(64);not null;index"`
+ 	Reserved    int64  `gorm:"not null"`
+ 	Actual      int64  `gorm:"not null;default:0"`
+-	State       string `gorm:"type:varchar(16);not null"`
+-	CreatedAt   int64  `gorm:"not null;autoCreateTime:false"`
++	State       string `gorm:"type:varchar(16);not null;index:idx_tavern_flux_wallet_recovery,priority:1"`
++	CreatedAt   int64  `gorm:"not null;autoCreateTime:false;index:idx_tavern_flux_wallet_recovery,priority:2"`
+ 	CompletedAt int64  `gorm:"not null;default:0"`
+ }
+ 
+diff --git a/controller/tavern_flux_wallet_recovery.go b/controller/tavern_flux_wallet_recovery.go
+new file mode 100644
+--- /dev/null
++++ b/controller/tavern_flux_wallet_recovery.go
+@@ -0,0 +1,43 @@
++package controller
++
++import (
++	"context"
++	"os"
++	"time"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/model"
++)
++
++// StartTavernFluxWalletRecovery 只在部署过本角色功能的主实例回收崩溃遗留的占资。
++// 显式关停时保留 TAVERN_FLUX_ENABLED=false，避免未结算占资在回退前滞留。
++func StartTavernFluxWalletRecovery() func() {
++	enabled, configured := os.LookupEnv("TAVERN_FLUX_ENABLED")
++	if !configured || (enabled != "true" && enabled != "false") || !common.IsMasterNode {
++		return func() {}
++	}
++	ctx, cancel := context.WithCancel(context.Background())
++	done := make(chan struct{})
++	go func() {
++		defer close(done)
++		ticker := time.NewTicker(time.Minute)
++		defer ticker.Stop()
++		for {
++			// 每轮最多 8 条，只退款给原邀请人；未知结算会由同一事件账决定。
++			run, stop := context.WithTimeout(ctx, 5*time.Second)
++			if _, err := model.RecoverStaleTavernFluxWallet(model.DB.WithContext(run), time.Now().Unix()); err != nil && ctx.Err() == nil {
++				common.SysError("Tavern Flux wallet recovery failed; will retry on the next bounded pass")
++			}
++			stop()
++			select {
++			case <-ctx.Done():
++				return
++			case <-ticker.C:
++			}
++		}
++	}()
++	return func() {
++		cancel()
++		<-done
++	}
++}

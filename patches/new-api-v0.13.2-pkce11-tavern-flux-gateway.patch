@@ -1,0 +1,729 @@
+diff --git a/controller/tavern_flux.go b/controller/tavern_flux.go
+new file mode 100644
+--- /dev/null
++++ b/controller/tavern_flux.go
+@@ -0,0 +1,338 @@
++package controller
++
++import (
++	"crypto/subtle"
++	"encoding/json"
++	"errors"
++	"io"
++	"net/http"
++	"os"
++	"regexp"
++	"strings"
++	"time"
++	"unicode"
++	"unicode/utf8"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/model"
++	"github.com/gin-gonic/gin"
++	"gorm.io/gorm"
++)
++
++const fluxMatrixServer = "matrix.pingxingxian.space"
++
++var (
++	fluxIntentID = regexp.MustCompile(`^[a-f0-9]{64}$`)
++	fluxRoomID   = regexp.MustCompile(`^![A-Za-z0-9_~.+/=:-]{1,254}$`)
++	fluxEventID  = regexp.MustCompile(`^\$[A-Za-z0-9_~.+/=:-]{1,254}$`)
++	fluxSubject  = regexp.MustCompile(`^[0-9]{1,128}$`)
++	fluxModelID  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9/._:-]{0,127}$`)
++)
++
++type fluxIntentInput struct {
++	RoomID      string `json:"room_id"`
++	InviterMXID string `json:"inviter_mxid"`
++	Subject     string `json:"subject"`
++	RoomLabel   string `json:"room_label"`
++}
++
++type fluxActivationInput struct {
++	RoomID        string `json:"room_id"`
++	InviterMXID   string `json:"inviter_mxid"`
++	InviteEventID string `json:"invite_event_id"`
++}
++
++type fluxConfirmInput struct {
++	QuotaLimit int64 `json:"quota_limit"`
++}
++
++func fluxNow() int64 { return time.Now().Unix() }
++
++func fluxError(c *gin.Context, status int, code string) {
++	c.Header("Cache-Control", "no-store")
++	c.AbortWithStatusJSON(status, gin.H{"error": code})
++}
++
++func fluxResult(c *gin.Context, s int, value any) {
++	c.Header("Cache-Control", "no-store")
++	c.JSON(s, value)
++}
++
++// TavernFluxAvailable 默认关闭本功能；配置未就绪时不接受邀请或扣费授权。与 Chat OAuth 无关。
++func TavernFluxAvailable() gin.HandlerFunc {
++	return func(c *gin.Context) {
++		if os.Getenv("TAVERN_FLUX_ENABLED") != "true" {
++			fluxError(c, http.StatusNotFound, "flux_disabled")
++			return
++		}
++		issuer, bot := os.Getenv("TAVERN_FLUX_ISSUER_BEARER"), os.Getenv("TAVERN_FLUX_BOT_BEARER")
++		if len(issuer) < 32 || len(issuer) > 256 || len(bot) < 32 || len(bot) > 256 || issuer == bot ||
++			!fluxModelID.MatchString(os.Getenv("TAVERN_FLUX_MODEL_ID")) {
++			fluxError(c, http.StatusServiceUnavailable, "flux_configuration_unavailable")
++			return
++		}
++		c.Next()
++	}
++}
++
++// TavernFluxServiceAuth 给 Synapse 与 Bot 各自固定用途的服务授权；不接受个人或 Chat 凭据。
++func TavernFluxServiceAuth(issuer bool) gin.HandlerFunc {
++	return func(c *gin.Context) {
++		key := "TAVERN_FLUX_BOT_BEARER"
++		if issuer {
++			key = "TAVERN_FLUX_ISSUER_BEARER"
++		}
++		expected := os.Getenv(key)
++		headers := c.Request.Header.Values("Authorization")
++		if len(expected) < 32 || len(headers) != 1 || !strings.HasPrefix(headers[0], "Bearer ") ||
++			subtle.ConstantTimeCompare([]byte(headers[0][7:]), []byte(expected)) != 1 {
++			fluxError(c, http.StatusUnauthorized, "flux_invalid_service_credential")
++			return
++		}
++		c.Next()
++	}
++}
++
++func fluxDecode(c *gin.Context, body any) bool {
++	if c.ContentType() != "application/json" {
++		fluxError(c, http.StatusUnsupportedMediaType, "flux_json_required")
++		return false
++	}
++	decoder := json.NewDecoder(http.MaxBytesReader(c.Writer, c.Request.Body, 8*1024))
++	decoder.DisallowUnknownFields()
++	if err := decoder.Decode(body); err != nil || decoder.Decode(new(any)) != io.EOF {
++		fluxError(c, http.StatusBadRequest, "flux_invalid_input")
++		return false
++	}
++	return true
++}
++
++func fluxStoreError(c *gin.Context, err error) {
++	switch {
++	case errors.Is(err, gorm.ErrRecordNotFound):
++		fluxError(c, http.StatusNotFound, "flux_authorization_not_found")
++	case errors.Is(err, model.ErrFluxForbidden):
++		fluxError(c, http.StatusForbidden, "flux_authorization_denied")
++	case errors.Is(err, model.ErrFluxConflict), errors.Is(err, model.ErrFluxInvalid), errors.Is(err, model.ErrFluxDuplicate):
++		fluxError(c, http.StatusConflict, err.Error())
++	case errors.Is(err, model.ErrFluxQuota):
++		fluxError(c, http.StatusPaymentRequired, "flux_room_budget_exhausted")
++	default:
++		// 不把邀请、内部参数、余额或数据库错误正文返回给客户端。
++		fluxError(c, http.StatusServiceUnavailable, "flux_authority_unavailable")
++	}
++}
++
++func fluxGrantJSON(g *model.TavernFluxGrant) gin.H {
++	expiresAt := g.IntentExpiresAt
++	if g.GrantExpiresAt > 0 && (g.Status == model.TavernFluxActive || g.Status == model.TavernFluxConfirmed) {
++		expiresAt = g.GrantExpiresAt
++	}
++	return gin.H{"intent_id": g.ID, "room_id": g.RoomID, "room_label": g.RoomLabel, "inviter_mxid": g.InviterMXID,
++		"status": g.Status, "model_id": g.ModelID, "quota_limit": g.QuotaLimit, "quota_max": model.TavernFluxMaxQuota,
++		"quota_spent": g.QuotaSpent, "quota_reserved": g.QuotaReserved, "quota_unit": "native",
++		"quota_per_unit": common.QuotaPerUnit, "grant_duration_seconds": model.TavernFluxGrantTTL,
++		"intent_expires_at": g.IntentExpiresAt, "expires_at": expiresAt}
++}
++
++func fluxUserGrant(c *gin.Context) (*model.TavernFluxGrant, int, bool) {
++	if c.GetBool("use_access_token") || c.GetInt("id") <= 0 {
++		fluxError(c, http.StatusUnauthorized, "flux_browser_login_required")
++		return nil, 0, false
++	}
++	id := c.Param("id")
++	if !fluxIntentID.MatchString(id) {
++		fluxError(c, http.StatusNotFound, "flux_authorization_not_found")
++		return nil, 0, false
++	}
++	grant, err := model.GetTavernFluxGrant(model.DB, id, fluxNow())
++	if err != nil {
++		fluxStoreError(c, err)
++		return nil, 0, false
++	}
++	payer, err := model.ResolveTavernFluxPayer(grant.Subject)
++	if err != nil {
++		fluxStoreError(c, err)
++		return nil, 0, false
++	}
++	if payer != c.GetInt("id") || grant.PayerID != 0 && grant.PayerID != payer {
++		fluxError(c, http.StatusForbidden, "flux_authorization_denied")
++		return nil, 0, false
++	}
++	return grant, payer, true
++}
++
++// CreateTavernFluxIntent 由 Synapse 固定发行方发起；当前主站标识必须对应原生 Matrix 发起人。
++func CreateTavernFluxIntent(c *gin.Context) {
++	var body fluxIntentInput
++	if !fluxDecode(c, &body) {
++		return
++	}
++	label := strings.TrimSpace(body.RoomLabel)
++	if !fluxRoomID.MatchString(body.RoomID) || !fluxSubject.MatchString(body.Subject) ||
++		body.InviterMXID != "@pl_"+body.Subject+":"+fluxMatrixServer || !utf8.ValidString(label) ||
++		len(label) > 128 || strings.IndexFunc(label, unicode.IsControl) >= 0 {
++		fluxError(c, http.StatusBadRequest, "flux_invalid_intent")
++		return
++	}
++	grant, err := model.CreateTavernFluxIntent(model.DB, body.RoomID, body.InviterMXID, body.Subject, label,
++		os.Getenv("TAVERN_FLUX_MODEL_ID"), fluxNow())
++	if err != nil {
++		fluxStoreError(c, err)
++		return
++	}
++	fluxResult(c, http.StatusCreated, gin.H{"intent_id": grant.ID, "status": grant.Status})
++}
++
++// GetTavernFluxIntent 给受信 Synapse 发行方返回确认状态，不返回用户余额或凭据。
++func GetTavernFluxIntent(c *gin.Context) {
++	id := c.Param("id")
++	if !fluxIntentID.MatchString(id) {
++		fluxError(c, http.StatusNotFound, "flux_authorization_not_found")
++		return
++	}
++	grant, err := model.GetTavernFluxGrant(model.DB, id, fluxNow())
++	if err != nil {
++		fluxStoreError(c, err)
++		return
++	}
++	fluxResult(c, http.StatusOK, gin.H{"intent_id": grant.ID, "status": grant.Status, "room_id": grant.RoomID,
++		"inviter_mxid": grant.InviterMXID, "invite_event_id": grant.InvitationEventID(), "subject": grant.Subject})
++}
++
++// GetTavernFluxConfirmation 只向匹配当前受信主站绑定的登录人显示本次邀请和预算单位。
++func GetTavernFluxConfirmation(c *gin.Context) {
++	grant, _, ok := fluxUserGrant(c)
++	if ok {
++		fluxResult(c, http.StatusOK, fluxGrantJSON(grant))
++	}
++}
++
++// ConfirmTavernFluxIntent 仅登录本人明确提交额度后写入确认状态；不会加入房间或提前产生费用。
++func ConfirmTavernFluxIntent(c *gin.Context) {
++	grant, payer, ok := fluxUserGrant(c)
++	if !ok {
++		return
++	}
++	var body fluxConfirmInput
++	if !fluxDecode(c, &body) {
++		return
++	}
++	if body.QuotaLimit < 1 || body.QuotaLimit > model.TavernFluxMaxQuota {
++		fluxError(c, http.StatusBadRequest, "flux_invalid_quota_limit")
++		return
++	}
++	if grant.ModelID != os.Getenv("TAVERN_FLUX_MODEL_ID") {
++		fluxError(c, http.StatusConflict, "flux_model_changed")
++		return
++	}
++	grant, err := model.ConfirmTavernFluxIntent(model.DB, grant.ID, payer, body.QuotaLimit, fluxNow())
++	if err != nil {
++		fluxStoreError(c, err)
++		return
++	}
++	fluxResult(c, http.StatusOK, fluxGrantJSON(grant))
++}
++
++// ActivateTavernFluxIntent 只接受 Synapse 核实后的实际邀请事件，生效时复核付款人绑定。
++func ActivateTavernFluxIntent(c *gin.Context) {
++	id := c.Param("id")
++	if !fluxIntentID.MatchString(id) {
++		fluxError(c, http.StatusNotFound, "flux_authorization_not_found")
++		return
++	}
++	var body fluxActivationInput
++	if !fluxDecode(c, &body) {
++		return
++	}
++	if !fluxRoomID.MatchString(body.RoomID) || !fluxEventID.MatchString(body.InviteEventID) {
++		fluxError(c, http.StatusBadRequest, "flux_invalid_invitation_event")
++		return
++	}
++	grant, err := model.GetTavernFluxGrant(model.DB, id, fluxNow())
++	if err != nil {
++		fluxStoreError(c, err)
++		return
++	}
++	if grant.ModelID != os.Getenv("TAVERN_FLUX_MODEL_ID") {
++		fluxError(c, http.StatusConflict, "flux_model_changed")
++		return
++	}
++	payer, err := model.ResolveTavernFluxPayer(grant.Subject)
++	if err != nil {
++		fluxStoreError(c, err)
++		return
++	}
++	grant, err = model.ActivateTavernFluxIntent(model.DB, id, body.RoomID, body.InviterMXID, body.InviteEventID, payer, fluxNow())
++	if err != nil {
++		fluxStoreError(c, err)
++		return
++	}
++	fluxResult(c, http.StatusOK, fluxGrantJSON(grant))
++}
++
++// ListTavernFluxRooms 只列付款人当前有效的确认/授权，提供用户能实际操作的撤销入口。
++func ListTavernFluxRooms(c *gin.Context) {
++	payer := c.GetInt("id")
++	if c.GetBool("use_access_token") || payer <= 0 {
++		fluxError(c, http.StatusUnauthorized, "flux_browser_login_required")
++		return
++	}
++	var grants []model.TavernFluxGrant
++	now := fluxNow()
++	err := model.DB.Where("payer_id = ?", payer).Where("(status = ? AND grant_expires_at > ?) OR (status = ? AND intent_expires_at > ?)",
++		model.TavernFluxActive, now, model.TavernFluxConfirmed, now).Order("intent_expires_at DESC, id").Limit(100).Find(&grants).Error
++	if err != nil {
++		fluxStoreError(c, err)
++		return
++	}
++	items := make([]gin.H, 0, len(grants))
++	for i := range grants {
++		items = append(items, fluxGrantJSON(&grants[i]))
++	}
++	fluxResult(c, http.StatusOK, gin.H{"items": items})
++}
++
++// RevokeTavernFluxRoom 只撤销登录者自己的授权；即使主站绑定已变更也允许原付款账户止付。
++func RevokeTavernFluxRoom(c *gin.Context) {
++	payer := c.GetInt("id")
++	if c.GetBool("use_access_token") || payer <= 0 {
++		fluxError(c, http.StatusUnauthorized, "flux_browser_login_required")
++		return
++	}
++	id := c.Param("id")
++	if !fluxIntentID.MatchString(id) {
++		fluxError(c, http.StatusNotFound, "flux_authorization_not_found")
++		return
++	}
++	if err := model.RevokeTavernFluxGrant(model.DB, id, payer); err != nil {
++		fluxStoreError(c, err)
++		return
++	}
++	fluxResult(c, http.StatusOK, gin.H{"intent_id": id, "status": model.TavernFluxRevoked})
++}
++
++// TavernFluxChatCompletion 在原生结算仍未接通硬上限前明确停止；绝不把请求转投普通/Chat凭据。
++func TavernFluxChatCompletion(c *gin.Context) {
++	roomHeaders := c.Request.Header.Values("X-Tavern-Room-Id")
++	eventHeaders := c.Request.Header.Values("X-Tavern-Event-Id")
++	if len(roomHeaders) != 1 || len(eventHeaders) != 1 || !fluxRoomID.MatchString(roomHeaders[0]) || !fluxEventID.MatchString(eventHeaders[0]) {
++		fluxError(c, http.StatusBadRequest, "flux_invalid_message_scope")
++		return
++	}
++	grant, err := model.GetTavernFluxActiveRoom(model.DB, roomHeaders[0], fluxNow())
++	if err != nil {
++		fluxStoreError(c, err)
++		return
++	}
++	payer, err := model.ResolveTavernFluxPayer(grant.Subject)
++	if err != nil {
++		fluxStoreError(c, err)
++		return
++	}
++	if payer != grant.PayerID || grant.ModelID != os.Getenv("TAVERN_FLUX_MODEL_ID") {
++		fluxError(c, http.StatusForbidden, "flux_authorization_denied")
++		return
++	}
++	fluxError(c, http.StatusServiceUnavailable, "flux_billing_hard_cap_unavailable")
++}
+diff --git a/model/main.go b/model/main.go
+--- a/model/main.go
++++ b/model/main.go
+@@ -282,6 +282,9 @@
+ 		&UserOAuthBinding{},
+ 	)
+ 	if err != nil {
++		return err
++	}
++	if err := MigrateTavernFlux(DB); err != nil {
+ 		return err
+ 	}
+ 	if common.UsingSQLite {
+@@ -352,6 +355,9 @@
+ 			return err
+ 		}
+ 	}
++	if err := MigrateTavernFlux(DB); err != nil {
++		return err
++	}
+ 	if common.UsingSQLite {
+ 		if err := ensureSubscriptionPlanTableSQLite(); err != nil {
+ 			return err
+diff --git a/model/tavern_flux.go b/model/tavern_flux.go
+new file mode 100644
+--- /dev/null
++++ b/model/tavern_flux.go
+@@ -0,0 +1,304 @@
++package model
++
++import (
++	"crypto/rand"
++	"encoding/hex"
++	"errors"
++
++	"gorm.io/gorm"
++	"gorm.io/gorm/clause"
++)
++
++const (
++	TavernFluxPending   = "pending"
++	TavernFluxConfirmed = "confirmed"
++	TavernFluxActive    = "active"
++	TavernFluxRevoked   = "revoked"
++	TavernFluxExpired   = "expired"
++	TavernFluxIntentTTL = 10 * 60
++	TavernFluxGrantTTL  = 24 * 60 * 60
++	TavernFluxMaxQuota  = 1_000_000
++)
++
++var (
++	ErrFluxForbidden = errors.New("flux_authorization_denied")
++	ErrFluxConflict  = errors.New("flux_room_already_authorized")
++	ErrFluxInvalid   = errors.New("flux_invalid_authorization_state")
++	ErrFluxDuplicate = errors.New("flux_event_already_registered")
++	ErrFluxQuota     = errors.New("flux_room_budget_exhausted")
++)
++
++// TavernFluxGrant 以同一行保存邀请意向、本人确认和房间激活；唯一活动房键阻止重入或替他人换付款账户。
++type TavernFluxGrant struct {
++	ID              string  `gorm:"type:varchar(64);primaryKey"`
++	RoomID          string  `gorm:"type:varchar(255);not null;uniqueIndex:ux_tavern_flux_grant_invite"`
++	ActiveRoomID    *string `gorm:"type:varchar(255);uniqueIndex"`
++	InviterMXID     string  `gorm:"type:varchar(255);not null"`
++	Subject         string  `gorm:"type:varchar(128);not null"`
++	RoomLabel       string  `gorm:"type:varchar(128);not null"`
++	InviteEventID   *string `gorm:"type:varchar(255);uniqueIndex:ux_tavern_flux_grant_invite"`
++	PayerID         int     `gorm:"not null;default:0;index"`
++	ModelID         string  `gorm:"type:varchar(128);not null"`
++	Status          string  `gorm:"type:varchar(16);not null"`
++	QuotaLimit      int64   `gorm:"not null;default:0"`
++	QuotaReserved   int64   `gorm:"not null;default:0"`
++	QuotaSpent      int64   `gorm:"not null;default:0"`
++	IntentExpiresAt int64   `gorm:"not null"`
++	GrantExpiresAt  int64   `gorm:"not null;default:0"`
++}
++
++// TavernFluxInvocation 按 Matrix 房间和事件防重；保留预留与实际额度，不复制消息正文或凭据。
++type TavernFluxInvocation struct {
++	RoomID      string `gorm:"type:varchar(255);primaryKey"`
++	EventID     string `gorm:"type:varchar(255);primaryKey"`
++	GrantID     string `gorm:"type:varchar(64);not null;index"`
++	Reserved    int64  `gorm:"not null"`
++	Actual      int64  `gorm:"not null;default:0"`
++	State       string `gorm:"type:varchar(16);not null"`
++	CreatedAt   int64  `gorm:"not null;autoCreateTime:false"`
++	CompletedAt int64  `gorm:"not null;default:0"`
++}
++
++// MigrateTavernFlux 在当前版本一次准备两张专用表，不改变任何现有收费表。
++func MigrateTavernFlux(db *gorm.DB) error {
++	return db.AutoMigrate(&TavernFluxGrant{}, &TavernFluxInvocation{})
++}
++
++// ResolveTavernFluxPayer 复用当前主站 provider/sub 绑定的只读解析，不创建用户或发放额度。
++func ResolveTavernFluxPayer(subject string) (int, error) {
++	u, err := ResolveOAuthRelayUser(1, "pingxingxian", subject)
++	if errors.Is(err, ErrOAuthRelayIdentityDenied) {
++		return 0, ErrFluxForbidden
++	}
++	if err != nil {
++		return 0, err
++	}
++	return u.Id, nil
++}
++
++// CreateTavernFluxIntent 只记录经受信发行方验证的邀请准备，不产生预算或付款人。
++func CreateTavernFluxIntent(db *gorm.DB, room, inviter, subject, label, model string, now int64) (*TavernFluxGrant, error) {
++	var id [32]byte
++	if _, err := rand.Read(id[:]); err != nil {
++		return nil, err
++	}
++	grant := &TavernFluxGrant{ID: hex.EncodeToString(id[:]), RoomID: room, InviterMXID: inviter, Subject: subject,
++		RoomLabel: label, ModelID: model, Status: TavernFluxPending, IntentExpiresAt: now + TavernFluxIntentTTL}
++	if err := db.Create(grant).Error; err != nil {
++		return nil, err
++	}
++	return grant, nil
++}
++
++// GetTavernFluxGrant 只取一条；返回的过期状态不自动触发余额或表写入。
++func GetTavernFluxGrant(db *gorm.DB, intentID string, now int64) (*TavernFluxGrant, error) {
++	grant, err := getTavernFluxGrant(db, intentID)
++	if err == nil && grant.Expired(now) {
++		grant.Status = TavernFluxExpired
++	}
++	return grant, err
++}
++
++func getTavernFluxGrant(db *gorm.DB, intentID string) (*TavernFluxGrant, error) {
++	var grant TavernFluxGrant
++	if err := db.Take(&grant, "id = ?", intentID).Error; err != nil {
++		return nil, err
++	}
++	return &grant, nil
++}
++
++// Expired 在邀请前用短期意向截止，激活后用授权截止。
++func (g *TavernFluxGrant) Expired(now int64) bool {
++	switch g.Status {
++	case TavernFluxPending, TavernFluxConfirmed:
++		return now >= g.IntentExpiresAt
++	case TavernFluxActive:
++		return now >= g.GrantExpiresAt
++	default:
++		return false
++	}
++}
++
++// InvitationEventID 保持 HTTP 合同：未激活的意向不含邀请事件，输出空字符串。
++func (g *TavernFluxGrant) InvitationEventID() string {
++	if g.InviteEventID == nil {
++		return ""
++	}
++	return *g.InviteEventID
++}
++
++// ConfirmTavernFluxIntent 仅绑定已校验身份的付款人及明确上限；同一确认请求可安全重试，不可改额度。
++func ConfirmTavernFluxIntent(db *gorm.DB, intentID string, payerID int, limit, now int64) (*TavernFluxGrant, error) {
++	if payerID <= 0 || limit <= 0 || limit > TavernFluxMaxQuota {
++		return nil, ErrFluxInvalid
++	}
++	write := db.Model(&TavernFluxGrant{}).Where("id = ? AND status = ? AND intent_expires_at > ?", intentID, TavernFluxPending, now).
++		Updates(map[string]any{"status": TavernFluxConfirmed, "payer_id": payerID, "quota_limit": limit, "grant_expires_at": now + TavernFluxGrantTTL})
++	if write.Error != nil {
++		return nil, write.Error
++	}
++	g, err := GetTavernFluxGrant(db, intentID, now)
++	if err != nil {
++		return nil, err
++	}
++	if g.PayerID != payerID || g.Status != TavernFluxConfirmed || g.QuotaLimit != limit {
++		return nil, ErrFluxInvalid
++	}
++	return g, nil
++}
++
++// ActivateTavernFluxIntent 只接受已确认、同房同邀请人的真实邀请事件，并防止给已授权房换付款人。
++func ActivateTavernFluxIntent(db *gorm.DB, intentID, room, inviter, event string, payerID int, now int64) (*TavernFluxGrant, error) {
++	err := db.Transaction(func(tx *gorm.DB) error {
++		g, err := getTavernFluxGrant(tx, intentID)
++		if err != nil {
++			return err
++		}
++		if g.RoomID != room || g.InviterMXID != inviter || g.PayerID <= 0 || g.PayerID != payerID {
++			return ErrFluxForbidden
++		}
++		if g.Expired(now) {
++			return ErrFluxInvalid
++		}
++		if g.Status == TavernFluxActive && g.InvitationEventID() == event {
++			return nil
++		}
++		if g.Status != TavernFluxConfirmed || g.QuotaLimit <= 0 || g.GrantExpiresAt <= now {
++			return ErrFluxInvalid
++		}
++		// 只有确实过期的旧授权让出唯一房键；撤销与结算记录仍留存。
++		if err := tx.Model(&TavernFluxGrant{}).Where("active_room_id = ? AND status = ? AND grant_expires_at <= ?", room, TavernFluxActive, now).
++			Updates(map[string]any{"active_room_id": nil, "status": TavernFluxExpired}).Error; err != nil {
++			return err
++		}
++		var count int64
++		if err := tx.Model(&TavernFluxGrant{}).Where("active_room_id = ?", room).Count(&count).Error; err != nil {
++			return err
++		}
++		if count != 0 {
++			return ErrFluxConflict
++		}
++		// 同一条 Matrix 邀请只能激活一次；撤销后重新加入须用一条新的真实邀请。
++		if err := tx.Model(&TavernFluxGrant{}).Where("room_id = ? AND invite_event_id = ?", room, event).Count(&count).Error; err != nil {
++			return err
++		}
++		if count != 0 {
++			return ErrFluxConflict
++		}
++		result := tx.Model(&TavernFluxGrant{}).Where("id = ? AND status = ? AND intent_expires_at > ?", intentID, TavernFluxConfirmed, now).
++			Updates(map[string]any{"status": TavernFluxActive, "active_room_id": room, "invite_event_id": event})
++		if result.Error != nil {
++			// 唯一索引是竞态的最终守卫；不得重试覆盖别人刚激活的记录。
++			if errors.Is(result.Error, gorm.ErrDuplicatedKey) {
++				return ErrFluxConflict
++			}
++			return result.Error
++		}
++		if result.RowsAffected != 1 {
++			return ErrFluxInvalid
++		}
++		return nil
++	})
++	if err != nil {
++		return nil, err
++	}
++	return GetTavernFluxGrant(db, intentID, now)
++}
++
++// RevokeTavernFluxGrant 仅付款人可以撤销；已在途的预留不返还给新授权，结算仍归原记录。
++func RevokeTavernFluxGrant(db *gorm.DB, intentID string, payerID int) error {
++	result := db.Model(&TavernFluxGrant{}).Where("id = ? AND payer_id = ? AND status IN ?", intentID, payerID,
++		[]string{TavernFluxConfirmed, TavernFluxActive}).Updates(map[string]any{"status": TavernFluxRevoked, "active_room_id": nil})
++	if result.Error != nil {
++		return result.Error
++	}
++	if result.RowsAffected == 1 {
++		return nil
++	}
++	var g TavernFluxGrant
++	if err := db.Select("id", "status").Take(&g, "id = ? AND payer_id = ?", intentID, payerID).Error; err != nil {
++		return err
++	}
++	if g.Status != TavernFluxRevoked {
++		return ErrFluxInvalid
++	}
++	return nil
++}
++
++// GetTavernFluxActiveRoom 只接受未过期的唯一活动授权；调用方另验当前主站付款主体仍匹配。
++func GetTavernFluxActiveRoom(db *gorm.DB, room string, now int64) (*TavernFluxGrant, error) {
++	var g TavernFluxGrant
++	if err := db.Take(&g, "active_room_id = ? AND status = ? AND grant_expires_at > ?", room, TavernFluxActive, now).Error; err != nil {
++		return nil, err
++	}
++	if g.RoomID != room || g.PayerID <= 0 {
++		return nil, ErrFluxInvalid
++	}
++	return &g, nil
++}
++
++// ReserveTavernFluxInvocation 将事件去重与房间预算扣留放在同一事务；仅预留，不在此直接变更账户余额。
++func ReserveTavernFluxInvocation(db *gorm.DB, grantID, room, event string, amount, now int64) error {
++	if amount <= 0 || amount > TavernFluxMaxQuota {
++		return ErrFluxQuota
++	}
++	return db.Transaction(func(tx *gorm.DB) error {
++		entry := TavernFluxInvocation{RoomID: room, EventID: event, GrantID: grantID, Reserved: amount, State: "reserved", CreatedAt: now}
++		insert := tx.Clauses(clause.OnConflict{DoNothing: true}).Create(&entry)
++		if insert.Error != nil {
++			return insert.Error
++		}
++		if insert.RowsAffected != 1 {
++			return ErrFluxDuplicate
++		}
++		result := tx.Model(&TavernFluxGrant{}).Where("id = ? AND active_room_id = ? AND status = ? AND grant_expires_at > ? AND quota_spent + quota_reserved <= quota_limit - ?",
++			grantID, room, TavernFluxActive, now, amount).Update("quota_reserved", gorm.Expr("quota_reserved + ?", amount))
++		if result.Error != nil {
++			return result.Error
++		}
++		if result.RowsAffected != 1 {
++			return ErrFluxQuota
++		}
++		return nil
++	})
++}
++
++// FinishTavernFluxInvocation 记录已完成的额度结算；不允许执行超预留补扣，已完成事件不能再次返还或计费。
++func FinishTavernFluxInvocation(db *gorm.DB, grantID, room, event string, actual, now int64, charged bool) error {
++	if actual < 0 || !charged && actual != 0 {
++		return ErrFluxInvalid
++	}
++	return db.Transaction(func(tx *gorm.DB) error {
++		var entry TavernFluxInvocation
++		if err := tx.Take(&entry, "room_id = ? AND event_id = ? AND grant_id = ?", room, event, grantID).Error; err != nil {
++			return err
++		}
++		if actual > entry.Reserved {
++			return ErrFluxQuota
++		}
++		state := "failed"
++		if charged {
++			state = "settled"
++		}
++		if entry.State == state && entry.Actual == actual {
++			return nil
++		}
++		update := tx.Model(&TavernFluxInvocation{}).Where("room_id = ? AND event_id = ? AND grant_id = ? AND state = ?", room, event, grantID, "reserved").
++			Updates(map[string]any{"state": state, "actual": actual, "completed_at": now})
++		if update.Error != nil {
++			return update.Error
++		}
++		if update.RowsAffected != 1 {
++			return ErrFluxInvalid
++		}
++		roomUpdate := tx.Model(&TavernFluxGrant{}).Where("id = ? AND quota_reserved >= ?", grantID, entry.Reserved).
++			Updates(map[string]any{"quota_reserved": gorm.Expr("quota_reserved - ?", entry.Reserved), "quota_spent": gorm.Expr("quota_spent + ?", actual)})
++		if roomUpdate.Error != nil {
++			return roomUpdate.Error
++		}
++		if roomUpdate.RowsAffected != 1 {
++			return ErrFluxInvalid
++		}
++		return nil
++	})
++}
+diff --git a/router/api-router.go b/router/api-router.go
+--- a/router/api-router.go
++++ b/router/api-router.go
+@@ -18,6 +18,7 @@
+ 	apiRouter.Use(middleware.BodyStorageCleanup()) // 清理请求体存储
+ 	apiRouter.Use(middleware.GlobalAPIRateLimit())
+ 	apiRouter.Use(middleware.MainPublicCredentialBoundary())
++	setTavernFluxAPIRouter(apiRouter)
+ 	{
+ 		apiRouter.GET("/setup", controller.GetSetup)
+ 		apiRouter.POST("/setup", controller.PostSetup)
+diff --git a/router/main.go b/router/main.go
+--- a/router/main.go
++++ b/router/main.go
+@@ -17,6 +17,7 @@
+ 	SetApiRouter(router)
+ 	SetDashboardRouter(router)
+ 	SetRelayRouter(router)
++	setTavernFluxRelayRouter(router)
+ 	SetVideoRouter(router)
+ 	frontendBaseUrl := os.Getenv("FRONTEND_BASE_URL")
+ 	if common.IsMasterNode && frontendBaseUrl != "" {
+diff --git a/router/tavern-flux-router.go b/router/tavern-flux-router.go
+new file mode 100644
+--- /dev/null
++++ b/router/tavern-flux-router.go
+@@ -0,0 +1,27 @@
++package router
++
++import (
++	"github.com/QuantumNous/new-api/controller"
++	"github.com/QuantumNous/new-api/middleware"
++	"github.com/gin-gonic/gin"
++)
++
++// setTavernFluxAPIRouter 单独挂载明确用途的 Synapse 与人类入口，不扩展现有 Chat OAuth。
++func setTavernFluxAPIRouter(api *gin.RouterGroup) {
++	flux := api.Group("/tavern-flux", controller.TavernFluxAvailable())
++	issuer := flux.Group("/intents", controller.TavernFluxServiceAuth(true))
++	issuer.POST("", controller.CreateTavernFluxIntent)
++	issuer.GET("/:id", controller.GetTavernFluxIntent)
++	issuer.POST("/:id/activate", controller.ActivateTavernFluxIntent)
++	owner := flux.Group("", middleware.UserAuth())
++	owner.GET("/confirm/:id", controller.GetTavernFluxConfirmation)
++	owner.POST("/confirm/:id", controller.ConfirmTavernFluxIntent)
++	owner.GET("/rooms", controller.ListTavernFluxRooms)
++	owner.DELETE("/rooms/:id", controller.RevokeTavernFluxRoom)
++}
++
++// setTavernFluxRelayRouter 避免把服务请求递给普通 /v1 或 Chat 路由。
++func setTavernFluxRelayRouter(router *gin.Engine) {
++	flux := router.Group("/tavern-flux/v1", controller.TavernFluxAvailable(), controller.TavernFluxServiceAuth(false))
++	flux.POST("/chat/completions", controller.TavernFluxChatCompletion)
++}

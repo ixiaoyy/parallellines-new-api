@@ -1,0 +1,676 @@
+diff --git a/controller/tavern_flux.go b/controller/tavern_flux.go
+--- a/controller/tavern_flux.go
++++ b/controller/tavern_flux.go
+@@ -312,7 +312,7 @@
+ 	fluxResult(c, http.StatusOK, gin.H{"intent_id": id, "status": model.TavernFluxRevoked})
+ }
+ 
+-// TavernFluxChatCompletion 在原生结算仍未接通硬上限前明确停止；绝不把请求转投普通/Chat凭据。
++// TavernFluxChatCompletion 从真实房间授权取得唯一付款人；原生钱包正常结算前不回复生成正文。
+ func TavernFluxChatCompletion(c *gin.Context) {
+ 	roomHeaders := c.Request.Header.Values("X-Tavern-Room-Id")
+ 	eventHeaders := c.Request.Header.Values("X-Tavern-Event-Id")
+@@ -321,18 +321,26 @@
+ 		return
+ 	}
+ 	grant, err := model.GetTavernFluxActiveRoom(model.DB, roomHeaders[0], fluxNow())
+-	if err != nil {
+-		fluxStoreError(c, err)
+-		return
+-	}
+-	payer, err := model.ResolveTavernFluxPayer(grant.Subject)
+-	if err != nil {
+-		fluxStoreError(c, err)
+-		return
+-	}
+-	if payer != grant.PayerID || grant.ModelID != os.Getenv("TAVERN_FLUX_MODEL_ID") {
++	if errors.Is(err, gorm.ErrRecordNotFound) {
++		fluxStoreError(c, model.ErrFluxForbidden)
++		return
++	}
++	if err != nil {
++		fluxStoreError(c, err)
++		return
++	}
++	payer, err := model.ResolveOAuthRelayUser(1, "pingxingxian", grant.Subject)
++	if errors.Is(err, model.ErrOAuthRelayIdentityDenied) {
++		fluxStoreError(c, model.ErrFluxForbidden)
++		return
++	}
++	if err != nil {
++		fluxStoreError(c, err)
++		return
++	}
++	if payer.Id != grant.PayerID || grant.ModelID != os.Getenv("TAVERN_FLUX_MODEL_ID") {
+ 		fluxError(c, http.StatusForbidden, "flux_authorization_denied")
+ 		return
+ 	}
+-	fluxError(c, http.StatusServiceUnavailable, "flux_billing_hard_cap_unavailable")
+-}
++	runFluxNativeRelay(c, grant, payer, eventHeaders[0])
++}
+diff --git a/controller/tavern_flux_native.go b/controller/tavern_flux_native.go
+new file mode 100644
+--- /dev/null
++++ b/controller/tavern_flux_native.go
+@@ -0,0 +1,308 @@
++package controller
++
++import (
++	"bytes"
++	"context"
++	"encoding/json"
++	"errors"
++	"io"
++	"mime"
++	"net"
++	"net/http"
++	"net/url"
++	"os"
++	"slices"
++	"strconv"
++	"strings"
++	"time"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/constant"
++	"github.com/QuantumNous/new-api/dto"
++	"github.com/QuantumNous/new-api/logger"
++	"github.com/QuantumNous/new-api/model"
++	relaycommon "github.com/QuantumNous/new-api/relay/common"
++	relayconstant "github.com/QuantumNous/new-api/relay/constant"
++	"github.com/QuantumNous/new-api/relay/helper"
++	"github.com/QuantumNous/new-api/service"
++	"github.com/QuantumNous/new-api/setting/model_setting"
++	"github.com/QuantumNous/new-api/types"
++	"github.com/gin-gonic/gin"
++	"gorm.io/gorm/clause"
++)
++
++const fluxMaxOutputTokens = 384
++const fluxMaxResponseBytes = 256 * 1024
++
++var fluxNativeHTTP = &http.Client{
++	Timeout: 65 * time.Second,
++	// 不跟随重定向及不复用已可能被服务方关闭的连接，调用失败不换渠道重试。
++	CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse },
++	Transport: &http.Transport{DialContext: (&net.Dialer{Timeout: 5 * time.Second}).DialContext,
++		TLSHandshakeTimeout: 5 * time.Second, ResponseHeaderTimeout: 60 * time.Second,
++		MaxResponseHeaderBytes: 32 * 1024, DisableKeepAlives: true},
++}
++
++type fluxTextMessage struct {
++	Role    string `json:"role"`
++	Content string `json:"content"`
++}
++
++type fluxModelInput struct {
++	Model               string            `json:"model"`
++	Messages            []fluxTextMessage `json:"messages"`
++	Stream              bool              `json:"stream,omitempty"`
++	Temperature         *float64          `json:"temperature,omitempty"`
++	MaxTokens           *int              `json:"max_tokens,omitempty"`
++	MaxCompletionTokens *int              `json:"max_completion_tokens,omitempty"`
++}
++
++type fluxModelOutput struct {
++	ID          string          `json:"id"`
++	Object      string          `json:"object"`
++	Created     int64           `json:"created"`
++	Model       string          `json:"model"`
++	ServiceTier string          `json:"service_tier"`
++	Error       json.RawMessage `json:"error"`
++	Usage       json.RawMessage `json:"usage"`
++	Choices     []struct {
++		Index        int    `json:"index"`
++		FinishReason string `json:"finish_reason"`
++		Message      struct {
++			Role         string          `json:"role"`
++			Content      string          `json:"content"`
++			ToolCalls    json.RawMessage `json:"tool_calls"`
++			FunctionCall json.RawMessage `json:"function_call"`
++		} `json:"message"`
++	} `json:"choices"`
++}
++
++func fluxEmptyJSON(raw json.RawMessage) bool {
++	value := strings.TrimSpace(string(raw))
++	return value == "" || value == "null" || value == "[]"
++}
++
++func fluxTextInput(c *gin.Context, modelID string) (*fluxModelInput, int, int, bool) {
++	var body fluxModelInput
++	if !fluxDecode(c, &body) {
++		return nil, 0, 0, false
++	}
++	maxOutput := 0
++	if body.MaxTokens != nil && body.MaxCompletionTokens == nil {
++		maxOutput = *body.MaxTokens
++	} else if body.MaxCompletionTokens != nil && body.MaxTokens == nil {
++		maxOutput = *body.MaxCompletionTokens
++	}
++	if body.Model != modelID || body.Stream || len(body.Messages) != 2 || maxOutput < 1 || maxOutput > fluxMaxOutputTokens ||
++		body.Messages[0].Role != "system" || body.Messages[1].Role != "user" ||
++		strings.TrimSpace(body.Messages[0].Content) == "" || strings.TrimSpace(body.Messages[1].Content) == "" ||
++		body.Temperature != nil && (*body.Temperature < 0 || *body.Temperature > 2) {
++		fluxError(c, http.StatusBadRequest, "flux_invalid_plain_text_request")
++		return nil, 0, 0, false
++	}
++	// 用有界输入字节数及额外消息封装量做保守估算；费用最终只来自核验后的真实用量。
++	inputBound := len(body.Messages[0].Content) + len(body.Messages[1].Content) + 128
++	return &body, maxOutput, inputBound, true
++}
++
++type fluxChannel struct {
++	info     *relaycommon.RelayInfo
++	channel  *model.Channel
++	endpoint string
++}
++
++// fluxNativeChannel 只使用部署时评审的已有 OpenAI 兼容渠道；仍要求付款人原生组有该模型的能力记录。
++// 不进入普通 token 入口，也不使用可能改变模型、提示或费用的转换、覆写、代理和自动分组。
++func fluxNativeChannel(c *gin.Context, payer *model.User, modelID string) (*fluxChannel, error) {
++	channelID, err := strconv.Atoi(os.Getenv("TAVERN_FLUX_CHANNEL_ID"))
++	if err != nil || channelID <= 0 || payer.Group == "" || payer.Group == "auto" ||
++		model_setting.GetGlobalSettings().PassThroughRequestEnabled || common.TLSInsecureSkipVerify {
++		return nil, errors.New("flux_native_channel_unavailable")
++	}
++	var ability model.Ability
++	lookup := model.DB.WithContext(c.Request.Context()).Where(clause.Eq{Column: clause.Column{Name: "group"}, Value: payer.Group}).
++		Where("model = ? AND channel_id = ? AND enabled = ?", modelID, channelID, true).Take(&ability)
++	if lookup.Error != nil || ability.Group != payer.Group || ability.Model != modelID {
++		return nil, errors.New("flux_native_channel_not_in_payer_group")
++	}
++	ch, err := model.GetChannelById(channelID, true)
++	if err != nil || ch == nil || ch.Status != common.ChannelStatusEnabled || ch.Type != constant.ChannelTypeOpenAI ||
++		ch.ChannelInfo.IsMultiKey || !slices.Contains(ch.GetModels(), modelID) || strings.TrimSpace(ch.Key) == "" ||
++		strings.ContainsAny(ch.Key, "\r\n") {
++		return nil, errors.New("flux_native_channel_unavailable")
++	}
++	settings, other := ch.GetSetting(), ch.GetOtherSettings()
++	if settings.Proxy != "" || settings.PassThroughBodyEnabled || settings.SystemPrompt != "" || settings.SystemPromptOverride ||
++		settings.ThinkingToContent || other.AllowServiceTier || !fluxEmptyJSON(json.RawMessage(ch.GetModelMapping())) && strings.TrimSpace(ch.GetModelMapping()) != "{}" ||
++		len(ch.GetParamOverride()) > 0 || len(ch.GetHeaderOverride()) > 0 ||
++		service.ShouldChatCompletionsUseResponsesGlobal(ch.Id, ch.Type, modelID) {
++		return nil, errors.New("flux_native_channel_overrides_unsupported")
++	}
++	baseURL := ch.GetBaseURL()
++	if baseURL == "" {
++		baseURL = constant.ChannelBaseURLs[ch.Type]
++	}
++	base, err := url.Parse(baseURL)
++	if err != nil || base.Scheme != "https" || base.Hostname() == "" || base.User != nil ||
++		base.RawQuery != "" || base.Fragment != "" || base.ForceQuery || base.RawPath != "" ||
++		base.Port() != "" && base.Port() != "443" || !slices.Contains([]string{"", "/", "/v1", "/v1/"}, base.Path) {
++		return nil, errors.New("flux_native_channel_url_invalid")
++	}
++	info := &relaycommon.RelayInfo{
++		UserId: payer.Id, UserGroup: payer.Group, UsingGroup: payer.Group, TokenGroup: payer.Group,
++		OriginModelName: modelID, RelayMode: relayconstant.RelayModeChatCompletions, RelayFormat: types.RelayFormatOpenAI,
++		StartTime: time.Now(), BillingSource: service.BillingSourceWallet,
++		ChannelMeta: &relaycommon.ChannelMeta{ChannelType: ch.Type, ChannelId: ch.Id, ChannelBaseUrl: baseURL, UpstreamModelName: modelID},
++	}
++	base.Path = "/v1/chat/completions"
++	return &fluxChannel{info: info, channel: ch, endpoint: base.String()}, nil
++}
++
++func fluxReservation(c *gin.Context, info *relaycommon.RelayInfo, upperInput, maxOutput int) (int, error) {
++	meta := &types.TokenCountMeta{MaxTokens: maxOutput}
++	if service.OpenAIStandardBillingCandidate(info) {
++		p, err := service.OpenAIStandardPriceData(info, upperInput, meta, helper.HandleGroupRatio(c, info))
++		if err != nil || p.QuotaToPreConsume < 1 || p.QuotaToPreConsume > model.TavernFluxMaxQuota {
++			return 0, errors.New("flux_native_price_unavailable")
++		}
++		return p.QuotaToPreConsume, nil
++	}
++	if _, err := helper.ModelPriceHelper(c, info, upperInput, meta); err != nil {
++		return 0, errors.New("flux_native_price_unavailable")
++	}
++	usage := &dto.OpenAIStandardUsage{InputTokensTotal: upperInput, OutputTokens: maxOutput}
++	if info.PriceData.CacheRatio > 1 {
++		usage.CacheReadTokens = upperInput
++	}
++	return service.TavernFluxNativeTextQuota(c, info, usage)
++}
++
++// fluxNativeCompletion 只发一次受限纯文本调用；候选正文只在本函数缓冲，未结算不写响应。
++func fluxNativeCompletion(c *gin.Context, provider *fluxChannel, input *fluxModelInput, inputBound, outputBound int) (*fluxModelOutput, *dto.OpenAIStandardUsage, error) {
++	if provider.info.OpenAIStandardPolicy != "" {
++		// 原厂模型使用原生 Chat Completion 上限字段，避免使用旧的 max_tokens 形式。
++		input.MaxTokens = nil
++		input.MaxCompletionTokens = &outputBound
++	}
++	data, err := json.Marshal(input)
++	if err != nil {
++		return nil, nil, errors.New("flux_model_encoding_failed")
++	}
++	request, err := http.NewRequestWithContext(c.Request.Context(), http.MethodPost, provider.endpoint, bytes.NewReader(data))
++	if err != nil {
++		return nil, nil, errors.New("flux_model_request_invalid")
++	}
++	request.GetBody = nil
++	request.Header.Set("Authorization", "Bearer "+provider.channel.Key)
++	request.Header.Set("Content-Type", "application/json")
++	request.Header.Set("Accept", "application/json")
++	if org := provider.channel.OpenAIOrganization; org != nil && *org != "" {
++		request.Header.Set("OpenAI-Organization", *org)
++	}
++	response, err := fluxNativeHTTP.Do(request)
++	if err != nil {
++		return nil, nil, errors.New("flux_model_transport_failed")
++	}
++	defer response.Body.Close()
++	mediaType, _, _ := mime.ParseMediaType(response.Header.Get("Content-Type"))
++	if response.StatusCode != http.StatusOK || mediaType != "application/json" {
++		return nil, nil, errors.New("flux_model_http_rejected")
++	}
++	raw, err := io.ReadAll(io.LimitReader(response.Body, fluxMaxResponseBytes+1))
++	if err != nil || len(raw) > fluxMaxResponseBytes {
++		return nil, nil, errors.New("flux_model_reply_unreadable")
++	}
++	var result fluxModelOutput
++	if json.Unmarshal(raw, &result) != nil || result.ID == "" || len(result.ID) > 256 || result.Object != "chat.completion" ||
++		result.Model != input.Model || result.ServiceTier != "" && result.ServiceTier != "default" || !fluxEmptyJSON(result.Error) ||
++		len(result.Choices) != 1 {
++		return nil, nil, errors.New("flux_model_plain_text_reply_required")
++	}
++	choice := result.Choices[0]
++	if choice.Index != 0 || choice.Message.Role != "assistant" || strings.TrimSpace(choice.Message.Content) == "" ||
++		len(choice.Message.Content) > 16384 || choice.FinishReason != "stop" && choice.FinishReason != "length" ||
++		!fluxEmptyJSON(choice.Message.ToolCalls) || !fluxEmptyJSON(choice.Message.FunctionCall) {
++		return nil, nil, errors.New("flux_model_plain_text_reply_required")
++	}
++	verified, err := service.ParseOpenAIStandardUsage(result.Usage, false)
++	if err != nil || verified.InputTokensTotal > inputBound || verified.OutputTokens > outputBound ||
++		verified.InputTokensTotal <= 0 || verified.OutputTokens <= 0 {
++		return nil, nil, errors.New("flux_model_usage_unverifiable")
++	}
++	var detail dto.Usage
++	if json.Unmarshal(result.Usage, &detail) != nil || detail.PromptTokensDetails.AudioTokens != 0 || detail.PromptTokensDetails.ImageTokens != 0 ||
++		detail.CompletionTokenDetails.AudioTokens != 0 || detail.CompletionTokenDetails.ImageTokens != 0 ||
++		detail.InputTokens != 0 || detail.OutputTokens != 0 || detail.PromptCacheHitTokens != 0 ||
++		detail.PromptTokensDetails.CachedCreationTokens != 0 || detail.ClaudeCacheCreation5mTokens != 0 || detail.ClaudeCacheCreation1hTokens != 0 ||
++		detail.UsageSemantic != "" && detail.UsageSemantic != "openai" {
++		return nil, nil, errors.New("flux_model_text_usage_required")
++	}
++	return &result, verified, nil
++}
++
++// finishFluxNative 费率校验后的唯一钱包终态；断开请求不妨碍有界的结算或失败退款。
++func finishFluxNative(c *gin.Context, grant *model.TavernFluxGrant, eventID string, quota int, charged bool) error {
++	ctx, cancel := context.WithTimeout(context.WithoutCancel(c.Request.Context()), 5*time.Second)
++	defer cancel()
++	return model.SettleTavernFluxWallet(model.DB.WithContext(ctx), grant.ID, grant.RoomID, eventID, int64(quota), fluxNow(), charged)
++}
++
++func failFluxNative(c *gin.Context, grant *model.TavernFluxGrant, eventID string, detected string) {
++	if err := finishFluxNative(c, grant, eventID, 0, false); err != nil {
++		logger.LogError(c, "flux_wallet_refund_unconfirmed")
++		fluxError(c, http.StatusServiceUnavailable, "flux_wallet_refund_unconfirmed")
++		return
++	}
++	fluxError(c, http.StatusBadGateway, detected)
++}
++
++func runFluxNativeRelay(c *gin.Context, grant *model.TavernFluxGrant, payer *model.User, eventID string) {
++	input, outputBound, inputBound, ok := fluxTextInput(c, grant.ModelID)
++	if !ok {
++		return
++	}
++	provider, err := fluxNativeChannel(c, payer, grant.ModelID)
++	if err != nil {
++		fluxError(c, http.StatusServiceUnavailable, "flux_native_channel_unavailable")
++		return
++	}
++	reserved, err := fluxReservation(c, provider.info, inputBound, outputBound)
++	if err != nil {
++		fluxError(c, http.StatusServiceUnavailable, "flux_native_price_unavailable")
++		return
++	}
++	if err := model.ReserveTavernFluxWallet(model.DB.WithContext(c.Request.Context()), grant.ID, grant.RoomID, eventID, int64(reserved), fluxNow()); err != nil {
++		fluxStoreError(c, err)
++		return
++	}
++	result, usage, err := fluxNativeCompletion(c, provider, input, inputBound, outputBound)
++	if err != nil {
++		failFluxNative(c, grant, eventID, err.Error())
++		return
++	}
++	quota, err := service.TavernFluxNativeTextQuota(c, provider.info, usage)
++	if err != nil {
++		failFluxNative(c, grant, eventID, "flux_model_usage_unsettleable")
++		return
++	}
++	if err := finishFluxNative(c, grant, eventID, quota, true); err != nil {
++		if errors.Is(err, model.ErrTavernFluxActualExceedsReservation) {
++			fluxError(c, http.StatusBadGateway, "flux_unsettled_model_response")
++			return
++		}
++		// 数据库结果未知时不擅自退款或给成功正文，保留原账供核对。
++		logger.LogError(c, "flux_wallet_settlement_unconfirmed")
++		fluxError(c, http.StatusServiceUnavailable, "flux_wallet_settlement_unconfirmed")
++		return
++	}
++	model.UpdateChannelUsedQuota(provider.channel.Id, quota)
++	model.RecordConsumeLog(c, grant.PayerID, model.RecordConsumeLogParams{
++		ChannelId: provider.channel.Id, PromptTokens: usage.InputTokensTotal, CompletionTokens: usage.OutputTokens,
++		ModelName: grant.ModelID, TokenName: "Tavern Flux", Quota: quota, UseTimeSeconds: int(time.Since(provider.info.StartTime).Seconds()),
++		Group: payer.Group, Other: map[string]any{"billing_source": service.BillingSourceWallet, "tavern_flux": true},
++	})
++	choice := result.Choices[0]
++	fluxResult(c, http.StatusOK, gin.H{"id": result.ID, "object": result.Object, "created": result.Created, "model": grant.ModelID,
++		"choices": []gin.H{{"index": 0, "message": fluxTextMessage{Role: "assistant", Content: choice.Message.Content}, "finish_reason": choice.FinishReason}},
++		"usage":   gin.H{"prompt_tokens": usage.InputTokensTotal, "completion_tokens": usage.OutputTokens, "total_tokens": usage.InputTokensTotal + usage.OutputTokens}})
++}
+diff --git a/controller/tavern_flux_native_test.go b/controller/tavern_flux_native_test.go
+new file mode 100644
+--- /dev/null
++++ b/controller/tavern_flux_native_test.go
+@@ -0,0 +1,153 @@
++package controller
++
++import (
++	"io"
++	"net/http"
++	"net/http/httptest"
++	"strings"
++	"testing"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/constant"
++	"github.com/QuantumNous/new-api/model"
++	"github.com/QuantumNous/new-api/setting/ratio_setting"
++	"github.com/gin-gonic/gin"
++	"github.com/glebarez/sqlite"
++	"gorm.io/gorm"
++	"gorm.io/gorm/logger"
++)
++
++type fluxFixtureTransport func(*http.Request) (*http.Response, error)
++
++func (f fluxFixtureTransport) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
++
++func TestTavernFluxNativeSettlementBeforeReply(t *testing.T) {
++	gin.SetMode(gin.TestMode)
++	t.Setenv("TAVERN_FLUX_ENABLED", "true")
++	t.Setenv("TAVERN_FLUX_ISSUER_BEARER", strings.Repeat("i", 40))
++	bot := strings.Repeat("b", 40)
++	t.Setenv("TAVERN_FLUX_BOT_BEARER", bot)
++	t.Setenv("TAVERN_FLUX_MODEL_ID", "fixture-model")
++	t.Setenv("TAVERN_FLUX_CHANNEL_ID", "701")
++	oldPrice := ratio_setting.ModelPrice2JSONString()
++	if err := ratio_setting.UpdateModelPriceByJSONString(`{"fixture-model":0.00002}`); err != nil {
++		t.Fatal(err)
++	}
++	oldDB, oldLogDB, oldHTTP := model.DB, model.LOG_DB, fluxNativeHTTP
++	oldQuota, oldBatch, oldRedis, oldLog, oldExport := common.QuotaPerUnit, common.BatchUpdateEnabled, common.RedisEnabled, common.LogConsumeEnabled, common.DataExportEnabled
++	common.QuotaPerUnit, common.BatchUpdateEnabled, common.RedisEnabled, common.LogConsumeEnabled, common.DataExportEnabled = 500_000, false, false, true, false
++	db, err := gorm.Open(sqlite.Open("file:flux-native-fixtures?mode=memory&cache=shared"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
++	if err != nil {
++		t.Fatal(err)
++	}
++	h, err := db.DB()
++	if err != nil {
++		t.Fatal(err)
++	}
++	h.SetMaxOpenConns(1)
++	model.DB, model.LOG_DB = db, db
++	t.Cleanup(func() {
++		model.DB, model.LOG_DB, fluxNativeHTTP = oldDB, oldLogDB, oldHTTP
++		common.QuotaPerUnit, common.BatchUpdateEnabled, common.RedisEnabled, common.LogConsumeEnabled, common.DataExportEnabled = oldQuota, oldBatch, oldRedis, oldLog, oldExport
++		_ = ratio_setting.UpdateModelPriceByJSONString(oldPrice)
++		_ = h.Close()
++	})
++	if err := db.AutoMigrate(&model.User{}, &model.CustomOAuthProvider{}, &model.UserOAuthBinding{}, &model.Channel{}, &model.Ability{}, &model.Log{}); err != nil {
++		t.Fatal(err)
++	}
++	if err := model.MigrateTavernFlux(db); err != nil {
++		t.Fatal(err)
++	}
++	base := "https://fixture-flux.example"
++	for _, value := range []any{
++		&model.CustomOAuthProvider{Id: 1, Name: "fixture", Slug: "pingxingxian", Enabled: true, UserIdField: "sub", UserInfoEndpoint: model.OAuthRelayUserInfoURL},
++		&model.User{Id: 501, Username: "payer", AffCode: "payer", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, Quota: 1000, Group: "default"},
++		&model.User{Id: 502, Username: "room-member", AffCode: "room-member", Role: common.RoleCommonUser, Status: common.UserStatusEnabled, Quota: 1000, Group: "default"},
++		&model.UserOAuthBinding{UserId: 501, ProviderId: 1, ProviderUserId: "501"},
++		&model.Channel{Id: 701, Type: constant.ChannelTypeOpenAI, Key: "fixture-channel-key", Status: common.ChannelStatusEnabled, BaseURL: &base, Models: "fixture-model", Group: "default"},
++		&model.Ability{Group: "default", Model: "fixture-model", ChannelId: 701, Enabled: true},
++	} {
++		if err := db.Create(value).Error; err != nil {
++			t.Fatal(err)
++		}
++	}
++	room := "!flux-test:matrix.pingxingxian.space"
++	inviter := "@pl_501:matrix.pingxingxian.space"
++	now := fluxNow()
++	grant, err := model.CreateTavernFluxIntent(db, room, inviter, "501", "fixture room", "fixture-model", now)
++	if err != nil {
++		t.Fatal(err)
++	}
++	if _, err := model.ConfirmTavernFluxIntent(db, grant.ID, 501, 30, now); err != nil {
++		t.Fatal(err)
++	}
++	if _, err := model.ActivateTavernFluxIntent(db, grant.ID, room, inviter, "$invite", 501, now); err != nil {
++		t.Fatal(err)
++	}
++	var requests int
++	usage := `,"usage":{"prompt_tokens":16,"completion_tokens":2,"total_tokens":18}`
++	fluxNativeHTTP = &http.Client{Transport: fluxFixtureTransport(func(r *http.Request) (*http.Response, error) {
++		requests++
++		if r.URL.String() != base+"/v1/chat/completions" || r.Header.Get("Authorization") != "Bearer fixture-channel-key" || r.Header.Get("X-Tavern-Room-Id") != "" {
++			t.Fatal("scoped call used the wrong channel credentials or leaked room identity")
++		}
++		text := `{"id":"fixture-result","object":"chat.completion","model":"fixture-model","choices":[{"index":0,"message":{"role":"assistant","content":"meow"},"finish_reason":"stop"}]` + usage + `}`
++		return &http.Response{StatusCode: 200, Body: io.NopCloser(strings.NewReader(text)), Header: http.Header{"Content-Type": {"application/json"}}, Request: r}, nil
++	})}
++	r := gin.New()
++	r.POST("/tavern-flux/v1/chat/completions", TavernFluxAvailable(), TavernFluxServiceAuth(false), TavernFluxChatCompletion)
++	input := `{"model":"fixture-model","messages":[{"role":"system","content":"Role"},{"role":"user","content":"Hi"}],"max_tokens":8}`
++	call := func(event, payload string, want int) string {
++		t.Helper()
++		request := httptest.NewRequest(http.MethodPost, "/tavern-flux/v1/chat/completions", strings.NewReader(payload))
++		request.Header.Set("Authorization", "Bearer "+bot)
++		request.Header.Set("Content-Type", "application/json")
++		request.Header.Set("X-Tavern-Room-Id", room)
++		request.Header.Set("X-Tavern-Event-Id", event)
++		w := httptest.NewRecorder()
++		r.ServeHTTP(w, request)
++		if w.Code != want {
++			t.Fatalf("request status for %s = %d want %d: %s", event, w.Code, want, w.Body.String())
++		}
++		if want != http.StatusOK && strings.Contains(w.Body.String(), "meow") {
++			t.Fatal("unsuccessful request disclosed the buffered model response")
++		}
++		return w.Body.String()
++	}
++	payerQuota := func(id int) int {
++		t.Helper()
++		var u model.User
++		if db.Select("quota").Take(&u, "id = ?", id).Error != nil {
++			t.Fatal("cannot read fixture wallet")
++		}
++		return u.Quota
++	}
++	call("$stream", input[:len(input)-1]+`,"stream":true}`, http.StatusBadRequest)
++	if requests != 0 {
++		t.Fatal("disallowed request reached the fixture provider")
++	}
++	if output := call("$success", input, http.StatusOK); !strings.Contains(output, "meow") || payerQuota(501) != 990 || payerQuota(502) != 1000 {
++		t.Fatal("successful response did not charge precisely the inviter")
++	}
++	call("$success", input, http.StatusConflict)
++	if requests != 1 || payerQuota(501) != 990 {
++		t.Fatal("duplicate event invoked or charged again")
++	}
++	usage = ""
++	call("$missing_usage", input, http.StatusBadGateway)
++	if payerQuota(501) != 990 {
++		t.Fatal("unverified usage was charged")
++	}
++	usage = `,"usage":{"prompt_tokens":16,"completion_tokens":2,"total_tokens":18}`
++	if err := db.Exec(`CREATE TRIGGER flux_fixture_fail_settlement BEFORE UPDATE ON tavern_flux_invocations WHEN NEW.state='wallet_settled' BEGIN SELECT RAISE(ABORT,'fixture settlement failure'); END;`).Error; err != nil {
++		t.Fatal(err)
++	}
++	call("$unknown_settlement", input, http.StatusServiceUnavailable)
++	if payerQuota(501) != 980 {
++		t.Fatal("uncertain settlement did not retain its original reservation")
++	}
++	var consumeCount int64
++	if err := db.Model(&model.Log{}).Where("type = ?", model.LogTypeConsume).Count(&consumeCount).Error; err != nil || consumeCount != 1 {
++		t.Fatalf("expected only one settled native log: %d %v", consumeCount, err)
++	}
++}
+diff --git a/router/tavern-flux-router.go b/router/tavern-flux-router.go
+--- a/router/tavern-flux-router.go
++++ b/router/tavern-flux-router.go
+@@ -23,5 +23,5 @@
+ // setTavernFluxRelayRouter 避免把服务请求递给普通 /v1 或 Chat 路由。
+ func setTavernFluxRelayRouter(router *gin.Engine) {
+ 	flux := router.Group("/tavern-flux/v1", controller.TavernFluxAvailable(), controller.TavernFluxServiceAuth(false))
+-	flux.POST("/chat/completions", controller.TavernFluxChatCompletion)
++	flux.POST("/chat/completions", middleware.SystemPerformanceCheck(), controller.TavernFluxChatCompletion)
+ }
+diff --git a/router/tavern_flux_integration_test.go b/router/tavern_flux_integration_test.go
+--- a/router/tavern_flux_integration_test.go
++++ b/router/tavern_flux_integration_test.go
+@@ -28,6 +28,7 @@
+ 	t.Setenv("TAVERN_FLUX_ISSUER_BEARER", issuer)
+ 	t.Setenv("TAVERN_FLUX_BOT_BEARER", bot)
+ 	t.Setenv("TAVERN_FLUX_MODEL_ID", "fixture-model")
++	t.Setenv("TAVERN_FLUX_CHANNEL_ID", "")
+ 	db, err := gorm.Open(sqlite.Open("file:flux-router-fixtures?mode=memory&cache=shared"), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+ 	if err != nil {
+ 		t.Fatal(err)
+@@ -128,13 +129,17 @@
+ 	if strings.Contains(listed.Body.String(), id) {
+ 		t.Fatal("other account saw owner's room")
+ 	}
+-	blocked := call(http.MethodPost, "/tavern-flux/v1/chat/completions", `{"model":"fixture-model"}`, botHeaders, nil, http.StatusServiceUnavailable)
+-	if !strings.Contains(blocked.Body.String(), `"error":"flux_billing_hard_cap_unavailable"`) {
++	plain := `{"model":"fixture-model","messages":[{"role":"system","content":"Role"},{"role":"user","content":"Hi"}],"max_tokens":8}`
++	blocked := call(http.MethodPost, "/tavern-flux/v1/chat/completions", plain, botHeaders, nil, http.StatusServiceUnavailable)
++	if !strings.Contains(blocked.Body.String(), `"error":"flux_native_channel_unavailable"`) {
+ 		t.Fatal("unsafe or changed inference outcome", blocked.Body.String())
+ 	}
+ 	call(http.MethodDelete, api+"/rooms/"+id, "", otherHeaders, other, http.StatusNotFound)
+ 	call(http.MethodDelete, api+"/rooms/"+id, "", ownerHeaders, owner, http.StatusOK)
+-	call(http.MethodPost, "/tavern-flux/v1/chat/completions", `{"model":"fixture-model"}`, botHeaders, nil, http.StatusNotFound)
++	revoked := call(http.MethodPost, "/tavern-flux/v1/chat/completions", plain, botHeaders, nil, http.StatusForbidden)
++	if !strings.Contains(revoked.Body.String(), `"error":"flux_authorization_denied"`) {
++		t.Fatal("revoked room must receive the Bot authorization error", revoked.Body.String())
++	}
+ 	var payer model.User
+ 	if err := db.First(&payer, "id = ?", 501).Error; err != nil || payer.Quota != 777 {
+ 		t.Fatalf("blocked route changed payer balance: %d %v", payer.Quota, err)
+diff --git a/service/tavern_flux_text_billing.go b/service/tavern_flux_text_billing.go
+new file mode 100644
+--- /dev/null
++++ b/service/tavern_flux_text_billing.go
+@@ -0,0 +1,65 @@
++package service
++
++import (
++	"errors"
++	"math"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/dto"
++	"github.com/QuantumNous/new-api/model"
++	relaycommon "github.com/QuantumNous/new-api/relay/common"
++	"github.com/gin-gonic/gin"
++)
++
++// TavernFluxNativeTextQuota 复用原生纯文本价格和舍入，不写钱包、统计或通用 Relay 日志。
++// 本入口不接受任务、阶梯、音视频、工具附加费或未核实的消费计数。
++func TavernFluxNativeTextQuota(c *gin.Context, info *relaycommon.RelayInfo, usage *dto.OpenAIStandardUsage) (int, error) {
++	if info == nil || usage == nil || usage.InputTokensTotal <= 0 || usage.OutputTokens <= 0 ||
++		usage.CacheReadTokens < 0 || usage.CacheReadTokens > usage.InputTokensTotal || info.TieredBillingSnapshot != nil ||
++		info.PriceData.FreeModel || len(info.PriceData.OtherRatios) != 0 || !finitePositive(info.PriceData.GroupRatioInfo.GroupRatio) || !finitePositive(common.QuotaPerUnit) {
++		return 0, errors.New("flux_invalid_native_price")
++	}
++	var quota int
++	if info.OpenAIStandardPolicy != "" {
++		var err error
++		quota, err = CalculateOpenAIStandardQuota(info, usage)
++		if err != nil {
++			return 0, err
++		}
++	} else {
++		price := info.PriceData
++		// 非原厂用量的写缓存分段并无已核验的 Chat 规范映射，不能按普通输入推测该部分费用。
++		if usage.CacheWrite30mTokens != 0 || usage.CacheWrite12hTokens != 0 ||
++			price.UsePrice && !finitePositive(price.ModelPrice) || !price.UsePrice && (!finitePositive(price.ModelRatio) || !finitePositive(price.CompletionRatio)) {
++			return 0, errors.New("flux_unsupported_native_price")
++		}
++		for _, ratio := range []float64{price.CompletionRatio, price.CacheRatio, price.ImageRatio, price.ModelRatio,
++			price.ModelPrice, price.CacheCreationRatio, price.CacheCreation5mRatio, price.CacheCreation1hRatio} {
++			if math.IsNaN(ratio) || math.IsInf(ratio, 0) || ratio < 0 || ratio > 1e9 {
++				return 0, errors.New("flux_invalid_native_ratio")
++			}
++		}
++		// 在原生 decimal 转换 int 前，先用保守的数量级限制挡住异常管理配置。
++		potential := price.ModelPrice * common.QuotaPerUnit
++		if !price.UsePrice {
++			potential = (float64(usage.InputTokensTotal)*math.Max(1, price.CacheRatio) +
++				float64(usage.OutputTokens)*price.CompletionRatio) * price.ModelRatio
++		}
++		if upper := potential * price.GroupRatioInfo.GroupRatio; math.IsInf(upper, 0) || math.IsNaN(upper) || upper >= 1e12 {
++			return 0, errors.New("flux_native_quota_overflow")
++		}
++		summary := calculateTextQuotaSummary(c, info, &dto.Usage{
++			PromptTokens: usage.InputTokensTotal, CompletionTokens: usage.OutputTokens,
++			TotalTokens:         usage.InputTokensTotal + usage.OutputTokens,
++			PromptTokensDetails: dto.InputTokenDetails{CachedTokens: usage.CacheReadTokens},
++		})
++		if summary.CalculationError || !summary.ToolCallSurchargeQuota.IsZero() {
++			return 0, errors.New("flux_unsupported_native_charge")
++		}
++		quota = summary.Quota
++	}
++	if quota < 1 || quota > model.TavernFluxMaxQuota {
++		return 0, model.ErrFluxQuota
++	}
++	return quota, nil
++}
+diff --git a/service/tavern_flux_text_billing_test.go b/service/tavern_flux_text_billing_test.go
+new file mode 100644
+--- /dev/null
++++ b/service/tavern_flux_text_billing_test.go
+@@ -0,0 +1,37 @@
++package service
++
++import (
++	"net/http/httptest"
++	"testing"
++
++	"github.com/QuantumNous/new-api/common"
++	"github.com/QuantumNous/new-api/constant"
++	"github.com/QuantumNous/new-api/dto"
++	relaycommon "github.com/QuantumNous/new-api/relay/common"
++	"github.com/QuantumNous/new-api/types"
++	"github.com/gin-gonic/gin"
++)
++
++func TestTavernFluxNativeOpenAIPrice(t *testing.T) {
++	t.Setenv("OPENAI_STANDARD_BILLING_ENABLED", "true")
++	old := common.QuotaPerUnit
++	common.QuotaPerUnit = 500_000
++	t.Cleanup(func() { common.QuotaPerUnit = old })
++	info := &relaycommon.RelayInfo{OriginModelName: "gpt-6-luna", ChannelMeta: &relaycommon.ChannelMeta{
++		ChannelType: constant.ChannelTypeOpenAI, ChannelId: 1, ChannelBaseUrl: "https://api.openai.com",
++	}}
++	_, err := OpenAIStandardPriceData(info, 1000, &types.TokenCountMeta{MaxTokens: 100}, types.GroupRatioInfo{GroupRatio: 1})
++	if err != nil {
++		t.Fatal(err)
++	}
++	ctx, _ := gin.CreateTestContext(httptest.NewRecorder())
++	usage := &dto.OpenAIStandardUsage{InputTokensTotal: 1000, OutputTokens: 100, CacheReadTokens: 200}
++	quota, err := TavernFluxNativeTextQuota(ctx, info, usage)
++	if err != nil || quota != 66 {
++		t.Fatalf("native verified usage was not priced identically: quota=%d err=%v", quota, err)
++	}
++	usage.CacheReadTokens = 1001
++	if _, err := TavernFluxNativeTextQuota(ctx, info, usage); err == nil {
++		t.Fatal("invalid usage partition was accepted")
++	}
++}

@@ -1,0 +1,8 @@
+ARG BASE_IMAGE=calciumion/new-api:v0.13.2@sha256:81da2c875f1de1460e6dd30324c5cb36b23ef55eaae00f317621fcb8a701ad43
+FROM ${BASE_IMAGE}
+ARG SOURCE_REVISION
+LABEL org.opencontainers.image.version="v0.13.2-pkce.12"
+LABEL org.opencontainers.image.revision=$SOURCE_REVISION
+LABEL org.opencontainers.image.source="https://github.com/ixiaoyy/parallellines-new-api"
+# 这里只接同次构建回执中已核验的 Linux 二进制，不在生产容器里运行构建工具链。
+COPY --chmod=0755 new-api /new-api

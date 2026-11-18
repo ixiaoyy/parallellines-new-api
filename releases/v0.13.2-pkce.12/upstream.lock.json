@@ -1,0 +1,26 @@
+{
+  "application_version": "v0.13.2-pkce.12",
+  "status": "prepared-one-click-candidate-unpublished",
+  "production_ready": false,
+  "front_end_dist_frozen": true,
+  "go_version": "1.26.1",
+  "bun_version": "1.4.4",
+  "platform": "linux/amd64",
+  "base_application_version": "v0.13.2-pkce.11",
+  "upstream_commit": "bee339d279ccecbf8c8a89e14ddbbd902f78bd5d",
+  "patches": [
+    {
+      "file": "patches/new-api-v0.13.2-pkce12-tavern-flux-one-click.patch",
+      "sha256": "dace004c86887f6b7b94a8cedfdc64b0735eb4830690882dbe96aa510923c211"
+    }
+  ],
+  "base_release_lock": "releases/v0.13.2-pkce.11/upstream.lock.json",
+  "base_release_lock_sha256": "a84f92b2e31e8b4e7fc47cb8f45e4796f3cae703388806ed3d86498184d027a8",
+  "base_source_manifest": "releases/v0.13.2-pkce.11/source-files.json",
+  "base_source_manifest_sha256": "bcbe0cde53406d31954f99904c60781522733aa6efc7362f53d7a0876e2865f2",
+  "source_manifest": "releases/v0.13.2-pkce.12/source-files.json",
+  "source_manifest_sha256": "309ee34f231c47b61f3f53f5126d58a95362c3e073b16a5cdc523d01645d8995",
+  "frontend_manifest": "releases/v0.13.2-pkce.12/frontend-assets.json",
+  "frontend_manifest_sha256": "d36504ab944f444646b15b7f75b0e0257561c05fa373b4a7a3a120d2ddc87a55",
+  "frontend_source_identity": "c48c2dce6224c5abf1d968ad3f3a42491310fda9d91829595b512e7370c4475b"
+}

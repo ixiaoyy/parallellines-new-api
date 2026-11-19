@@ -1,0 +1,26 @@
+{
+  "application_version": "v0.13.2-pkce.14",
+  "status": "prepared-paid-roles-candidate-unpublished",
+  "production_ready": false,
+  "front_end_dist_frozen": true,
+  "go_version": "1.26.1",
+  "bun_version": "1.4.4",
+  "platform": "linux/amd64",
+  "base_application_version": "v0.13.2-pkce.13",
+  "upstream_commit": "bee339d279ccecbf8c8a89e14ddbbd902f78bd5d",
+  "patches": [
+    {
+      "file": "patches/new-api-v0.13.2-pkce14-tavern-paid-roles.patch",
+      "sha256": "0ad07563f901156046876cd15e6b81b2653b104111c1bfc39a8f5890ddcd6f76"
+    }
+  ],
+  "base_release_lock": "releases/v0.13.2-pkce.13/upstream.lock.json",
+  "base_release_lock_sha256": "dfd4138e48ac79010aa9ed3fe5803186a6f741a2094f1e73d62a24c790223721",
+  "base_source_manifest": "releases/v0.13.2-pkce.13/source-files.json",
+  "base_source_manifest_sha256": "1bd9aa3e3a9063069390c102fe4c5ec7201051131b789acf702ad4a5ecbe32bd",
+  "source_manifest": "releases/v0.13.2-pkce.14/source-files.json",
+  "source_manifest_sha256": "5837cfa792ebc7bb10040840553159a9bab89932862ece379a1ce5151f48c513",
+  "frontend_manifest": "releases/v0.13.2-pkce.14/frontend-assets.json",
+  "frontend_manifest_sha256": "5c06db249d0e9a40993eb6f326e37d0358e16bc3f5958430c043fadf40c583ba",
+  "frontend_source_identity": "9c95f41b7554a4606585479a5cd69a52694c92686bc5619aeece9463a03d8ce2"
+}

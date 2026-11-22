@@ -1,0 +1,14 @@
+{
+  "roles": [
+    {
+      "role_id": "flux-the-cat",
+      "bearer_token": "REPLACE_WITH_UNIQUE_MIN_32_CHAR_SECRET_FOR_FLUX",
+      "enabled": true
+    },
+    {
+      "role_id": "sakana",
+      "bearer_token": "REPLACE_WITH_UNIQUE_MIN_32_CHAR_SECRET_FOR_SAKANA",
+      "enabled": true
+    }
+  ]
+}

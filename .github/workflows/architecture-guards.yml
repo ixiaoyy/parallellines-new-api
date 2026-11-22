@@ -1,0 +1,28 @@
+name: Architecture Guards
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  architecture-guards:
+    name: Verify New API paid roles credential contract guards
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Run credential validator tests
+        run: node --test scripts/verify-tavern-paid-roles-config.test.mjs
+
+      - name: Validate example paid roles credential template
+        run: node scripts/verify-tavern-paid-roles-config.mjs deploy/tavern-paid-roles.example.json

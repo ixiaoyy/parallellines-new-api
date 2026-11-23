@@ -1,0 +1,199 @@
+diff --git a/controller/tavern_flux.go b/controller/tavern_flux.go
+index 247a176..cbe0f5c 100644
+--- a/controller/tavern_flux.go
++++ b/controller/tavern_flux.go
+@@ -1,6 +1,7 @@
+ package controller
+ 
+ import (
++	"bytes"
+ 	"crypto/subtle"
+ 	"encoding/json"
+ 	"errors"
+@@ -8,6 +9,8 @@ import (
+ 	"net/http"
+ 	"os"
+ 	"regexp"
++	"runtime"
++	"sort"
+ 	"strings"
+ 	"time"
+ 	"unicode"
+@@ -61,6 +64,78 @@ func fluxResult(c *gin.Context, s int, value any) {
+ 	c.JSON(s, value)
+ }
+ 
++type tavernPaidRoleEntry struct {
++	RoleID      string `json:"role_id"`
++	BearerToken string `json:"bearer_token"`
++	Enabled     *bool  `json:"enabled"`
++}
++
++type tavernPaidRolesFile struct {
++	Roles []tavernPaidRoleEntry `json:"roles"`
++}
++
++func validTavernBearer(value, issuer string) bool {
++	return len(value) >= 32 && len(value) <= 256 && value != issuer &&
++		strings.IndexFunc(value, func(r rune) bool { return r < 33 || r > 126 }) < 0
++}
++
++// loadTavernRoleBearers 优先从受限 0600 私有文件 TAVERN_PAID_ROLES_FILE 加载角色凭据；
++// 未配置该文件时回退兼容既有 TAVERN_FLUX_BOT_BEARER / TAVERN_SAKANA_BOT_BEARER。
++func loadTavernRoleBearers() map[string]string {
++	issuer := os.Getenv("TAVERN_FLUX_ISSUER_BEARER")
++	if file := strings.TrimSpace(os.Getenv("TAVERN_PAID_ROLES_FILE")); file != "" {
++		info, err := os.Lstat(file)
++		if err != nil || !info.Mode().IsRegular() || info.Size() <= 0 || info.Size() > 64*1024 {
++			return nil
++		}
++		if runtime.GOOS != "windows" && info.Mode().Perm()&0o077 != 0 {
++			return nil
++		}
++		raw, err := os.ReadFile(file)
++		if err != nil || len(raw) > 64*1024 {
++			return nil
++		}
++		dec := json.NewDecoder(bytes.NewReader(raw))
++		dec.DisallowUnknownFields()
++		var cfg tavernPaidRolesFile
++		if err := dec.Decode(&cfg); err != nil || dec.Decode(new(any)) != io.EOF {
++			return nil
++		}
++		roles := make(map[string]string, len(cfg.Roles))
++		seenRoles := make(map[string]struct{}, len(cfg.Roles))
++		seenTokens := make(map[string]struct{}, len(cfg.Roles))
++		for _, entry := range cfg.Roles {
++			if !model.ValidTavernRoleID(entry.RoleID) {
++				return nil
++			}
++			if _, dup := seenRoles[entry.RoleID]; dup {
++				return nil
++			}
++			seenRoles[entry.RoleID] = struct{}{}
++			if entry.Enabled != nil && !*entry.Enabled {
++				continue
++			}
++			if !validTavernBearer(entry.BearerToken, issuer) {
++				return nil
++			}
++			if _, dup := seenTokens[entry.BearerToken]; dup {
++				return nil
++			}
++			seenTokens[entry.BearerToken] = struct{}{}
++			roles[entry.RoleID] = entry.BearerToken
++		}
++		return roles
++	}
++	roles := make(map[string]string, 2)
++	if flux := os.Getenv("TAVERN_FLUX_BOT_BEARER"); validTavernBearer(flux, issuer) {
++		roles[model.TavernRoleFlux] = flux
++	}
++	if sakana := fluxSakanaBearer(); sakana != "" {
++		roles[model.TavernRoleSakana] = sakana
++	}
++	return roles
++}
++
+ // TavernFluxAvailable 默认关闭本功能；配置未就绪时不接受邀请或扣费授权。与 Chat OAuth 无关。
+ func TavernFluxAvailable() gin.HandlerFunc {
+ 	return func(c *gin.Context) {
+@@ -68,8 +143,8 @@ func TavernFluxAvailable() gin.HandlerFunc {
+ 			fluxError(c, http.StatusNotFound, "flux_disabled")
+ 			return
+ 		}
+-		issuer, bot := os.Getenv("TAVERN_FLUX_ISSUER_BEARER"), os.Getenv("TAVERN_FLUX_BOT_BEARER")
+-		if len(issuer) < 32 || len(issuer) > 256 || len(bot) < 32 || len(bot) > 256 || issuer == bot ||
++		issuer := os.Getenv("TAVERN_FLUX_ISSUER_BEARER")
++		if len(issuer) < 32 || len(issuer) > 256 || len(loadTavernRoleBearers()) == 0 ||
+ 			!fluxModelID.MatchString(os.Getenv("TAVERN_FLUX_MODEL_ID")) {
+ 			fluxError(c, http.StatusServiceUnavailable, "flux_configuration_unavailable")
+ 			return
+@@ -93,21 +168,24 @@ func TavernFluxServiceAuth(issuer bool) gin.HandlerFunc {
+ 				return
+ 			}
+ 		} else {
+-			// 角色只由网关核验过的独立 Bot 凭据确定，不信任请求头、模型名或正文指定的角色。
+-			flux, sakana := os.Getenv("TAVERN_FLUX_BOT_BEARER"), fluxSakanaBearer()
+-			fluxMatch := len(flux) >= 32 && subtle.ConstantTimeCompare(provided, []byte(flux)) == 1
+-			sakanaMatch := sakana != "" && subtle.ConstantTimeCompare(provided, []byte(sakana)) == 1
+-			switch {
+-			case fluxMatch:
+-				c.Set(fluxAuthenticatedRole, model.TavernRoleFlux)
+-			case sakanaMatch:
+-				c.Set(fluxAuthenticatedRole, model.TavernRoleSakana)
+-			default:
+-				fluxError(c, http.StatusUnauthorized, "flux_invalid_service_credential")
++			// 角色只由网关核验过的独立 Bot 凭据反查确定，忽略外部自报角色。
++			roles := loadTavernRoleBearers()
++			keys := make([]string, 0, len(roles))
++			for role := range roles {
++				keys = append(keys, role)
++			}
++			sort.Strings(keys)
++			matched := ""
++			for _, role := range keys {
++				if subtle.ConstantTimeCompare(provided, []byte(roles[role])) == 1 {
++					matched = role
++				}
++			}
++			if matched != "" {
++				c.Set(fluxAuthenticatedRole, matched)
++				c.Next()
+ 				return
+ 			}
+-			c.Next()
+-			return
+ 		}
+ 		fluxError(c, http.StatusUnauthorized, "flux_invalid_service_credential")
+ 	}
+@@ -133,7 +211,7 @@ func fluxIssuerRole(c *gin.Context, raw json.RawMessage) (string, bool) {
+ 			return "", false
+ 		}
+ 	}
+-	if role == model.TavernRoleSakana && fluxSakanaBearer() == "" {
++	if _, ok := loadTavernRoleBearers()[role]; !ok {
+ 		fluxError(c, http.StatusServiceUnavailable, "flux_role_unavailable")
+ 		return "", false
+ 	}
+diff --git a/controller/tavern_flux_native.go b/controller/tavern_flux_native.go
+index c2ffbcd..f4028ec 100644
+--- a/controller/tavern_flux_native.go
++++ b/controller/tavern_flux_native.go
+@@ -313,8 +313,8 @@ func runFluxNativeRelay(c *gin.Context, grant *model.TavernFluxGrant, payer *mod
+ 	model.UpdateChannelUsedQuota(provider.channel.Id, quota)
+ 	tokenName := "Tavern Flux"
+ 	metadata := map[string]any{"billing_source": service.BillingSourceWallet, "tavern_flux": true}
+-	if grant.RoleID == model.TavernRoleSakana {
+-		tokenName = "Tavern Sakana"
++	if grant.RoleID != model.TavernRoleFlux {
++		tokenName = "Tavern " + grant.RoleID
+ 		metadata = map[string]any{"billing_source": service.BillingSourceWallet, "tavern_role": grant.RoleID}
+ 	}
+ 	model.RecordConsumeLog(c, grant.PayerID, model.RecordConsumeLogParams{
+diff --git a/model/tavern_flux.go b/model/tavern_flux.go
+index 59c737d..1633f95 100644
+--- a/model/tavern_flux.go
++++ b/model/tavern_flux.go
+@@ -4,6 +4,7 @@ import (
+ 	"crypto/rand"
+ 	"encoding/hex"
+ 	"errors"
++	"regexp"
+ 
+ 	"gorm.io/gorm"
+ 	"gorm.io/gorm/clause"
+@@ -65,9 +66,11 @@ type TavernFluxInvocation struct {
+ 	CompletedAt int64  `gorm:"not null;default:0"`
+ }
+ 
+-// ValidTavernRoleID 保证独立账本只接受两个已审批角色，缺失角色只能在兼容 HTTP 边界补为 Flux。
++var tavernRoleIDPattern = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,31}$`)
++
++// ValidTavernRoleID 校验稳定角色标识格式，与 Synapse 目录及三边映射守卫保持一致。
+ func ValidTavernRoleID(role string) bool {
+-	return role == TavernRoleFlux || role == TavernRoleSakana
++	return tavernRoleIDPattern.MatchString(role)
+ }
+ 
+ // ResolveTavernFluxPayer 复用当前主站 provider/sub 绑定的只读解析，不创建用户或发放额度。

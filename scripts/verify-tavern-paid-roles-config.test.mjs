@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import crypto from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -58,4 +59,23 @@ test('rejects issuer token collision, duplicate tokens, and public catalog field
 			}),
 		/paid_roles_unexpected_field:profileDescription/
 	);
+});
+
+test('v0.13.2-pkce.15 release recipe lock hashes match and introduces zero frontend UI patches', () => {
+	const sha = (rel) => crypto.createHash('sha256').update(fs.readFileSync(path.join(REPO_ROOT, rel))).digest('hex');
+	const lock = JSON.parse(
+		fs.readFileSync(path.join(REPO_ROOT, 'releases', 'v0.13.2-pkce.15', 'upstream.lock.json'), 'utf8')
+	);
+	assert.equal(lock.application_version, 'v0.13.2-pkce.15');
+	assert.equal(lock.base_application_version, 'v0.13.2-pkce.14');
+	for (const key of ['base_release_lock', 'base_source_manifest', 'source_manifest', 'frontend_manifest']) {
+		assert.equal(sha(lock[key]), lock[`${key}_sha256`], `hash mismatch for ${key}`);
+	}
+	assert.equal(lock.patches.length, 1);
+	const patch = lock.patches[0];
+	assert.equal(sha(patch.file), patch.sha256);
+	const patchText = fs.readFileSync(path.join(REPO_ROOT, patch.file), 'utf8');
+	assert.equal(patchText.includes('diff --git a/web/'), false);
+	assert.match(patchText, /TAVERN_PAID_ROLES_FILE/);
+	assert.match(patchText, /loadTavernRoleBearers/);
 });

@@ -1,0 +1,6 @@
+# 复用原生 Umami 脚本注入槽；空值默认不加载。启用前确认没有既有 Umami 配置需要保留。
+services:
+  newapi:
+    environment:
+      UMAMI_WEBSITE_ID: ${API_TRAFFIC_SITE_ID:-}
+      UMAMI_SCRIPT_URL: https://pingxingxian.space/traffic-collector.v1.js
